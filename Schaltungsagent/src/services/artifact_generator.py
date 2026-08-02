@@ -2,7 +2,7 @@ import re
 import logging
 from src.domain.ports import ArtifactGenerator
 from src.domain.models import KnowledgeBundle, ArtifactBundle, FileArtifact
-from src.domains.vhdl.templates import VHDLTemplates
+from src.domain_plugins.vhdl.templates import VHDLTemplates
 
 logger = logging.getLogger(__name__)
 

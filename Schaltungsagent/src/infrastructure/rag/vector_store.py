@@ -45,7 +45,7 @@ class VectorStoreService:
         qdrant_dir = Path(self._qdrant_path) if self._qdrant_path else DEFAULT_QDRANT_PATH
         try:
             qdrant_dir.mkdir(parents=True, exist_ok=True)
-            client = QdrantClient(str(qdrant_dir))
+            client = QdrantClient(path=str(qdrant_dir), check_compatibility=False)
             vector_size = len(embeddings.embed_query("sample text"))
             if not client.collection_exists(self._collection_name):
                 client.create_collection(

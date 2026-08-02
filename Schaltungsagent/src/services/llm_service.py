@@ -2,7 +2,7 @@ import logging
 import os
 from pathlib import Path
 from src.domain.ports import LLMService
-from src.domains.vhdl.prompts import VHDLPrompts
+from src.domain_plugins.vhdl.prompts import VHDLPrompts
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ from typing import Any
 
 from src.domain.ports import RAGService
 from src.domain.models import KnowledgeBundle, CodingRule, ReferenceDesign, DocumentRef
-from src.domains.vhdl import VHDLRAGData
+from src.domain_plugins.vhdl import VHDLRAGData
 from src.services.rag_pipeline import (
     RAGChatPipeline,
     load_api_key,

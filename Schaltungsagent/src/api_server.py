@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 settings = load_config()
 event_bus = EventBus()
 ws_clients: list[WebSocket] = []
+ws_loop: asyncio.AbstractEventLoop | None = None
 
 DomainRegistry.discover(settings.domains.search_paths)
 
@@ -43,8 +44,13 @@ else:
     llm = StubLLMService()
 
 rag = VHDLRAGService(
-    vector_store_path=settings.rag.vector_store_path,
+    qdrant_path=settings.rag.vector_store_path,
     embedding_model=settings.rag.embedding_model,
+    data_dir=settings.rag.data_dir,
+    memory_dir=settings.rag.memory_dir,
+    chunk_size=settings.rag.chunk_size,
+    chunk_overlap=settings.rag.chunk_overlap,
+    top_k=settings.rag.max_results,
 )
 artifact_gen = VHDLArtifactGenerator()
 fs = LocalFileSystemService(
@@ -52,9 +58,20 @@ fs = LocalFileSystemService(
     cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
     max_workspaces=settings.workspace.max_workspaces,
 )
-opencode = SubprocessOpenCodeService(
-    binary=settings.opencode.binary,
-    default_timeout=settings.opencode.default_timeout,
+if settings.opencode.use_docker:
+    from src.services.opencode_service import DockerOpenCodeService
+
+    opencode = DockerOpenCodeService(
+        container=settings.opencode.docker_container,
+        docker_workspace=settings.opencode.docker_workspace,
+        host_workspace=settings.opencode.docker_host_workspace,
+        binary=settings.opencode.binary,
+        default_timeout=settings.opencode.default_timeout,
+    )
+else:
+    opencode = SubprocessOpenCodeService(
+        binary=settings.opencode.binary,
+        default_timeout=settings.opencode.default_timeout,
 )
 
 orchestrator = AgentOrchestrator(
@@ -71,24 +88,22 @@ active_tasks: dict[str, dict] = {}
 
 
 def broadcast_sync(event: Event) -> None:
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(_async_broadcast(event))
-    except RuntimeError:
-        pass
+    global ws_loop
+    if ws_loop and ws_loop.is_running():
+        asyncio.run_coroutine_threadsafe(_async_broadcast(event), ws_loop)
 
 
 async def _async_broadcast(event: Event) -> None:
     message = json.dumps(event.to_dict(), ensure_ascii=False)
     dead_clients: list[WebSocket] = []
-    for ws in ws_clients:
+    for ws in list(ws_clients):
         try:
             await ws.send_text(message)
         except Exception:
             dead_clients.append(ws)
     for ws in dead_clients:
-        ws_clients.remove(ws)
+        if ws in ws_clients:
+            ws_clients.remove(ws)
 
 
 class TaskRequest(BaseModel):
@@ -98,9 +113,12 @@ class TaskRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global ws_loop
+    ws_loop = asyncio.get_running_loop()
     event_bus.on_event(broadcast_sync)
     yield
     event_bus.remove_listener(broadcast_sync)
+    ws_loop = None
 
 
 dashboard_dir = Path(__file__).parent / "dashboard"

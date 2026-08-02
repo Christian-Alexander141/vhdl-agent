@@ -1,0 +1,51 @@
+llm:
+  provider: ollama
+  model: gpt-oss:120b-cloud
+  base_url: http://localhost:11434
+  temperature: 0.1
+  max_tokens: 4096
+
+rag:
+  enabled: true
+  vector_store: qdrant
+  vector_store_path: ./memory/qdrant
+  embedding_model: jina-embeddings-v5-text-small
+  chunk_size: 1000
+  chunk_overlap: 200
+  max_results: 5
+  data_dir: ./Dateien
+  memory_dir: ./memory
+
+workspace:
+  base_dir: ./projects
+  cleanup_on_failure: false
+  cleanup_ttl_hours: 72
+  keep_logs: true
+  max_workspaces: 100
+
+opencode:
+  binary: opencode
+  default_timeout: 300
+  max_repair_iterations: 5
+  use_docker: true
+  docker_container: opencode-agent
+  docker_workspace: /projects
+  docker_host_workspace: ./projects
+
+dashboard:
+  host: 0.0.0.0
+  port: 8088
+  websocket_path: /ws
+
+logging:
+  level: INFO
+  format: structured
+  output: console
+  log_dir: ./logs
+
+domains:
+  default: vhdl
+  search_paths:
+    - ./Schaltungsagent/src/domain_plugins
+  paths:
+    vhdl: ./Schaltungsagent/src/domain_plugins/vhdl

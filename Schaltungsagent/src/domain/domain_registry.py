@@ -40,7 +40,7 @@ class DomainRegistry:
 
     @classmethod
     def _load_domain(cls, name: str, path: Path) -> dict[str, Any] | None:
-        module_path = f"src.domains.{name}"
+        module_path = f"src.domain_plugins.{name}"
         try:
             mod = importlib.import_module(module_path)
         except ImportError:

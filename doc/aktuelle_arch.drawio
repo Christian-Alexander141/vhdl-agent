@@ -1,0 +1,43 @@
+<mxfile host="app.diagrams.net" modified="2026-08-02T00:00:00.000Z" agent="GitHub Copilot" version="20.8.5" type="device">
+  <diagram id="aktuelle_arch" name="aktuelle_architektur">
+    <mxGraphModel dx="1084" dy="738" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" background="#ffffff">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="2" value="Dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#CCE5FF;strokeColor=#6699CC;fontSize=14;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="340" y="40" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="3" value="Orchestrator / Blackboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E67E22;fontSize=14;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="310" y="140" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="4" value="Hermes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6EAF8;strokeColor=#2874A6;fontSize=12;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="120" y="320" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="5" value="OpenCode" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5B7B1;strokeColor=#C0392B;fontSize=12;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="320" y="320" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="6" value="LangChain Agent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8DAEF;strokeColor=#8E44AD;fontSize=12;fontColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="540" y="320" width="140" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="8" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F3F4;strokeColor=#707070;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="300" width="420" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="9" value="Docker" style="shape=label;whiteSpace=wrap;html=1;fontSize=10;fontColor=#7F8C8D;" vertex="1" parent="1">
+          <mxGeometry x="120" y="440" width="80" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#000000;" edge="1" parent="1" source="2" target="3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#000000;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#000000;" edge="1" parent="1" source="3" target="5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#000000;" edge="1" parent="1" source="3" target="6">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -228,8 +228,15 @@ def setup_structure():
 
         PROJECT_DIR/"config",
 
-        PROJECT_DIR/"logs"
+        PROJECT_DIR/"logs",
 
+        PROJECT_DIR/"projects",
+
+        PROJECT_DIR/"hermes",
+
+        PROJECT_DIR/"opencode",
+
+        PROJECT_DIR/"shared",
     ]
 
 
@@ -256,40 +263,33 @@ def setup_agents():
 
         compose.write_text(
 """
+version: '3.9'
+
 services:
-
-
   hermes:
-
     image: hermes-agent:latest
-
     container_name: hermes-agent
-
     restart: unless-stopped
-
     volumes:
-
-      - ./data:/workspace
-
+      - ./hermes:/workspace
+      - ./projects:/projects
+      - ./shared:/shared
       - ./config:/config
-
-
+      - {repo_root}:/agent_repo:ro
+    working_dir: /workspace
 
   opencode:
-
-    image: opencode:latest
-
+    image: ghcr.io/anomalyco/opencode:latest
     container_name: opencode-agent
-
     restart: unless-stopped
-
     volumes:
-
-      - ./data:/workspace
-
+      - ./opencode:/workspace
+      - ./projects:/projects
+      - ./shared:/shared
       - ./config:/config
-
-"""
+      - {repo_root}:/agent_repo:ro
+    working_dir: /workspace
+""".format(repo_root=REPO_ROOT)
         )
 
 
@@ -302,15 +302,53 @@ services:
         f"""
 cd {PROJECT_DIR}
 
+docker compose pull
+"""
+    )
+
+
+# ==================================================
+# Projektstart
+# ==================================================
+
+def start_project():
+    print("[INFO] Starte Projektcontainer...")
+    run(
+        f"""
+cd {PROJECT_DIR}
+
 docker compose up -d
 """
     )
+    print("[OK] Projekt gestartet")
 
 
 
 # ==================================================
 # Erweiterungspunkte
 # ==================================================
+
+def install_ghdl():
+
+    if exists("ghdl"):
+        print("[OK] GHDL bereits installiert")
+        return
+
+    print("[INFO] Installiere GHDL...")
+    run(
+        "apt update && apt install -y ghdl"
+    )
+    print("[OK] GHDL installiert")
+
+
+def install_fpga_support():
+
+    print("[INFO] Installiere FPGA-Werkzeuge (Platzhalter)...")
+    print(
+        "[WARN] FPGA-spezifische Tools werden nicht automatisch installiert. "
+        "Bitte passe install_fpga_support() im Installer an."
+    )
+
 
 def install_ollama():
 
@@ -327,7 +365,6 @@ def install_python_agents():
     """
     Hier später:
     LangChain
-    CrewAI
     eigene Agenten
     """
 
@@ -367,12 +404,18 @@ def main():
 
     setup_agents()
 
+    install_ghdl()
+
+    install_fpga_support()
+
 
     # spätere Module
 
     install_ollama()
 
     install_python_agents()
+
+    start_project()
 
 
 

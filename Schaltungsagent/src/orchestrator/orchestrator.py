@@ -375,6 +375,9 @@ class AsyncAgentOrchestrator:
                        {"iteration": iteration,
                         "returncode": repair_result.returncode})
 
+            # After repairing, rerun the agent before the next test iteration.
+            self._run_agent(state, sm, workspace)
+
         self._transition(state, sm, WorkflowState.FAILED)
 
     def _complete(self, state: TaskState, sm: StateMachine) -> None:

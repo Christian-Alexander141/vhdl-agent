@@ -40,6 +40,10 @@ class OpenCodeConfig:
     binary: str = "opencode"
     default_timeout: int = 300
     max_repair_iterations: int = 5
+    use_docker: bool = False
+    docker_container: str = "opencode-agent"
+    docker_workspace: str = "/workspace"
+    docker_host_workspace: str = "./projects"
 
 
 @dataclass
@@ -60,8 +64,8 @@ class LoggingConfig:
 @dataclass
 class DomainsConfig:
     default: str = "vhdl"
-    search_paths: list = field(default_factory=lambda: ["./src/domains"])
-    paths: dict = field(default_factory=lambda: {"vhdl": "./src/domains/vhdl"})
+    search_paths: list = field(default_factory=lambda: ["./src/domain_plugins"])
+    paths: dict = field(default_factory=lambda: {"vhdl": "./src/domain_plugins/vhdl"})
 
 
 @dataclass
@@ -83,7 +87,12 @@ class Settings:
 
 def load_config(config_path: str | None = None) -> Settings:
     if config_path is None:
-        config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+        repo_root = Path(__file__).resolve().parents[2]
+        root_config = repo_root / "config.yaml"
+        if root_config.exists():
+            config_path = str(root_config)
+        else:
+            config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 
     settings = Settings()
     settings._config_dir = os.path.dirname(os.path.abspath(config_path))
@@ -114,8 +123,8 @@ def load_config(config_path: str | None = None) -> Settings:
         domains_data = data["domains"]
         settings.domains = DomainsConfig(
             default=domains_data.get("default", "vhdl"),
-            search_paths=domains_data.get("search_paths", ["./src/domains"]),
-            paths=domains_data.get("paths", {"vhdl": "./src/domains/vhdl"}),
+            search_paths=domains_data.get("search_paths", ["./src/domain_plugins"]),
+            paths=domains_data.get("paths", {"vhdl": "./src/domain_plugins/vhdl"}),
         )
 
     return settings

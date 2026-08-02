@@ -168,9 +168,7 @@ Events werden später an das Dashboard übertragen.
 
 Der LLM-Service kapselt das Sprachmodell.
 
-Verwendetes Modell:
 
-GPT-OSS 120B über Ollama.
 
 Aufgaben:
 

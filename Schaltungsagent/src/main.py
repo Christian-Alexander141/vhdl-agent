@@ -39,10 +39,23 @@ def create_llm_service(settings):
 def create_rag_service(settings):
     if settings.rag.enabled and settings.rag.vector_store == "qdrant":
         return VHDLRAGService(
-            vector_store_path=settings.rag.vector_store_path,
+            qdrant_path=settings.rag.vector_store_path,
             embedding_model=settings.rag.embedding_model,
+            data_dir=settings.rag.data_dir,
+            memory_dir=settings.rag.memory_dir,
+            chunk_size=settings.rag.chunk_size,
+            chunk_overlap=settings.rag.chunk_overlap,
+            top_k=settings.rag.max_results,
         )
-    return VHDLRAGService()
+    return VHDLRAGService(
+        qdrant_path=settings.rag.vector_store_path,
+        embedding_model=settings.rag.embedding_model,
+        data_dir=settings.rag.data_dir,
+        memory_dir=settings.rag.memory_dir,
+        chunk_size=settings.rag.chunk_size,
+        chunk_overlap=settings.rag.chunk_overlap,
+        top_k=settings.rag.max_results,
+    )
 
 
 def create_orchestrator(settings) -> AgentOrchestrator:
@@ -57,10 +70,21 @@ def create_orchestrator(settings) -> AgentOrchestrator:
         cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
         max_workspaces=settings.workspace.max_workspaces,
     )
-    opencode = SubprocessOpenCodeService(
-        binary=settings.opencode.binary,
-        default_timeout=settings.opencode.default_timeout,
-    )
+    if settings.opencode.use_docker:
+        from src.services.opencode_service import DockerOpenCodeService
+
+        opencode = DockerOpenCodeService(
+            container=settings.opencode.docker_container,
+            docker_workspace=settings.opencode.docker_workspace,
+            host_workspace=settings.opencode.docker_host_workspace,
+            binary=settings.opencode.binary,
+            default_timeout=settings.opencode.default_timeout,
+        )
+    else:
+        opencode = SubprocessOpenCodeService(
+            binary=settings.opencode.binary,
+            default_timeout=settings.opencode.default_timeout,
+        )
 
     orchestrator = AgentOrchestrator(
         llm_service=llm,
@@ -178,6 +202,12 @@ def main():
     parser = argparse.ArgumentParser(description="AI Engineer Platform")
     parser.add_argument("--domain", default=settings.domains.default,
                         help=f"Domain (default: {settings.domains.default})")
+    parser.set_defaults(
+        command="serve",
+        host=settings.dashboard.host,
+        port=settings.dashboard.port,
+        reload=False,
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -206,6 +236,12 @@ def main():
     subparsers.add_parser("rag", help="Start interactive RAG chat session")
 
     args = parser.parse_args()
+
+    if args.command is None:
+        args.command = "serve"
+        args.host = settings.dashboard.host
+        args.port = settings.dashboard.port
+        args.reload = False
 
     if args.command == "run":
         orch = create_orchestrator(settings)
