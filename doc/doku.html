@@ -1,12 +1,287 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-<title>Doku</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Softwaredokumentation</title>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 24px; color: #222; }
+    h1, h2, h3 { color: #1d2a52; }
+    h1 { margin-bottom: 0.5rem; }
+    h2 { margin-top: 1.5rem; }
+    h3 { margin-top: 1.2rem; }
+    pre, code { background: #f5f5f5; padding: 8px; border-radius: 4px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #e8efff; }
+    section { margin-bottom: 1.5rem; }
+  </style>
 </head>
 <body>
+  <h1>Softwaredokumentation</h1>
+  <p>Diese Dokumentation beschreibt die Architektur und Funktionsweise der KI-gestützten Agentenplattform im Projekt.</p>
 
-<h1>This is a Heading</h1>
-<p>This is a paragraph.</p>
+  <section>
+    <h2>1. Architekturüberblick</h2>
+    <p>Die Plattform verwendet eine hexagonale Architektur mit klar getrennten Schichten:</p>
+    <ul>
+      <li><strong>Domain Layer</strong>: Kernlogik, Zustandsautomat, Domänenmodelle und Port-Interfaces.</li>
+      <li><strong>Service Layer</strong>: Implementierungen von Ports, die konkrete LLM-, RAG-, Artefakt- und Dateisystemdienste bereitstellen.</li>
+      <li><strong>Orchestrator / Workflow</strong>: Steuerung des Task-Lebenszyklus und Ausführung des Hauptworkflows.</li>
+      <li><strong>API / CLI</strong>: Schnittstellen für Benutzer, Dashboard und asynchrone Task-Ausführung.</li>
+    </ul>
+  </section>
 
+  <section>
+    <h2>2. Konfiguration</h2>
+    <p>Die Konfiguration wird von <code>Schaltungsagent/src/config.py</code> über <code>config.yaml</code> geladen.</p>
+    <p>Wichtige Konfigurationsbereiche:</p>
+    <ul>
+      <li><strong>llm</strong>: Provider, Modell, Base-URL, Temperatur und Token-Limit.</li>
+      <li><strong>rag</strong>: Vektorspeicher, Embedding-Modell, Chunking und Datenverzeichnis.</li>
+      <li><strong>workspace</strong>: Basisverzeichnis der Tasks, Cleanup-Strategie und Maximallimit.</li>
+      <li><strong>opencode</strong>: Pfad zur OpenCode-Binärdatei, Timeout und Reparaturversuche.</li>
+      <li><strong>dashboard</strong>: Host, Port und WebSocket-Pfad.</li>
+      <li><strong>domains</strong>: Standarddomain und Suchpfade für Domänenmodule.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>3. Einstiegspunkte</h2>
+    <h3>3.1 CLI</h3>
+    <p><code>Schaltungsagent/src/main.py</code> ist das zentrale CLI-Skript. Es lädt die Konfiguration, erstellt Services und den Orchestrator und bietet folgende Kommandos:</p>
+    <ul>
+      <li><code>run &lt;request&gt;</code>: Führt eine neue Task aus.</li>
+      <li><code>list</code>: Zeigt bestehende Tasks aus dem Workspace-Verzeichnis.</li>
+      <li><code>show &lt;task_id&gt;</code>: Zeigt den Task-Zustand an.</li>
+      <li><code>file &lt;task_id&gt; &lt;filename&gt;</code>: Gibt eine generierte Datei aus.</li>
+      <li><code>discover</code>: Entdeckt Domains im Projekt.</li>
+      <li><code>serve</code>: Startet den FastAPI-basierten Server.</li>
+      <li><code>rag</code>: Startet den interaktiven RAG-Chat.</li>
+    </ul>
+
+    <h3>3.2 API Server</h3>
+    <p><code>Schaltungsagent/src/api_server.py</code> initialisiert den HTTP-Server, öffnet WebSocket-Verbindungen und stellt REST-Endpunkte bereit.</p>
+    <p>Wichtige Endpunkte:</p>
+    <ul>
+      <li><code>GET /</code>: Dashboard-Seite.</li>
+      <li><code>GET /api/tasks</code>: Listet laufende und abgeschlossene Tasks.</li>
+      <li><code>POST /api/task</code>: Queued einen asynchronen Task.</li>
+      <li><code>POST /api/task/sync</code>: Führt einen Task synchron aus.</li>
+      <li><code>GET /api/domains</code>: Liefert verfügbare Domains.</li>
+      <li><code>POST /api/cleanup</code>: Löscht abgelaufene Arbeitsverzeichnisse.</li>
+      <li><code>GET /ws</code>: WebSocket für Ereignisbenachrichtigung.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>4. Domain Layer</h2>
+    <p>Der Domain Layer definiert Schnittstellen und Zustände ohne konkrete Implementierung:</p>
+    <h3>4.1 Workflow State Machine</h3>
+    <p><code>Schaltungsagent/src/domain/state_machine.py</code> enthält die möglichen Workflow-Zustände:</p>
+    <pre>CREATED → ANALYZING → RAG_SEARCH → GENERATING_ARTIFACTS → WORKSPACE_READY → RUNNING_AGENT → TESTING → VALIDATING → COMPLETED</pre>
+    <p>Fehlerpfade führen zu <code>FAILED</code>. Zusätzlich erlaubt <code>TESTING</code> den Übergang zu <code>REPAIRING</code>, von dort zurück zu <code>RUNNING_AGENT</code> oder zu <code>FAILED</code>.</p>
+
+    <h3>4.2 TaskState</h3>
+    <p><code>Schaltungsagent/src/domain/models/task_state.py</code> beschreibt den Task-Zustand mit folgenden Feldern:</p>
+    <ul>
+      <li><code>task_id</code>: UUID der Task.</li>
+      <li><code>status</code>: Aktueller Workflow-Zustand.</li>
+      <li><code>request</code>: Benutzeranforderung.</li>
+      <li><code>domain</code>: Ziel-Domain (z. B. VHDL).</li>
+      <li><code>workspace</code>: Pfad zum erzeugten Arbeitsverzeichnis.</li>
+      <li><code>generated_files</code>, <code>artifacts</code>, <code>test_results</code>, <code>history</code>, <code>metadata</code>.</li>
+    </ul>
+    <p>Die Methode <code>add_log()</code> erweitert den Verlauf, <code>set_status()</code> aktualisiert den Zustand.</p>
+
+    <h3>4.3 Ports</h3>
+    <p><code>Schaltungsagent/src/domain/ports/</code> definiert abstrakte Schnittstellen:</p>
+    <ul>
+      <li><code>LLMService</code>: Analyse, Codegenerierung und Ergebniszusammenfassung.</li>
+      <li><code>RAGService</code>: Wissensrecherche und Rückgabe von <code>KnowledgeBundle</code>.</li>
+      <li><code>ArtifactGenerator</code>: Erzeugt <code>ArtifactBundle</code> aus Anfrage, Analyse und Wissen.</li>
+      <li><code>FileSystemService</code>: Erzeugt Workspaces, schreibt und liest Dateien.</li>
+      <li><code>OpenCodeService</code>: Führt OpenCode-Aufgaben im Workspace aus.</li>
+      <li><code>EventPublisher</code>: Veröffentlicht Ereignisse.</li>
+      <li><code>PlannerService</code>: Optionaler Planer für Task-Ausführung.</li>
+      <li><code>ValidationService</code>: Optionaler Validator für Testergebnisse.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>5. Orchestrator & Workflow</h2>
+    <p>Der zentrale Orchestrator befindet sich in <code>Schaltungsagent/src/orchestrator/orchestrator.py</code>. Er kapselt den Workflow in einer ausführbaren Komponente mit synchroner und asynchroner Ausführung.</p>
+    <p>Die Hauptfunktionen:</p>
+    <ul>
+      <li><code>execute()</code>: Führt eine Task sequenziell aus.</li>
+      <li><code>execute_async()</code>: Startet einen Hintergrundthread und übergibt beim Abschluss optional ein Callback.</li>
+      <li><code>get_task_status()</code> und <code>list_tasks()</code>: Liefern Informationen über laufende Tasks.</li>
+    </ul>
+
+    <h3>5.1 Aufbau des Workflows</h3>
+    <p><code>execute()</code> führt in dieser Reihenfolge aus:</p>
+    <ol>
+      <li><strong>Analyzing</strong>: Analyse der User-Anfrage durch <code>LLMService.analyze_request()</code>.</li>
+      <li><strong>RAG Search</strong>: Wissensrecherche über <code>RAGService.retrieve_knowledge()</code>.</li>
+      <li><strong>Generating Artifacts</strong>: Erzeugung von Artefakten durch <code>ArtifactGenerator.generate()</code>.</li>
+      <li><strong>Prepare Workspace</strong>: Erzeugung einer Task-spezifischen Arbeitsumgebung und Schreiben aller Artefakte.</li>
+      <li><strong>Running Agent</strong>: Ausführung von OpenCode oder dem optionalen Planner.</li>
+      <li><strong>Testing/Repairing</strong>: Validierung und ggf. automatische Reparatur.</li>
+      <li><strong>Validating</strong>: Abschlussvalidierung und Zusammenfassung.</li>
+    </ol>
+
+    <h3>5.2 Fehlerbehandlung</h3>
+    <p>Der Orchestrator fängt spezifische <code>WorkflowError</code>-Unterklassen und allgemeine Exceptions ab. Bei Fehlern wird der Status auf <code>FAILED</code> gesetzt und der Fehler dokumentiert.</p>
+    <p>Ereignisse werden während des Workflows über den EventBus veröffentlicht, z. B. <code>TASK_CREATED</code>, <code>ANALYSIS_STARTED</code> und <code>STATE_CHANGED</code>.</p>
+  </section>
+
+  <section>
+    <h2>6. Service Layer</h2>
+    <h3>6.1 LLM-Service</h3>
+    <p><code>Schaltungsagent/src/services/llm_service.py</code> implementiert zwei LLM-Dienste:</p>
+    <ul>
+      <li><code>StubLLMService</code>: Platzhalter ohne echte LLM-Anbindung.</li>
+      <li><code>OllamaLLMService</code>: Verwendet <code>langchain_ollama</code> zur Anbindung an Ollama.</li>
+    </ul>
+    <p><strong>Funktionsweise:</strong></p>
+    <ul>
+      <li><code>analyze_request()</code>: Baut ein Prompt für die Domain und ruft <code>OllamaLLM.invoke()</code> auf.</li>
+      <li><code>generate_code()</code>: Erzeugt Code aus Prompt und optionalem Kontext.</li>
+      <li><code>summarize_result()</code>: Erzeugt eine Abschlusszusammenfassung.</li>
+    </ul>
+    <p>Die API-Key-Lokalisierung sucht eine Datei mit dem Prefix <code>OLLAMA_API_KEY=</code>.</p>
+
+    <h3>6.2 RAG-Service</h3>
+    <p><code>Schaltungsagent/src/services/rag_service.py</code> bietet die Domänen-gestützte Wissensrecherche über <code>VHDLRAGService</code>.</p>
+    <p>Die Implementierung kombiniert:</p>
+    <ul>
+      <li>Domänenspezifische Daten und Vorlagen aus <code>src/domains/vhdl</code>.</li>
+      <li>Keyword-Matching auf Anfrage zur Template-Erkennung.</li>
+      <li>Vector Retrieval über <code>RAGChatPipeline</code>.</li>
+    </ul>
+    <p>Ergebnis ist ein <code>KnowledgeBundle</code> mit Regeln, Referenzdesigns, Dokumentation und Rohkontext.</p>
+
+    <h3>6.3 Artifact Generator</h3>
+    <p><code>Schaltungsagent/src/services/artifact_generator.py</code> generiert VHDL-Artefakte.</p>
+    <p>Workflow:</p>
+    <ol>
+      <li>Suche nach einem passenden Template anhand von Wissen und Anfrage.</li>
+      <li>Falls gefunden: Verwende Domänen-Templates aus <code>src/domains/vhdl/templates.py</code>.</li>
+      <li>Falls kein Template passt: Liefere ein Fallback-Resultat ohne generierte Dateien.</li>
+    </ol>
+    <p>Beispiele für Template-Erzeugung sind Counter- und Hamming-Designs inklusive Testbench.</p>
+
+    <h3>6.4 FileSystem Service</h3>
+    <p><code>Schaltungsagent/src/services/filesystem_service.py</code> verwaltet lokale Task-Workspaces.</p>
+    <p>Wichtige Funktionen:</p>
+    <ul>
+      <li><code>create_workspace()</code>: Erzeugt Task-Ordner inklusive Standardunterverzeichnissen.</li>
+      <li><code>write_file()</code> / <code>read_file()</code>: Umgang mit Dateisystemoperationen.</li>
+      <li><code>list_files()</code>: Listet generierte Dateien auf.</li>
+      <li><code>cleanup_expired()</code>: Entfernt alte Workspaces basierend auf TTL.</li>
+    </ul>
+
+    <h3>6.5 OpenCode Service</h3>
+    <p><code>Schaltungsagent/src/services/opencode_service.py</code> führt externe OpenCode-Prozesse aus.</p>
+    <p>Die Ausführung erfolgt über <code>subprocess.run()</code> mit Timeout und Rückgabewerten.</p>
+    <ul>
+      <li>Im Fehlerfall wird eine <code>AgentExecutionError</code> ausgelöst.</li>
+      <li>Timeouts und fehlende Binärdatei werden abgefangen.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>7. RAG Pipeline und Dokumentenindex</h2>
+    <p><code>Schaltungsagent/src/services/rag_pipeline.py</code> implementiert die Vektorsuche und den Chat-Speicher.</p>
+    <p>Schritte:</p>
+    <ol>
+      <li><strong>Embedding-Ladefunktion</strong>: <code>get_embeddings()</code> lädt HuggingFace-Embeddings.</li>
+      <li><strong>Qdrant-Initialisierung</strong>: <code>get_vector_store()</code> erstellt oder öffnet einen lokalen Qdrant-Store.</li>
+      <li><strong>Dokumentenladung</strong>: <code>load_documents_from_directory()</code> liest unterstützte Quellen.</li>
+      <li><strong>Indexierung</strong>: <code>index_documents()</code> erstellt Chunks und speichert sie in Qdrant.</li>
+      <li><strong>Ähnlichkeitssuche</strong>: <code>retrieve_context()</code> gibt relevante Inhalte zurück.</li>
+      <li><strong>Chat-Sitzung</strong>: <code>create_chat_session()</code> und <code>append_exchange()</code> verwalten <code>soul.md</code>-Memory.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>8. Eventbus und WebSocket-Integration</h2>
+    <p><code>Schaltungsagent/src/domain/event_bus.py</code> stellt einen einfachen Ereignisbus zur Verfügung.</p>
+    <p>Funktionen:</p>
+    <ul>
+      <li><code>on_event(listener)</code>: Registriert einen Listener.</li>
+      <li><code>emit()</code>: Sendet ein Event an alle Abonnenten.</li>
+      <li><code>get_events()</code>: Liefert das Event-Log.</li>
+    </ul>
+    <p>Der API-Server registriert den WebSocket-Broadcast als Listener, so dass Browser-Dashboards Live-Updates erhalten.</p>
+  </section>
+
+  <section>
+    <h2>9. Domänenlayer: VHDL</h2>
+    <p>Die Domain-spezifische Implementierung liegt unter <code>Schaltungsagent/src/domains/vhdl</code>.</p>
+    <ul>
+      <li><code>rag_data.py</code>: Regeln, Referenzdesigns und Template-Zuordnung.</li>
+      <li><code>templates.py</code>: Jinja2-Vorlagen für VHDL-Entitäten und Testbenches.</li>
+      <li><code>prompts.py</code>: System-Prompts für die LLM-Anfragen.</li>
+      <li><code>test_definitions.py</code>: Definitionen für GHDL-Testläufe.</li>
+      <li><code>build_definitions.py</code>: Build-Konfigurationen für VHDL-Projekte.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>10. API / RAG Router</h2>
+    <p><code>Schaltungsagent/src/api/rag_router.py</code> stellt REST-Routen für den RAG-Chat bereit.</p>
+    <p>Der Router kapselt:</p>
+    <ul>
+      <li>Healthcheck</li>
+      <li>Query-Aufrufe für einfachen Chat, Tool-Einsatz und Planner-Einsatz</li>
+      <li>Session-Erstellung</li>
+      <li>Dokumenten-Upload und Indexierung</li>
+      <li>Modellabfrage</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>11. Fehler- und Zustandsbehandlung</h2>
+    <p>Die zentrale Fehlerbehandlung ist im Orchestrator implementiert. Typische Fehlerklassen befinden sich in <code>Schaltungsagent/src/domain/exceptions.py</code>.</p>
+    <p>Designprinzipien:</p>
+    <ul>
+      <li>Jede Workflow-Phase meldet Fehler als spezifische Ausnahme.</li>
+      <li>Der Status wird auf <code>FAILED</code> gesetzt.</li>
+      <li>Ergebnisse und Fehler werden im Task-State gespeichert.</li>
+      <li>Workspace-Daten werden jeweils persistiert.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>12. Datenablage und Workspace-Layout</h2>
+    <p>Der FileSystem-Service erstellt pro Task ein Verzeichnis unter <code>projects/</code>. Die Standardstruktur ist:</p>
+    <ul>
+      <li><code>src/</code></li>
+      <li><code>tests/</code></li>
+      <li><code>docs/</code></li>
+      <li><code>build/</code></li>
+      <li><code>logs/</code></li>
+      <li><code>reports/</code></li>
+    </ul>
+    <p>Am Ende des Workflows wird der Task-Zustand als <code>state.json</code> im Workspace gespeichert.</p>
+  </section>
+
+  <section>
+    <h2>13. Erweiterbarkeit</h2>
+    <p>Die Architektur ist modular gestaltet:</p>
+    <ul>
+      <li>Neue Domains können unter <code>src/domains</code> ergänzt werden.</li>
+      <li>Neue Service-Implementierungen können zusätzliche Port-Schnittstellen erfüllen.</li>
+      <li>Der Orchestrator kann zusätzliche Workflow-Schritte oder Prüfschichten integrieren.</li>
+      <li>API und Dashboard können um weitere Endpunkte und Ereignisse erweitert werden.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>14. Zusammenfassung</h2>
+    <p>Die Plattform besteht aus einer zentralen Steuerung, die Aufgaben analysiert, Wissen recherchiert, Artefakte generiert, Workspaces vorbereitet, Agenten ausführt und Ergebnisse testet.</p>
+    <p>Die klare Trennung von Schnittstellen (Ports) und Implementierung erlaubt Testbarkeit und Austauschbarkeit von LLM-, RAG- und Ausführungsdiensten.</p>
+  </section>
 </body>
 </html>
