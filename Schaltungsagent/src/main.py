@@ -1,0 +1,233 @@
+import argparse
+import json
+import sys
+import logging
+
+from src.config import load_config
+from src.domain.event_bus import EventBus
+from src.domain.models import EventType, Event, TaskState
+from src.domain.domain_registry import DomainRegistry
+from src.services.llm_service import OllamaLLMService
+from src.services.rag_service import VHDLRAGService
+from src.services.artifact_generator import VHDLArtifactGenerator
+from src.services.filesystem_service import LocalFileSystemService
+from src.services.opencode_service import SubprocessOpenCodeService
+from src.orchestrator import AgentOrchestrator
+
+
+def setup_logging(settings) -> None:
+    logging.basicConfig(
+        level=getattr(logging, settings.logging.level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+def create_llm_service(settings):
+    provider = settings.llm.provider
+    if provider == "ollama":
+        return OllamaLLMService(
+            model=settings.llm.model,
+            base_url=settings.llm.base_url,
+            temperature=settings.llm.temperature,
+            max_tokens=settings.llm.max_tokens,
+        )
+    from src.services.llm_service import StubLLMService
+    return StubLLMService()
+
+
+def create_rag_service(settings):
+    if settings.rag.enabled and settings.rag.vector_store == "qdrant":
+        return VHDLRAGService(
+            vector_store_path=settings.rag.vector_store_path,
+            embedding_model=settings.rag.embedding_model,
+        )
+    return VHDLRAGService()
+
+
+def create_orchestrator(settings) -> AgentOrchestrator:
+    DomainRegistry.discover(settings.domains.search_paths)
+
+    event_bus = EventBus()
+    llm = create_llm_service(settings)
+    rag = create_rag_service(settings)
+    artifact_gen = VHDLArtifactGenerator()
+    fs = LocalFileSystemService(
+        base_dir=settings.workspace.base_dir,
+        cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
+        max_workspaces=settings.workspace.max_workspaces,
+    )
+    opencode = SubprocessOpenCodeService(
+        binary=settings.opencode.binary,
+        default_timeout=settings.opencode.default_timeout,
+    )
+
+    orchestrator = AgentOrchestrator(
+        llm_service=llm,
+        rag_service=rag,
+        artifact_generator=artifact_gen,
+        filesystem_service=fs,
+        opencode_service=opencode,
+        event_publisher=event_bus,
+        max_repair_iterations=settings.opencode.max_repair_iterations,
+    )
+    return orchestrator
+
+
+def cmd_run(args, orchestrator: AgentOrchestrator) -> None:
+    result = orchestrator.execute(args.request, args.domain)
+    print("\n=== Task Result ===")
+    print(f"Task ID: {result['task_id']}")
+    print(f"Status: {result['status']}")
+    print(f"Files: {result['generated_files']}")
+    print(f"Iterations: {result['iterations']}")
+    if result.get("error_message"):
+        print(f"Error: {result['error_message']}")
+    print("==================\n")
+
+
+def cmd_list(args) -> None:
+    import os
+    from src.config import load_config
+    settings = load_config()
+    projects_dir = settings.workspace.base_dir
+    if not os.path.isdir(projects_dir):
+        print("No projects directory found.")
+        return
+    for item in sorted(os.listdir(projects_dir)):
+        item_path = os.path.join(projects_dir, item)
+        if os.path.isdir(item_path):
+            state_file = os.path.join(item_path, "state.json")
+            if os.path.exists(state_file):
+                with open(state_file) as f:
+                    data = json.load(f)
+                print(f"  {item[:8]}... | {data.get('status', '?'):15} | {data.get('request', '')[:50]}")
+            else:
+                print(f"  {item[:8]}... | NO STATE")
+
+
+def cmd_show(args) -> None:
+    from src.config import load_config
+    settings = load_config()
+    state_file = f"{settings.workspace.base_dir}/{args.task_id}/state.json"
+    import os
+    if not os.path.exists(state_file):
+        print(f"Task {args.task_id} not found.")
+        return
+    with open(state_file) as f:
+        data = json.load(f)
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def cmd_file(args) -> None:
+    from src.config import load_config
+    settings = load_config()
+    file_path = f"{settings.workspace.base_dir}/{args.task_id}/{args.filename}"
+    if not os.path.exists(file_path):
+        print(f"File not found: {file_path}")
+        return
+    with open(file_path) as f:
+        print(f.read())
+
+
+def cmd_serve(args) -> None:
+    import uvicorn
+    uvicorn.run(
+        "src.api_server:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
+
+
+def cmd_rag_interactive(args) -> None:
+    from src.services.rag_pipeline import RAGChatPipeline, load_api_key
+
+    pipeline = RAGChatPipeline(
+        model=settings.llm.model,
+        base_url=settings.llm.base_url,
+        api_key=load_api_key(),
+    )
+
+    chat_id = None
+    print("RAG Chat (type 'exit' to quit, '/new' to reset session)")
+    while True:
+        try:
+            user_input = input("> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not user_input:
+            continue
+        if user_input.strip().lower() == "exit":
+            break
+        if user_input.strip().lower() == "/new":
+            chat_id = None
+            print("New session started.")
+            continue
+
+        response = pipeline.query(user_input, chat_id=chat_id)
+        print(response)
+        print()
+
+
+def main():
+    settings = load_config()
+    setup_logging(settings)
+
+    parser = argparse.ArgumentParser(description="AI Engineer Platform")
+    parser.add_argument("--domain", default=settings.domains.default,
+                        help=f"Domain (default: {settings.domains.default})")
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    run_parser = subparsers.add_parser("run", help="Execute a new task")
+    run_parser.add_argument("request", help="Task description")
+
+    subparsers.add_parser("list", help="List all tasks")
+
+    show_parser = subparsers.add_parser("show", help="Show task details")
+    show_parser.add_argument("task_id", help="Task ID")
+
+    file_parser = subparsers.add_parser("file", help="Show a generated file")
+    file_parser.add_argument("task_id", help="Task ID")
+    file_parser.add_argument("filename", help="File path relative to workspace")
+
+    subparsers.add_parser("discover", help="Discover available domains")
+
+    serve_parser = subparsers.add_parser("serve", help="Start the API server (dashboard)")
+    serve_parser.add_argument("--host", default=settings.dashboard.host,
+                              help=f"Host (default: {settings.dashboard.host})")
+    serve_parser.add_argument("--port", type=int, default=settings.dashboard.port,
+                              help=f"Port (default: {settings.dashboard.port})")
+    serve_parser.add_argument("--reload", action="store_true", default=False,
+                              help="Enable auto-reload")
+
+    subparsers.add_parser("rag", help="Start interactive RAG chat session")
+
+    args = parser.parse_args()
+
+    if args.command == "run":
+        orch = create_orchestrator(settings)
+        cmd_run(args, orch)
+    elif args.command == "list":
+        cmd_list(args)
+    elif args.command == "show":
+        cmd_show(args)
+    elif args.command == "file":
+        cmd_file(args)
+    elif args.command == "discover":
+        DomainRegistry.discover(settings.domains.search_paths)
+        domains = DomainRegistry.list_domains()
+        print(f"Discovered domains: {', '.join(domains) if domains else 'none'}")
+    elif args.command == "serve":
+        cmd_serve(args)
+    elif args.command == "rag":
+        cmd_rag_interactive(args)
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

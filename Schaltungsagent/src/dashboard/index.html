@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Engineer — Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- Header -->
+  <header id="header">
+    <div class="header-left">
+      <span class="logo">⚙ AI Engineer</span>
+      <span class="badge" id="status-badge">Idle</span>
+    </div>
+    <div class="header-right">
+      <span class="connection" id="connection-indicator">
+        <span class="dot offline"></span> Disconnected
+      </span>
+    </div>
+  </header>
+
+  <div id="main-layout">
+    <!-- Left Sidebar: Workflow -->
+    <aside id="sidebar-left">
+      <h3>Workflow</h3>
+      <ul id="workflow-steps">
+        <li class="step" data-step="CREATED">📋 Created</li>
+        <li class="step" data-step="ANALYZING">🔍 Analyzing</li>
+        <li class="step" data-step="RAG_SEARCH">📚 RAG Search</li>
+        <li class="step" data-step="GENERATING_ARTIFACTS">⚡ Generating Artifacts</li>
+        <li class="step" data-step="WORKSPACE_READY">📁 Workspace Ready</li>
+        <li class="step" data-step="RUNNING_AGENT">🤖 Running Agent</li>
+        <li class="step" data-step="TESTING">🧪 Testing</li>
+        <li class="step" data-step="REPAIRING">🔧 Repairing</li>
+        <li class="step" data-step="VALIDATING">✓ Validating</li>
+        <li class="step" data-step="COMPLETED">✅ Completed</li>
+        <li class="step" data-step="FAILED">❌ Failed</li>
+      </ul>
+
+      <h3>Task Info</h3>
+      <div id="task-info">
+        <div class="info-row"><span class="label">Task ID</span><span class="value" id="task-id">—</span></div>
+        <div class="info-row"><span class="label">Status</span><span class="value" id="task-status">—</span></div>
+        <div class="info-row"><span class="label">Files</span><span class="value" id="task-files">—</span></div>
+        <div class="info-row"><span class="label">Path</span><span class="value" id="task-workspace" style="font-size:9px">—</span></div>
+      </div>
+    </aside>
+
+    <!-- Center: Chat -->
+    <main id="chat-area">
+      <div id="messages"></div>
+      <div id="input-area">
+        <textarea id="chat-input" rows="3" placeholder="Describe a task... e.g. 'Create an 8-bit VHDL counter with testbench'"></textarea>
+        <button id="send-btn">Send</button>
+      </div>
+    </main>
+
+    <!-- Right Sidebar: Files & Logs -->
+    <aside id="sidebar-right">
+      <div class="tab-bar">
+        <button class="tab active" data-tab="files">Files</button>
+        <button class="tab" data-tab="logs">Logs</button>
+        <button class="tab" data-tab="test-results">Tests</button>
+      </div>
+
+      <div class="tab-content active" id="tab-files">
+        <ul id="file-list">
+          <li class="empty">No files generated yet</li>
+        </ul>
+      </div>
+
+      <div class="tab-content" id="tab-logs">
+        <div id="log-list"></div>
+      </div>
+
+      <div class="tab-content" id="tab-test-results">
+        <pre id="test-output">Waiting for test results...</pre>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

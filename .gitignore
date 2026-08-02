@@ -1,0 +1,53 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+.env.*
+.venv/
+venv.*
+ENV/
+env/
+Python*/
+
+# Pytest cache
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+**/logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*~
+
+# IDE/editor folders
+.vscode/
+.idea/
+
+# Build and distribution folders
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Project-specific temporary directories
+projects/
+**/projects/
+**/tests/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Ignore virtual environment marker files
+pip-log.txt
+pip-delete-this-directory.txt
