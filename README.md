@@ -1,305 +1,127 @@
-vhdl-autogen
+# LLM-basierte autonome Agentenplattform zur Software- und Systemartefakterzeugung
 
+## Übersicht
 
+Dieses Projekt untersucht und implementiert eine Umgebung zur autonomen Erzeugung komplexer Software- und Systemartefakte mithilfe LLM-basierter Agenten.
 
-Prototypische Entwicklung eines CAD-Tools zur autonomen Erzeugung, Validierung und Implementierung von VHDL-Code
+Ziel ist die Entwicklung einer sicheren, modularen Agentenarchitektur, welche mehrere spezialisierte Agenten zur Bearbeitung komplexer Aufgaben koordinieren kann. Dabei werden unterschiedliche Orchestrierungsansätze untersucht und hinsichtlich Skalierbarkeit, Fehlertoleranz, Wartbarkeit und Sicherheit bewertet.
 
+Der Fokus liegt auf einer Architektur, die autonome Softwareentwicklung ermöglicht, gleichzeitig aber Risiken durch unkontrollierte Agentenausführung reduziert.
 
+---
 
-📌 Beschreibung
+# Zielsetzung
 
-Agenten-Orchestrator für die autonome Erzeugung kleiner bis mittlerer Schaltungen in VHDL. Das System koordiniert LLM-basierte Agenten, um den vollständigen FPGA-Entwurfsprozess zu durchlaufen:
+Moderne Large Language Models ermöglichen die Entwicklung autonomer Agentensysteme, welche nicht nur Texte erzeugen, sondern komplexe Aufgaben planen, Werkzeuge verwenden und Ergebnisse überprüfen können.
 
+Für die Erzeugung komplexer Softwareartefakte entstehen jedoch besondere Anforderungen:
 
+- Zerlegung komplexer Aufgaben in Teilaufgaben
+- Koordination verschiedener Spezialagenten
+- Verwaltung von Zwischenzuständen
+- Fehlererkennung und Wiederherstellung
+- Nachvollziehbarkeit der Entscheidungen
+- Sichere Ausführung nicht vollständig deterministischer Systeme
 
+Dieses Projekt untersucht verschiedene Agentenarchitekturen und entwickelt eine geeignete Umgebung für deren praktischen Einsatz.
 
+---
 
-Planung
+# Verwendete Technologien
 
+## Ollama
 
+:contentReference[oaicite:0]{index=0} wird als lokale Laufzeitumgebung für Large Language Models verwendet.
 
-Codegenerierung
+Ollama ermöglicht:
 
+- lokale Ausführung verschiedener Sprachmodelle
+- Nutzung ohne Übertragung sensibler Daten an externe Dienste
+- einfache Verwaltung verschiedener Modelle
+- Integration in lokale Agentensysteme
 
+Alternativ bietet Ollama eine Cloud-Schnittstelle mit umfangreichen kostenlosen Nutzungsmöglichkeiten.
 
-Testbench-Erstellung
+Ein wesentlicher Vorteil besteht darin, dass Interaktionen mit lokalen Modellen nicht zur Modellweiterentwicklung verwendet werden.
 
+---
 
+## Docker
 
-Simulation
+:contentReference[oaicite:1]{index=1} wird zur Containerisierung und Isolation der Agentenumgebung eingesetzt.
 
+Vorteile:
 
+- Trennung des Agenten vom Hostsystem
+- reproduzierbare Umgebungen
+- einfache Bereitstellung vorkonfigurierter Agenten
+- geringerer Ressourcenverbrauch gegenüber vollständigen virtuellen Maschinen
 
-Synthese
+Docker stellt damit einen Kompromiss zwischen Sicherheit und Bedienkomfort dar.
 
-Ziel: Fehlertolerante und reproduzierbare Automatisierung des Workflows durch Orchestrierung spezialisierter Agenten.
+---
 
+## Next.js / React
 
+Die Benutzeroberfläche wird mit Next.js und React umgesetzt.
 
-📚 Gliederung der Arbeit
+Einsatzbereiche:
 
+- Dashboard zur Steuerung des Systems
+- Darstellung von Agentenzuständen
+- Anzeige von Ergebnissen und Zwischenständen
+- Benutzerinteraktion mit dem Orchestrator
 
+---
 
+## Hermes Agent
 
+Hermes ist ein autonomer Agent zur Durchführung komplexer Aufgaben.
 
-Einleitung
+Der Agent kann:
 
+- Aufgaben analysieren
+- Werkzeuge verwenden
+- Dateien bearbeiten
+- Softwareartefakte erzeugen
 
+Aufgrund seiner Autonomie wird Hermes isoliert innerhalb eines Containers ausgeführt.
 
+---
 
+## OpenCode
 
-1.1 Motivation und Problemstellung
+OpenCode dient als Entwicklungsagent für Softwareaufgaben.
 
+Funktionen:
 
+- Codeanalyse
+- Codegenerierung
+- Änderungen an Projekten
+- Unterstützung bei Entwicklungsprozessen
 
-1.2 Zielsetzung der Arbeit
+---
 
+# Architektur
 
+## Anforderungen
 
-1.3 Abgrenzung und Forschungslücke
+Die Architektur muss folgende Anforderungen erfüllen:
 
+| Anforderung | Beschreibung |
+|-|-|
+| Modularität | Einfache Erweiterung durch zusätzliche Agenten |
+| Sicherheit | Isolation autonomer Komponenten |
+| Fehlertoleranz | Wiederaufnahme nach Fehlern |
+| Nachvollziehbarkeit | Speicherung von Entscheidungen und Ergebnissen |
+| Skalierbarkeit | Unterstützung mehrerer spezialisierter Agenten |
+| Flexibilität | Kombination verschiedener Agentenframeworks |
 
+---
 
-1.4 Aufbau der Arbeit
+# Vergleich möglicher Agentenarchitekturen
 
+## Hierarchische Subagenten (Orchestrator-Worker)
 
-
-Grundlagen
-
-
-
-
-
-2.1 Digitale Systeme und FPGA-basierter Entwurf
-
-
-
-2.2 Hardwarebeschreibungssprachen (Verilog/VHDL)
-
-
-
-2.3 EDA-Toolchains und der FPGA-Synthese-Flow
-
-
-
-2.4 Large Language Models und Codegenerierung
-
-
-
-2.5 Multi-Agenten-Systeme und Agenten-Orchestrierung
-
-
-
-2.6 Architekturmuster der Agentenkoordination
-
-
-
-Stand der Forschung
-
-
-
-
-
-3.1 LLM-basierte HDL-Codegenerierung
-
-
-
-3.2 Multi-Agenten-Systeme für EDA und Hardware-Design
-
-
-
-3.3 Agenten-Orchestrierungs-Frameworks
-
-
-
-3.4 FPGA-spezifische Automatisierungsansätze
-
-
-
-3.5 Zusammenfassung und Forschungslücke
-
-
-
-Konzept und Architektur des Agenten-Orchestrators
-
-
-
-
-
-4.1 Anforderungsanalyse
-
-
-
-4.2 Architekturmuster-Auswahl und Begründung
-
-
-
-4.3 Agentenrollen und Verantwortlichkeiten
-
-
-
-4.4 Kommunikations- und Koordinationsdesign
-
-
-
-4.5 Workflow-Definition
-
-
-
-4.6 Fehlertoleranz und Recovery-Strategien
-
-
-
-Implementierung
-
-
-
-
-
-5.1 Technologie-Stack und Frameworks
-
-
-
-5.2 Implementierung der Agenten
-
-
-
-5.3 Integration von EDA-Tools (Vivado/Quartus)
-
-
-
-5.4 State-Management und Blackboard-Architektur
-
-
-
-5.5 Feedback-Schleifen und iterative Korrektur
-
-
-
-Evaluierung
-
-
-
-
-
-6.1 Test-Design und Benchmarks
-
-
-
-6.2 Fallstudien
-
-
-
-6.3 Ergebnisse
-
-
-
-6.4 Limitationen und kritische Diskussion
-
-
-
-Zusammenfassung und Ausblick
-
-
-
-
-
-7.1 Zusammenfassung der Ergebnisse
-
-
-
-7.2 Limitationen
-
-
-
-7.3 Ausblick auf zukünftige Forschung
-
-
-
-🎯 Forschungslücke
-
-Bestehende Multi-Agenten-Systeme (z. B. ASIC-Agent, Spec2RTL-Agent, ARCADE) decken vor allem:
-
-
-
-
-
-ASIC-Design-Flows (RTL-to-GDSII) oder
-
-
-
-isolierte Phasen (nur RTL-Generierung oder Verifikation).
-
-Fehlend: Systematische Orchestrierung des vollständigen FPGA-Workflows von der Spezifikation bis zur Bitstream-Generierung.
-
-Lösungsansatz: Hybride Architektur aus hierarchischer Koordination und Blackboard-basiertem State-Management.
-
-
-
-📖 Referenzen (Auszug)
-
-LLM-basierte HDL-Codegenerierung
-
-
-
-
-
-ChipNeMo – Domain-adaptierte LLMs für Chip-Design (NVIDIA, 2023)
-
-
-
-VerilogEval – Benchmark für Verilog-Codegenerierung
-
-
-
-AutoChip – Iterative Generierung mit Simulations-Feedback
-
-Multi-Agenten-Systeme für EDA
-
-
-
-
-
-ASIC-Agent – Autonomes System für ASIC-Design
-
-
-
-Spec2RTL-Agent – Spezifikation → RTL-Code (NVIDIA)
-
-
-
-ARCADE – Closed-Loop-Reparatur für Hardware-Design
-
-Orchestrierungs-Frameworks
-
-
-
-
-
-Nexus – Design-Blueprint für skalierbare EDA-Agenten (DATE 2026)
-
-
-
-HALO – Hierarchische Multi-Agenten-Orchestrierung
-
-FPGA-spezifische Ansätze
-
-
-
-
-
-Autonomes FPGA-System – Vivado-Integration für Bitstream-Generierung
-
-
-
-RTL Designer – End-to-End-Workflow für FPGAs
-
-
-
-📜 Lizenz
-
-MIT-Lizenz
-
-
-
-Bachelorarbeit: Erzeugung digitaler Systeme durch autonome Agenten
+Bei dieser Architektur übernimmt ein zentraler Orchestrator die Planung und Delegation von Aufgaben.
+<img width="479" height="361" alt="grafik" src="https://github.com/user-attachments/assets/90c2a4a1-f3da-4cdb-adca-167ac17ca3ca" />
