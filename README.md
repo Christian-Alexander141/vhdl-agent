@@ -125,3 +125,6 @@ Die Architektur muss folgende Anforderungen erfüllen:
 
 Bei dieser Architektur übernimmt ein zentraler Orchestrator die Planung und Delegation von Aufgaben.
 <img width="479" height="361" alt="grafik" src="https://github.com/user-attachments/assets/90c2a4a1-f3da-4cdb-adca-167ac17ca3ca" />
+
+# Ablauf in der Workflow.py 
+<img width="1096" height="2441" alt="grafik" src="https://github.com/user-attachments/assets/be7d02e9-cea4-47d5-8e42-095f5f8732a3" />
