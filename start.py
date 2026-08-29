@@ -1,13 +1,122 @@
 #!/usr/bin/env python3
 import os
+import shutil
+import subprocess
 import sys
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_ROOT = os.path.join(ROOT_DIR, "Schaltungsagent")
-if SRC_ROOT not in sys.path:
-    sys.path.insert(0, SRC_ROOT)
+VENV_DIR = os.path.join(ROOT_DIR, ".venv")
+VENV_PYTHON = os.path.join(VENV_DIR, "bin", "python")
+INSTALLER = os.path.join(ROOT_DIR, "installer", "installer.py")
 
-from src.main import main
+REQUIRED_COMMANDS = ["docker", "ollama", "opencode", "ghdl", "git"]
+CORE_MODULES = [
+    "pydantic",
+    "fastapi",
+    "uvicorn",
+    "yaml",
+    "dotenv",
+    "httpx",
+    "ollama",
+    "langchain_core",
+    "langgraph",
+    "qdrant_client",
+]
+
+
+def has_command(name):
+    return shutil.which(name) is not None
+
+
+def has_compose():
+    if has_command("docker-compose"):
+        return True
+    if not has_command("docker"):
+        return False
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return result.returncode == 0
+    except OSError:
+        return False
+
+
+def has_venv():
+    if not os.path.isfile(VENV_PYTHON):
+        return False
+    try:
+        result = subprocess.run(
+            [VENV_PYTHON, "-c", "import " + ",".join(CORE_MODULES)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return result.returncode == 0
+    except OSError:
+        return False
+
+
+def missing_components():
+    missing = []
+    for cmd in REQUIRED_COMMANDS:
+        if not has_command(cmd):
+            missing.append(cmd)
+    if not has_compose():
+        missing.append("docker compose")
+    if not has_venv():
+        missing.append("Python venv (Abhängigkeiten)")
+    return missing
+
+
+def ask_start_installer():
+    while True:
+        answer = input("Soll der Installer gestartet werden? [y/n]: ").strip().lower()
+        if answer == "y":
+            return True
+        if answer == "n":
+            return False
+        print("Bitte 'y' oder 'n' eingeben.")
+
+
+def run_installer():
+    print("\n[INFO] Starte Installer...")
+    subprocess.call([sys.executable, INSTALLER])
+
+
+def check_components():
+    missing = missing_components()
+    if not missing:
+        print("[OK] Alle Komponenten sind installiert.")
+        return
+
+    print("Folgende Komponenten fehlen:")
+    for item in missing:
+        print(f"  - {item}")
+
+    if ask_start_installer():
+        run_installer()
+        still_missing = missing_components()
+        if still_missing:
+            print("\n[WARNUNG] Nach der Installation fehlen weiterhin:")
+            for item in still_missing:
+                print(f"  - {item}")
+    else:
+        print("\nInstallation übersprungen. Das Programm funktioniert möglicherweise nicht korrekt.")
+
+
+def main():
+    check_components()
+
+    if SRC_ROOT not in sys.path:
+        sys.path.insert(0, SRC_ROOT)
+
+    from src.main import main as app_main
+
+    app_main()
+
 
 if __name__ == "__main__":
     main()

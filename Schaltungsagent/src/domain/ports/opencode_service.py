@@ -26,6 +26,6 @@ class OpenCodeService(ABC):
         self,
         project_path: str,
         instruction: str,
-        timeout_seconds: int = 300,
+        timeout_seconds: int = 600,
     ) -> OpenCodeResult:
         ...

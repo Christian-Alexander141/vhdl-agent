@@ -1,5 +1,6 @@
 import json as _json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +21,7 @@ rag_service = RAGChatService(
     base_url=settings.llm.base_url,
     embedding_model=settings.rag.embedding_model,
     qdrant_path=settings.rag.vector_store_path,
+    memory_dir=settings.rag.memory_dir,
     chunk_size=settings.rag.chunk_size,
     chunk_overlap=settings.rag.chunk_overlap,
     top_k=settings.rag.max_results,
@@ -107,6 +109,22 @@ async def upload_files(
         saved.append(f.filename)
 
     return {"savedFiles": saved, "dataDir": str(target_dir)}
+
+
+@router.get("/files")
+def list_data_files(dataDir: Optional[str] = None):
+    directory = Path(dataDir) if dataDir else PROJECT_ROOT / "Dateien"
+    files = []
+    if directory.is_dir():
+        for p in sorted(directory.iterdir()):
+            if p.is_file():
+                st = p.stat()
+                files.append({
+                    "name": p.name,
+                    "size": st.st_size,
+                    "modified": datetime.fromtimestamp(st.st_mtime).isoformat(),
+                })
+    return {"files": files, "dataDir": str(directory)}
 
 
 @router.get("/models")

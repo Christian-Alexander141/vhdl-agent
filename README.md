@@ -1,6 +1,4 @@
 # LLM-basierte autonome Agentenplattform zur Software- und Systemartefakterzeugung
-<img width="1365" height="576" alt="image" src="https://github.com/user-attachments/assets/7246003b-861f-4aef-a1cd-c03875ca4f79" />
-
 
 ## Übersicht
 

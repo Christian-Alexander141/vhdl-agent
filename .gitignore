@@ -20,6 +20,7 @@ Python*/
 *.log
 logs/
 **/logs/
+vivado_logs/
 
 # Temporary files
 *.tmp
@@ -43,6 +44,9 @@ dist/
 projects/
 **/projects/
 **/tests/
+
+# Dateien (PDF documents)
+**/Dateien/
 
 # OS files
 .DS_Store

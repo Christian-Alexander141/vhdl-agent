@@ -272,3 +272,10 @@ Task ──→ LLM(bound_tools) ──→ JSON-Plan (steps)
 11. **Chat-Memory persistiert** — Unterhaltungsverlauf in `memory/soul_<id>.md`
 12. **Task Planner optional** — über `usePlanner=true` im RAG-Query aktivierbar
 13. **Zentraler Einstieg** — `python3 -m src.main` für CLI, Server und RAG-Chat
+
+## Zielbild (Roadmap)
+
+1. **Simulation in Docker** — Die VHDL-Simulation (GHDL) soll mittelfristig vollständig in einem eigenen Docker-Container ausgeführt werden und nicht mehr auf dem Host. Aktuell übernimmt der `GHDLValidator` die Analyse noch direkt auf dem Host.
+2. **Isolation & Reproduzierbarkeit** — Jede Simulation läuft in einem frischen, deterministischen Container-Umfeld mit genau definierter GHDL-Toolchain.
+3. **Schneller Reset bei Problemen** — Da die Simulation isoliert im Container stattfindet, kann bei Fehlern oder kaputtem Zustand einfach ein neuer Container erzeugt werden, ohne den Host zu beeinflussen.
+4. **Austauschbare Toolchain** — Durch die Containerisierung bleibt der Agent selbst schlank (aktuell: OpenCode-Container ohne GHDL); die GHDL-Umgebung wird als eigenes Image bereitgestellt.

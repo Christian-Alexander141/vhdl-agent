@@ -11,6 +11,10 @@ class WorkflowState:
     TESTING = "TESTING"
     REPAIRING = "REPAIRING"
     VALIDATING = "VALIDATING"
+    SYNTHESIZING = "SYNTHESIZING"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
+    FLASHING = "FLASHING"
+    FLASHED = "FLASHED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
@@ -24,17 +28,35 @@ TRANSITIONS = {
     WorkflowState.RUNNING_AGENT: [WorkflowState.TESTING, WorkflowState.FAILED],
     WorkflowState.TESTING: [
         WorkflowState.VALIDATING,
-        WorkflowState.COMPLETED,
         WorkflowState.REPAIRING,
         WorkflowState.FAILED,
     ],
     WorkflowState.REPAIRING: [
         WorkflowState.RUNNING_AGENT,
+        WorkflowState.TESTING,
         WorkflowState.FAILED,
     ],
     WorkflowState.VALIDATING: [
-        WorkflowState.COMPLETED,
+        WorkflowState.SYNTHESIZING,
         WorkflowState.FAILED,
+    ],
+    WorkflowState.SYNTHESIZING: [
+        WorkflowState.AWAITING_APPROVAL,
+        WorkflowState.REPAIRING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.AWAITING_APPROVAL: [
+        WorkflowState.FLASHING,
+        WorkflowState.REPAIRING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.FLASHING: [
+        WorkflowState.FLASHED,
+        WorkflowState.AWAITING_APPROVAL,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.FLASHED: [
+        WorkflowState.COMPLETED,
     ],
     WorkflowState.COMPLETED: [],
     WorkflowState.FAILED: [],

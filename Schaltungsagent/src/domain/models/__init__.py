@@ -1,6 +1,6 @@
 from .events import EventType, Event
 from .task_state import TaskState
-from .knowledge import KnowledgeBundle, ReferenceDesign, CodingRule, DocumentRef
+from .knowledge import KnowledgeBundle, ReferenceDesign, CodingRule, DocumentRef, TemplateMetadata
 from .artifacts import FileArtifact, ArtifactBundle
 from .workspace import Workspace
 from .commands import (
@@ -19,7 +19,7 @@ from .commands import (
 __all__ = [
     "EventType", "Event",
     "TaskState",
-    "KnowledgeBundle", "ReferenceDesign", "CodingRule", "DocumentRef",
+    "KnowledgeBundle", "ReferenceDesign", "CodingRule", "DocumentRef", "TemplateMetadata",
     "FileArtifact", "ArtifactBundle",
     "Workspace",
     "Command",

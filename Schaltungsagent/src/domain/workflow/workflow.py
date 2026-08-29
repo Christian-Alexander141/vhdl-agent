@@ -20,6 +20,7 @@ from ..exceptions import (
     WorkspaceError,
     AgentExecutionError,
 )
+from src.services.project_namer import make_unique
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,17 @@ class Workflow:
         self._planner_service = planner_service
         self._max_repair_iterations = max_repair_iterations
 
-    def run(self, request: str, domain: str = "vhdl") -> dict:
+    def run(
+        self,
+        request: str,
+        domain: str = "vhdl",
+        task_id: str | None = None,
+    ) -> dict:
         state = TaskState(request=request, domain=domain)
+        if task_id:
+            state.task_id = task_id
+        else:
+            state.task_id = make_unique(self._llm.generate_project_name(request))
         sm = StateMachine(WorkflowState.CREATED)
 
         self._emit(state, EventType.TASK_CREATED, {"request": request, "domain": domain})
@@ -202,7 +212,7 @@ class Workflow:
         )
         try:
             result = self._opencode.execute(
-                workspace_root, instruction, timeout_seconds=300
+                workspace_root, instruction
             )
         except AgentExecutionError:
             raise
@@ -238,7 +248,6 @@ class Workflow:
                     workspace_root,
                     f"Teste und verifiziere die Komponente. "
                     f"Anforderung: {state.request}",
-                    timeout_seconds=300,
                 )
                 test_passed = result.success
                 state.test_results = {
@@ -264,11 +273,18 @@ class Workflow:
             self._transition(state, sm, WorkflowState.REPAIRING)
             state.add_log(f"Repairing (iteration {iteration})...")
 
-            error_detail = state.test_results.get("stderr") or state.test_results.get("message", "")
+            if self._validation_service:
+                repair_instruction = validation.build_repair_instruction(
+                    original_request=state.request,
+                    iteration=iteration,
+                )
+            else:
+                error_detail = state.test_results.get("stderr") or state.test_results.get("message", "")
+                repair_instruction = (
+                    f"Repariere die Komponente. Fehler: {error_detail[:500]}"
+                )
             repair_result = self._opencode.execute(
-                workspace_root,
-                f"Repariere die Komponente. Fehler: {error_detail[:500]}",
-                timeout_seconds=300,
+                workspace_root, repair_instruction,
             )
             state.iterations = iteration
 

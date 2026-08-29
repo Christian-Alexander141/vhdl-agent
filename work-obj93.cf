@@ -1,0 +1,7 @@
+v 4
+file / "/home/alex/Dokumente/Github/vhdl-agent/projects/zähler-uhr-961c58/tests/entwickele_tb.vhd" "2fb3ee83b962a582b72ec81de1d49651b025dce6" "20260828194948.278":
+  entity entwickele_tb at 1( 0) + 0 on 13;
+  architecture behavioral of entwickele_tb at 8( 114) + 0 on 14;
+file / "/home/alex/Dokumente/Github/vhdl-agent/projects/zähler-uhr-961c58/src/uhr.vhd" "576f648eb62ddc02923565e7a9e76287eb129473" "20260828194948.236":
+  entity uhr at 1( 0) + 0 on 11;
+  architecture behavioral of uhr at 17( 375) + 0 on 12;

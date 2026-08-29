@@ -1,88 +1,1123 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Engineer — Dashboard</title>
-<link rel="stylesheet" href="/static/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AI Engineer — Dashboard</title>
+
+    <link rel="stylesheet" href="/static/style.css?v=5">
 </head>
+
 <body>
 
 <div id="app">
-  <!-- Header -->
-  <header id="header">
-    <div class="header-left">
-      <span class="logo">⚙ AI Engineer</span>
-      <span class="badge" id="status-badge">Idle</span>
+
+    <!-- =========================================================
+         HEADER
+         ========================================================= -->
+    <header id="header">
+
+        <div class="header-left">
+
+            <div class="logo">
+                <span class="logo-icon">⚙</span>
+                <span>AI Engineer</span>
+            </div>
+
+            <span
+                class="badge"
+                id="status-badge">
+                Idle
+            </span>
+
+        </div>
+
+        <div class="header-right">
+
+            <span
+                class="connection"
+                id="connection-indicator">
+
+                <span
+                    class="dot offline">
+                </span>
+
+                <span>Disconnected</span>
+
+            </span>
+
+        </div>
+
+    </header>
+
+
+    <!-- =========================================================
+         MAIN LAYOUT
+         Sidebar + Content
+         ========================================================= -->
+    <div id="main-layout">
+
+
+        <!-- =====================================================
+             SIDEBAR
+             ===================================================== -->
+        <aside id="sidebar">
+
+            <nav id="nav-menu">
+
+                <!-- AI ENGINEER -->
+                <button
+                    class="nav-item active"
+                    data-view="ai-engineer"
+                    type="button">
+
+                    <span class="nav-icon">⚙</span>
+
+                    <span class="nav-label">
+                        AI Engineer
+                    </span>
+
+                </button>
+
+
+                <!-- RAG -->
+                <button
+                    class="nav-item"
+                    data-view="rag"
+                    type="button">
+
+                    <span class="nav-icon">📚</span>
+
+                    <span class="nav-label">
+                        RAG
+                    </span>
+
+                </button>
+
+
+                <!-- PROJEKTE -->
+                <button
+                    class="nav-item"
+                    data-view="projects"
+                    type="button">
+
+                    <span class="nav-icon">📁</span>
+
+                    <span class="nav-label">
+                        Projekte
+                    </span>
+
+                </button>
+
+
+                <!-- SETTINGS -->
+                <button
+                    class="nav-item"
+                    data-view="settings"
+                    type="button">
+
+                    <span class="nav-icon">⚙</span>
+
+                    <span class="nav-label">
+                        Einstellungen
+                    </span>
+
+                </button>
+
+
+                <!-- CODE -->
+                <button
+                    class="nav-item"
+                    data-view="code"
+                    type="button">
+
+                    <span class="nav-icon">📝</span>
+
+                    <span class="nav-label">
+                        Code
+                    </span>
+
+                </button>
+
+            </nav>
+
+        </aside>
+
+
+
+        <!-- =====================================================
+             MAIN CONTENT
+             ===================================================== -->
+        <main id="main-content">
+
+
+            <!-- =================================================
+                 PAGE: AI ENGINEER
+                 ================================================= -->
+            <section
+                id="page-ai-engineer"
+                class="page active">
+
+
+                <!-- =============================================
+                     LEFT COLUMN
+                     WORKFLOW
+                     ============================================= -->
+                <aside id="workflow-col">
+
+                    <div class="workflow-header">
+
+                        <span class="panel-title">
+                            Workflow
+                        </span>
+
+                    </div>
+
+
+                    <ul id="workflow-steps">
+
+                        <li
+                            class="step"
+                            data-step="CREATED">
+
+                            <span class="step-icon">📋</span>
+                            <span>Created</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="ANALYZING">
+
+                            <span class="step-icon">🔍</span>
+                            <span>Analyzing</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="RAG_SEARCH">
+
+                            <span class="step-icon">📚</span>
+                            <span>RAG Search</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="GENERATING_ARTIFACTS">
+
+                            <span class="step-icon">⚡</span>
+                            <span>Generating Artifacts</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="WORKSPACE_READY">
+
+                            <span class="step-icon">📁</span>
+                            <span>Workspace Ready</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="RUNNING_AGENT">
+
+                            <span class="step-icon">🤖</span>
+                            <span>Running Agent</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="TESTING">
+
+                            <span class="step-icon">🧪</span>
+                            <span>Testing</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="REPAIRING">
+
+                            <span class="step-icon">🔧</span>
+                            <span>Repairing</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="VALIDATING">
+
+                            <span class="step-icon">✓</span>
+                            <span>Validating</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="SYNTHESIZING">
+
+                            <span class="step-icon">🔨</span>
+                            <span>Synthesizing</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="AWAITING_APPROVAL">
+
+                            <span class="step-icon">⏳</span>
+                            <span>Awaiting Approval</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="FLASHING">
+
+                            <span class="step-icon">⚡</span>
+                            <span>Flashing</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="FLASHED">
+
+                            <span class="step-icon">✓</span>
+                            <span>Flashed</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="COMPLETED">
+
+                            <span class="step-icon">✓</span>
+                            <span>Completed</span>
+
+                        </li>
+
+
+                        <li
+                            class="step"
+                            data-step="FAILED">
+
+                            <span class="step-icon">✕</span>
+                            <span>Failed</span>
+
+                        </li>
+
+                    </ul>
+
+                </aside>
+
+
+
+                <!-- =============================================
+                     CENTER COLUMN
+                     CHAT
+                     ============================================= -->
+                <section id="chat-col">
+
+
+                    <!-- CHAT HEADER -->
+                    <header id="chat-header">
+
+                        <div class="chat-header-main">
+
+                            <div class="chat-title">
+                                AI Engineer
+                            </div>
+
+                            <div class="chat-subtitle">
+                                Engineering Assistant
+                            </div>
+
+                        </div>
+
+
+                        <div
+                            class="chat-task"
+                            id="chat-task">
+                            —
+                        </div>
+
+                    </header>
+
+
+
+                    <!-- CHAT MESSAGES -->
+                    <div id="messages">
+
+                        <!--
+                            Messages werden dynamisch
+                            von app.js eingefügt.
+                        -->
+
+                    </div>
+
+
+
+                    <!-- CHAT INPUT -->
+                    <div id="input-area">
+
+                        <div id="file-chips"></div>
+
+                        <div id="input-row">
+
+                            <input
+                                type="file"
+                                id="chat-file-input"
+                                accept=".vhd,.vhdl,.zip,.md,.txt,image/*"
+                                multiple
+                                hidden>
+
+                            <button
+                                id="attach-btn"
+                                type="button"
+                                title="Dateien anhängen: VHDL (.vhd), ZIP, Markdown (.md), Text (.txt), Bilder">
+
+                                <span class="attach-icon">📎</span>
+
+                            </button>
+
+                            <textarea
+                                id="chat-input"
+                                rows="3"
+                                placeholder="Beschreibe deine technische Aufgabe … (ex = hochgeladene VHDL-Dateien ins Projekt integrieren)"></textarea>
+
+                            <button
+                                id="send-btn"
+                                type="button">
+
+                                <span>Send</span>
+                                <span class="send-icon">➤</span>
+
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                </section>
+
+
+
+                <!-- =============================================
+                     RIGHT COLUMN
+                     PROJECT / FILES / LOGS / TESTS
+                     ============================================= -->
+                <aside id="right-col">
+
+
+                    <!-- =========================================
+                         PROJECT
+                         ========================================= -->
+                    <section
+                        class="panel"
+                        id="project-panel">
+
+                        <div class="panel-title">
+                            Projekt
+                        </div>
+
+
+                        <div id="task-info">
+
+                            <div class="info-row">
+
+                                <span class="label">
+                                    Task ID
+                                </span>
+
+                                <span
+                                    class="value"
+                                    id="task-id">
+                                    —
+                                </span>
+
+                            </div>
+
+
+                            <div class="info-row">
+
+                                <span class="label">
+                                    Status
+                                </span>
+
+                                <span
+                                    class="value"
+                                    id="task-status">
+                                    —
+                                </span>
+
+                            </div>
+
+
+                            <div class="info-row">
+
+                                <span class="label">
+                                    Workspace
+                                </span>
+
+                                <span
+                                    class="value"
+                                    id="task-workspace">
+                                    —
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    </section>
+
+
+
+                    <!-- =========================================
+                         FILES
+                         ========================================= -->
+                    <section
+                        class="panel"
+                        id="files-panel">
+
+                        <div class="panel-title">
+                            Files
+                        </div>
+
+
+                        <div class="panel-content">
+
+                            <ul id="file-list">
+
+                                <li class="empty">
+                                    Noch keine Dateien generiert
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+                    </section>
+
+
+
+                    <!-- =========================================
+                         LOGS
+                         ========================================= -->
+                    <section
+                        class="panel"
+                        id="logs-panel">
+
+                        <div class="panel-title">
+                            Logs
+                        </div>
+
+
+                        <div
+                            id="log-list"
+                            class="panel-content">
+                        </div>
+
+                    </section>
+
+
+
+                    <!-- =========================================
+                         TESTS
+                         ========================================= -->
+                    <section
+                        class="panel"
+                        id="tests-panel">
+
+                        <div class="panel-title">
+                            Tests
+                        </div>
+
+
+                        <pre
+                            id="test-output"
+                            class="panel-content">Warte auf Testergebnisse...</pre>
+
+                    </section>
+
+                </aside>
+
+            </section>
+
+
+
+            <!-- =================================================
+                 PAGE: RAG
+                 ================================================= -->
+            <section
+                id="page-rag"
+                class="page">
+
+                <div id="rag-area">
+
+                    <h2>
+                        📚 RAG
+                    </h2>
+
+                    <p class="page-description">
+                        Technisches Wissen und Referenzmaterial
+                    </p>
+
+
+                    <div class="card">
+
+                        <h3>
+                            Neues Wissen hinzufügen
+                        </h3>
+
+
+                        <p class="hint">
+                            Lade Dokumente wie VHDL-Spezifikationen,
+                            Coding-Standards, PDFs oder Referenzdesigns
+                            hoch und indexiere sie anschließend.
+                        </p>
+
+
+                        <div class="row">
+
+                            <input
+                                type="file"
+                                id="rag-file-input"
+                                multiple>
+
+                        </div>
+
+
+                        <div class="row">
+
+                            <button
+                                id="rag-upload-btn"
+                                class="btn"
+                                type="button">
+
+                                Hochladen
+
+                            </button>
+
+
+                            <button
+                                id="rag-index-btn"
+                                class="btn"
+                                type="button">
+
+                                Wissen indexieren
+
+                            </button>
+
+                        </div>
+
+
+                        <div id="rag-status"></div>
+
+                    </div>
+
+
+                    <h3>
+                        Hinterlegte Dateien
+                    </h3>
+
+
+                    <ul id="rag-file-list">
+
+                        <li class="empty">
+                            Lade Dateien...
+                        </li>
+
+                    </ul>
+
+                </div>
+
+            </section>
+
+
+
+            <!-- =================================================
+                 PAGE: PROJECTS
+                 ================================================= -->
+            <section
+                id="page-projects"
+                class="page">
+
+                <div id="projects-area">
+
+                    <h2>
+                        📁 Projekte
+                    </h2>
+
+                    <p class="page-description">
+                        Vergangene Engineering-Aufgaben und Workspaces
+                    </p>
+
+
+                    <div class="row">
+
+                        <button
+                            id="project-new-btn"
+                            class="btn"
+                            type="button">
+
+                            ＋ Neues Projekt
+
+                        </button>
+
+                    </div>
+
+
+                    <ul id="project-list">
+
+                        <li class="empty">
+                            Lade Projekte...
+                        </li>
+
+                    </ul>
+
+
+                    <!-- PROJECT DETAIL -->
+
+                    <div
+                        id="project-detail"
+                        class="hidden">
+
+                        <div class="row">
+
+                            <button
+                                id="project-back-btn"
+                                class="btn"
+                                type="button">
+
+                                ← Zurück
+
+                            </button>
+
+                        </div>
+
+
+                        <h3 id="project-detail-title"></h3>
+
+
+                        <div
+                            id="project-detail-tools"
+                            class="project-tools"></div>
+
+
+                        <p id="project-detail-request"></p>
+
+
+                        <h4>
+                            Dateien
+                        </h4>
+
+
+                        <ul id="project-detail-files"></ul>
+
+
+                        <h4>
+                            Gedächtnis (memory.md)
+                        </h4>
+
+
+                        <pre
+                            id="project-detail-memory"></pre>
+
+
+                        <pre
+                            id="project-detail-content"></pre>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+
+            <!-- =================================================
+                 PAGE: CODE
+                 ================================================= -->
+            <section
+                id="page-code"
+                class="page">
+
+                <div id="code-area">
+
+                    <div class="code-header">
+
+                        <h2>
+                            📝 Code
+                        </h2>
+
+                        <div class="code-actions">
+
+                            <button
+                                id="code-new-btn"
+                                class="btn-small"
+                                type="button">
+
+                                + Neue Datei
+
+                            </button>
+
+                            <button
+                                id="code-save-btn"
+                                class="btn-small"
+                                type="button">
+
+                                Speichern
+
+                            </button>
+
+                            <button
+                                id="code-delete-btn"
+                                class="btn-small danger"
+                                type="button">
+
+                                Löschen
+
+                            </button>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="code-layout">
+
+
+                        <!-- FILE LIST -->
+                        <aside class="code-sidebar">
+
+                            <div class="code-sidebar-title">
+                                Dateien
+                            </div>
+
+                            <ul id="code-file-list">
+
+                                <li class="empty">
+                                    Keine Dateien vorhanden
+                                </li>
+
+                            </ul>
+
+                        </aside>
+
+
+                        <!-- EDITOR -->
+                        <main class="code-editor-area">
+
+                            <div class="code-editor-header">
+
+                                <span id="code-current-file" class="code-file-name">
+                                    Keine Datei ausgewählt
+                                </span>
+
+                                <span id="code-file-info" class="code-file-info">
+                                </span>
+
+                            </div>
+
+                            <textarea
+                                id="code-editor"
+                                class="code-editor"
+                                spellcheck="false"
+                                placeholder="-- Wähle eine Datei aus der Liste oder erstelle eine neue --"></textarea>
+
+                            <div id="code-status" class="code-status">
+                                Bereit
+                            </div>
+
+                        </main>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+
+            <!-- =================================================
+                 PAGE: SETTINGS
+                 ================================================= -->
+            <section
+                id="page-settings"
+                class="page">
+
+                <div id="settings-area">
+
+                    <h2>
+                        ⚙ Einstellungen
+                    </h2>
+
+                    <p class="page-description">
+                        Konfiguration von Sprachmodellen, Farbschema und Systemeinstellungen
+                    </p>
+
+
+                    <!-- ===== LLM / SPRACHMODELL ===== -->
+                    <div class="card">
+
+                        <h3>
+                            Sprachmodell (LLM)
+                        </h3>
+
+                        <p class="hint">
+                            Konfiguration des verwendeten Sprachmodells für die VHDL-Generierung.
+                        </p>
+
+                        <div class="settings-grid">
+
+                            <div class="settings-field">
+                                <label for="settings-llm-provider">Provider</label>
+                                <select id="settings-llm-provider">
+                                    <option value="ollama" selected>Ollama (lokal)</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="stub">Stub (Testmodus)</option>
+                                </select>
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-llm-model">Modell</label>
+                                <input
+                                    type="text"
+                                    id="settings-llm-model"
+                                    value="gpt-oss:120b-cloud"
+                                    placeholder="z.B. llama3, gpt-4o, claude-3">
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-llm-base-url">Base URL</label>
+                                <input
+                                    type="text"
+                                    id="settings-llm-base-url"
+                                    value="http://localhost:11434"
+                                    placeholder="http://localhost:11434">
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-llm-temperature">Temperatur</label>
+                                <input
+                                    type="number"
+                                    id="settings-llm-temperature"
+                                    value="0.1"
+                                    min="0"
+                                    max="2"
+                                    step="0.1">
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-llm-max-tokens">Max Tokens</label>
+                                <input
+                                    type="number"
+                                    id="settings-llm-max-tokens"
+                                    value="4096"
+                                    min="256"
+                                    max="32768"
+                                    step="256">
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- ===== FARBSCHEMA / THEME ===== -->
+                    <div class="card">
+
+                        <h3>
+                            Farbschema
+                        </h3>
+
+                        <p class="hint">
+                            Wechsle das Erscheinungsbild der Benutzeroberfläche.
+                        </p>
+
+                        <div class="settings-grid">
+
+                            <div class="settings-field">
+                                <label for="settings-theme">Theme</label>
+                                <select id="settings-theme">
+                                    <option value="dark" selected>Dunkel (Standard)</option>
+                                    <option value="light">Hell</option>
+                                    <option value="blueprint">Blueprint</option>
+                                </select>
+                            </div>
+
+                            <div class="settings-field">
+                                <label>Akzentfarbe</label>
+                                <div class="color-swatches">
+                                    <button class="swatch active" data-accent="#3f8ef0" title="Blau" style="background: #3f8ef0;"></button>
+                                    <button class="swatch" data-accent="#3fbd76" title="Grün" style="background: #3fbd76;"></button>
+                                    <button class="swatch" data-accent="#e0973c" title="Orange" style="background: #e0973c;"></button>
+                                    <button class="swatch" data-accent="#9c8cf5" title="Lila" style="background: #9c8cf5;"></button>
+                                    <button class="swatch" data-accent="#e5555f" title="Rot" style="background: #e5555f;"></button>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- ===== WORKFLOW ===== -->
+                    <div class="card">
+
+                        <h3>
+                            Workflow
+                        </h3>
+
+                        <p class="hint">
+                            Einstellungen für den Build- und Reparatur-Prozess.
+                        </p>
+
+                        <div class="settings-grid">
+
+                            <div class="settings-field">
+                                <label for="settings-max-repairs">Max. Reparatur-Iterationen</label>
+                                <input
+                                    type="number"
+                                    id="settings-max-repairs"
+                                    value="5"
+                                    min="1"
+                                    max="20">
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-default-fpga">Standard-FPGA</label>
+                                <select id="settings-default-fpga">
+                                    <option value="arty_s7_50" selected>Arty S7-50 (Spartan-7)</option>
+                                    <option value="gatemate_a1">GateMate A1</option>
+                                </select>
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-approval-timeout">Approval-Timeout (Sek.)</label>
+                                <input
+                                    type="number"
+                                    id="settings-approval-timeout"
+                                    value="300"
+                                    min="30"
+                                    max="3600"
+                                    step="30">
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- ===== TOOLS ===== -->
+                    <div class="card">
+
+                        <h3>
+                            EDA-Tools
+                        </h3>
+
+                        <p class="hint">
+                            Pfade und Verfügbakeit der verwendeten EDA-Werkzeuge.
+                        </p>
+
+                        <div class="settings-grid">
+
+                            <div class="settings-field">
+                                <label for="settings-vivado-binary">Vivado Binary</label>
+                                <input
+                                    type="text"
+                                    id="settings-vivado-binary"
+                                    value="/home/alex/Xilinx/2026.1/Vivado/bin/vivado"
+                                    placeholder="/path/to/vivado">
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-vivado-settings">Vivado Settings Script</label>
+                                <input
+                                    type="text"
+                                    id="settings-vivado-settings"
+                                    value="/home/alex/Xilinx/2026.1/Vivado/settings64.sh"
+                                    placeholder="/path/to/settings64.sh">
+                            </div>
+
+                            <div class="settings-field">
+                                <label for="settings-ghdl-binary">GHDL Binary</label>
+                                <input
+                                    type="text"
+                                    id="settings-ghdl-binary"
+                                    value="ghdl"
+                                    placeholder="ghdl">
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- ===== SPEICHERN ===== -->
+                    <div class="row" style="margin-top: 20px;">
+
+                        <button
+                            id="settings-save-btn"
+                            class="btn"
+                            type="button">
+
+                            Einstellungen speichern
+
+                        </button>
+
+                        <button
+                            id="settings-reset-btn"
+                            class="btn-small"
+                            type="button">
+
+                            Zurücksetzen
+
+                        </button>
+
+                        <span id="settings-status" class="rag-status" style="display: none;"></span>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+        </main>
+
     </div>
-    <div class="header-right">
-      <span class="connection" id="connection-indicator">
-        <span class="dot offline"></span> Disconnected
-      </span>
-    </div>
-  </header>
 
-  <div id="main-layout">
-    <!-- Left Sidebar: Workflow -->
-    <aside id="sidebar-left">
-      <h3>Workflow</h3>
-      <ul id="workflow-steps">
-        <li class="step" data-step="CREATED">📋 Created</li>
-        <li class="step" data-step="ANALYZING">🔍 Analyzing</li>
-        <li class="step" data-step="RAG_SEARCH">📚 RAG Search</li>
-        <li class="step" data-step="GENERATING_ARTIFACTS">⚡ Generating Artifacts</li>
-        <li class="step" data-step="WORKSPACE_READY">📁 Workspace Ready</li>
-        <li class="step" data-step="RUNNING_AGENT">🤖 Running Agent</li>
-        <li class="step" data-step="TESTING">🧪 Testing</li>
-        <li class="step" data-step="REPAIRING">🔧 Repairing</li>
-        <li class="step" data-step="VALIDATING">✓ Validating</li>
-        <li class="step" data-step="COMPLETED">✅ Completed</li>
-        <li class="step" data-step="FAILED">❌ Failed</li>
-      </ul>
-
-      <h3>Task Info</h3>
-      <div id="task-info">
-        <div class="info-row"><span class="label">Task ID</span><span class="value" id="task-id">—</span></div>
-        <div class="info-row"><span class="label">Status</span><span class="value" id="task-status">—</span></div>
-        <div class="info-row"><span class="label">Files</span><span class="value" id="task-files">—</span></div>
-        <div class="info-row"><span class="label">Path</span><span class="value" id="task-workspace" style="font-size:9px">—</span></div>
-      </div>
-    </aside>
-
-    <!-- Center: Chat -->
-    <main id="chat-area">
-      <div id="messages"></div>
-      <div id="input-area">
-        <textarea id="chat-input" rows="3" placeholder="Describe a task... e.g. 'Create an 8-bit VHDL counter with testbench'"></textarea>
-        <button id="send-btn">Send</button>
-      </div>
-    </main>
-
-    <!-- Right Sidebar: Files & Logs -->
-    <aside id="sidebar-right">
-      <div class="tab-bar">
-        <button class="tab active" data-tab="files">Files</button>
-        <button class="tab" data-tab="logs">Logs</button>
-        <button class="tab" data-tab="test-results">Tests</button>
-      </div>
-
-      <div class="tab-content active" id="tab-files">
-        <ul id="file-list">
-          <li class="empty">No files generated yet</li>
-        </ul>
-      </div>
-
-      <div class="tab-content" id="tab-logs">
-        <div id="log-list"></div>
-      </div>
-
-      <div class="tab-content" id="tab-test-results">
-        <pre id="test-output">Waiting for test results...</pre>
-      </div>
-    </aside>
-  </div>
 </div>
 
-<script src="/static/app.js"></script>
+
+<!-- =========================================================
+     JAVASCRIPT
+     ========================================================= -->
+
+<script src="/static/app.js?v=5"></script>
+
 </body>
 </html>

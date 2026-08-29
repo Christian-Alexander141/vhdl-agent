@@ -1,0 +1,20 @@
+# FPGA-Registry: bekannte Ziel-FPGAs für die Synthese.
+# Referenz-Daten für die Planung: GateMate A1 = CCGM1A1 (CologneChip),
+# Arty S7-50 = XC7S50CSGA324 (Digilent/Xilinx Spartan-7).
+fpgas:
+  gatemate_a1:
+    family: gatemate
+    part: CCGM1A1
+    toolchain: oss-cad-suite
+    wiki: fpga_gatemate
+    clock_hz: 100000000
+    programmer: openfpgaloader
+    board_name: gatemate_a1
+  arty_s7_50:
+    family: xilinx
+    part: xc7s50csga324-1
+    toolchain: vivado
+    wiki: fpga_xilinx_7series
+    clock_hz: 100000000
+    programmer: vivado
+    board_name: arty_s7

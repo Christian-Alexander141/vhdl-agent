@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class SubprocessOpenCodeService(OpenCodeService):
-    def __init__(self, binary: str = "opencode", default_timeout: int = 300):
+    def __init__(self, binary: str = "opencode", default_timeout: int = 600):
         self._binary = binary
         self._default_timeout = default_timeout
 
@@ -66,7 +66,7 @@ class DockerOpenCodeService(OpenCodeService):
         docker_workspace: str = "/workspace",
         host_workspace: str | None = None,
         binary: str = "opencode",
-        default_timeout: int = 300,
+        default_timeout: int = 600,
     ):
         self._container = container
         self._docker_workspace = docker_workspace
@@ -164,4 +164,10 @@ class DockerOpenCodeService(OpenCodeService):
             return str(Path(self._docker_workspace) / relative_path)
         if self._host_workspace and host_path == self._host_workspace:
             return self._docker_workspace
+        logger.error(
+            "Project path %s is not under configured host_workspace %s. "
+            "This will cause incorrect container paths. "
+            "Please ensure opencode.docker_host_workspace matches workspace.base_dir.",
+            project_path, self._host_workspace
+        )
         return self._docker_workspace

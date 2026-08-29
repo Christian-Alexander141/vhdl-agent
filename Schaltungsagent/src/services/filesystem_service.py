@@ -72,6 +72,11 @@ class LocalFileSystemService(FileSystemService):
     def workspace_path(self, task_id: str) -> str:
         return str(self._base_dir / task_id)
 
+    def list_workspaces(self) -> list[str]:
+        if not self._base_dir.is_dir():
+            return []
+        return sorted(e.name for e in self._base_dir.iterdir() if e.is_dir())
+
     def cleanup_expired(self, force: bool = False) -> int:
         if not self._base_dir.exists():
             return 0
