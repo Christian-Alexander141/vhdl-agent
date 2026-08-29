@@ -29,3 +29,8 @@ class FileSystemService(ABC):
     @abstractmethod
     def workspace_path(self, task_id: str) -> str:
         ...
+
+    @abstractmethod
+    def list_workspaces(self) -> list[str]:
+        """Listet die Namen aller vorhandenen Projekt-Workspaces."""
+        ...

@@ -25,12 +25,18 @@ workspace:
 
 opencode:
   binary: opencode
-  default_timeout: 300
+  default_timeout: 4000
   max_repair_iterations: 5
-  use_docker: true
-  docker_container: opencode-agent
-  docker_workspace: /workspace
-  docker_host_workspace: ../opencode
+  use_docker: false
+
+vivado:
+  binary: /home/alex/Xilinx/2026.1/Vivado/bin/vivado
+  settings_script: /home/alex/Xilinx/2026.1/Vivado/settings64.sh
+  timeout_seconds: 600
+
+flash:
+  method: vivado_jtag
+  timeout_seconds: 120
 
 dashboard:
   host: 0.0.0.0
@@ -49,3 +55,12 @@ domains:
     - ./src/domain_plugins
   paths:
     vhdl: ./src/domain_plugins/vhdl
+
+eda_tools:
+  modelsim_binary: ~/.wine/drive_c/intelFPGA/18.1/modelsim_ase/win32aloem/vsim.exe
+  modelsim_wine: wine
+
+synthesis:
+  enabled: true
+  default_fpga: arty_s7_50
+  timeout_seconds: 120

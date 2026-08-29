@@ -7,6 +7,7 @@ SUPPORTED_TEXT_SUFFIXES = {
     ".txt", ".md", ".mdx", ".json", ".csv", ".html", ".xml",
     ".yml", ".yaml", ".log", ".vhd", ".vhdl",
 }
+SUPPORTED_PDF_SUFFIXES = {".pdf"}
 
 
 class DocumentLoader:
@@ -16,17 +17,41 @@ class DocumentLoader:
             return []
         documents = []
         for file_path in sorted(source_dir.rglob("*")):
-            if not file_path.is_file() or file_path.suffix.lower() not in SUPPORTED_TEXT_SUFFIXES:
+            if not file_path.is_file():
                 continue
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="ignore")
-                if content.strip():
-                    documents.append(
-                        Document(
-                            page_content=content,
-                            metadata={"source": str(file_path.relative_to(source_dir))},
-                        )
+            suffix = file_path.suffix.lower()
+            if suffix in SUPPORTED_TEXT_SUFFIXES:
+                try:
+                    content = file_path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+            elif suffix in SUPPORTED_PDF_SUFFIXES:
+                try:
+                    content = self._extract_pdf_text(file_path)
+                except Exception:
+                    continue
+            else:
+                continue
+            if content.strip():
+                documents.append(
+                    Document(
+                        page_content=content,
+                        metadata={"source": str(file_path.relative_to(source_dir))},
                     )
+                )
+        return documents
+
+    @staticmethod
+    def _extract_pdf_text(file_path: Path) -> str:
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            return ""
+        reader = PdfReader(str(file_path))
+        parts = []
+        for page in reader.pages:
+            try:
+                parts.append(page.extract_text() or "")
             except Exception:
                 continue
-        return documents
+        return "\n\n".join(parts)

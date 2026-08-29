@@ -1,0 +1,1177 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vivado & Arty S7-50 Setup-Dokumentation</title>
+    <style>
+        :root {
+            --primary: #1e40af;
+            --primary-dark: #1e3a8a;
+            --secondary: #64748b;
+            --background: #f8fafc;
+            --surface: #ffffff;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --text-light: #64748b;
+            --code-bg: #1e293b;
+            --code-text: #e2e8f0;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            background-color: var(--background);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        header {
+            text-align: center;
+            padding: 2rem 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 2rem;
+        }
+        
+        header h1 {
+            color: var(--primary);
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        header p {
+            color: var(--text-light);
+            font-size: 1.1rem;
+        }
+        
+        nav {
+            background: var(--surface);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        nav ul {
+            display: flex;
+            flex-wrap: wrap;
+            list-style: none;
+            gap: 0.5rem;
+            padding: 1rem;
+            overflow-x: auto;
+        }
+        
+        nav a {
+            display: block;
+            padding: 0.5rem 1rem;
+            text-decoration: none;
+            color: var(--text);
+            border-radius: 0.375rem;
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+        
+        nav a:hover {
+            background: var(--primary);
+            color: white;
+        }
+        
+        main {
+            background: var(--surface);
+            border-radius: 0.5rem;
+            padding: 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        section {
+            margin-bottom: 3rem;
+        }
+        
+        section:last-child {
+            margin-bottom: 0;
+        }
+        
+        h2 {
+            color: var(--primary);
+            font-size: 1.75rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary);
+        }
+        
+        h3 {
+            color: var(--primary-dark);
+            font-size: 1.25rem;
+            margin: 1.5rem 0 1rem 0;
+        }
+        
+        h4 {
+            color: var(--secondary);
+            font-size: 1.1rem;
+            margin: 1rem 0 0.75rem 0;
+        }
+        
+        p {
+            margin-bottom: 1rem;
+        }
+        
+        ul, ol {
+            margin-bottom: 1rem;
+            padding-left: 2rem;
+        }
+        
+        li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .info-box {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin: 1rem 0;
+        }
+        
+        .success-box {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-left: 4px solid var(--success);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin: 1rem 0;
+        }
+        
+        .warning-box {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border-left: 4px solid var(--warning);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin: 1rem 0;
+        }
+        
+        .error-box {
+            background: linear-gradient(135deg, #fee2e2 0%, #fca5a5 100%);
+            border-left: 4px solid var(--danger);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin: 1rem 0;
+        }
+        
+        .code-block {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            overflow-x: auto;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+            margin: 1rem 0;
+        }
+        
+        .code-block .comment {
+            color: #64748b;
+        }
+        
+        .code-block .keyword {
+            color: #f472b6;
+        }
+        
+        .code-block .string {
+            color: #34d399;
+        }
+        
+        .code-block .number {
+            color: #60a5fa;
+        }
+        
+        .code-block .function {
+            color: #a5b4fc;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: var(--surface);
+            border-radius: 0.375rem;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            background: var(--primary);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:last-child td {
+            border-bottom: none;
+        }
+        
+        tr:nth-child(even) {
+            background: #f8fafc;
+        }
+        
+        .resource-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1.25rem;
+            margin: 1rem 0;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        
+        .resource-card h4 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .resource-card p {
+            color: var(--text-light);
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .resource-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            transition: background 0.2s;
+        }
+        
+        .resource-link:hover {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .resource-link::before {
+            content: "🔗";
+        }
+        
+        .step {
+            background: #f8fafc;
+            border-left: 4px solid var(--primary);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin: 1rem 0;
+        }
+        
+        .step-number {
+            background: var(--primary);
+            color: white;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 1rem;
+            font-size: 0.875rem;
+        }
+        
+        .step h4 {
+            display: inline;
+            margin: 0;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-light);
+            font-size: 0.875rem;
+            border-top: 1px solid var(--border);
+            margin-top: 2rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            header h1 {
+                font-size: 1.75rem;
+            }
+            
+            nav ul {
+                justify-content: center;
+            }
+            
+            main {
+                padding: 1rem;
+            }
+        }
+        
+        @media print {
+            nav {
+                display: none;
+            }
+            
+            body {
+                background: white;
+            }
+            
+            .container {
+                max-width: 100%;
+                padding: 0;
+            }
+            
+            main {
+                box-shadow: none;
+                padding: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <ul>
+            <li><a href="#einleitung">Einleitung</a></li>
+            <li><a href="#systemvoraussetzungen">Systemvoraussetzungen</a></li>
+            <li><a href="#vivado-startprobleme">Vivado Startprobleme</a></li>
+            <li><a href="#board-files">Board Files installieren</a></li>
+            <li><a href="#projekt-erstellung">Projekt-Erstellung</a></li>
+            <li><a href="#technische-erklaerungen">Technische Erklärungen</a></li>
+            <li><a href="#ressourcen">Ressourcen</a></li>
+            <li><a href="#troubleshooting">Troubleshooting</a></li>
+            <li><a href="#naechste-schritte">Nächste Schritte</a></li>
+        </ul>
+    </nav>
+    
+    <div class="container">
+        <header>
+            <h1>🚀 Vivado & Arty S7-50 Setup-Dokumentation</h1>
+            <p>Komplette Anleitung für die Einrichtung von Vivado 2026.1 mit dem Digilent Arty S7-50 FPGA-Board unter Linux Mint</p>
+        </header>
+        
+        <main>
+            <section id="einleitung">
+                <h2>📋 Einleitung</h2>
+                <p>Diese Dokumentation fasst alle durchgeführten Änderungen und Konfigurationen zusammen, die notwendig waren, um <strong>Vivado 2026.1</strong> erfolgreich mit dem <strong>Digilent Arty S7-50</strong> FPGA-Board unter <strong>Linux Mint</strong> zum Laufen zu bringen.</p>
+                
+                <div class="info-box">
+                    <strong>💡 Ziel:</strong> Ein funktionierendes FPGA-Entwicklungsumfeld aufbauen, um Verilog-Designs auf dem Arty S7-50 zu implementieren und zu testen.
+                </div>
+                
+                <h3>📊 Übersicht der Änderungen</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Bereich</th>
+                            <th>Problem</th>
+                            <th>Lösung</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Vivado Start</td>
+                            <td>Vivado startet nicht aus dem Menü</td>
+                            <td>LD_LIBRARY_PATH in .desktop-Datei hinzufügen</td>
+                            <td>✅ Gelöst</td>
+                        </tr>
+                        <tr>
+                            <td>Board-Erkennung</td>
+                            <td>Arty S7-50 nicht in Board-Liste</td>
+                            <td>Digilent Board Files installieren</td>
+                            <td>✅ Gelöst</td>
+                        </tr>
+                        <tr>
+                            <td>Projekt-Erstellung</td>
+                            <td>Falsche Part-Auswahl</td>
+                            <td>Board statt Part auswählen</td>
+                            <td>✅ Gelöst</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+            
+            <section id="systemvoraussetzungen">
+                <h2>💻 Systemvoraussetzungen</h2>
+                <p>Die folgenden Komponenten wurden verwendet:</p>
+                
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Komponente</th>
+                            <th>Version/Spezifikation</th>
+                            <th>Hinweise</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Betriebssystem</td>
+                            <td>Linux Mint (Ubuntu-basiert)</td>
+                            <td>Kompatibel mit Vivado 2026.1</td>
+                        </tr>
+                        <tr>
+                            <td>Vivado</td>
+                            <td>2026.1 (Build 1787339248861)</td>
+                            <td>Installationspfad: <code>/home/alex/Xilinx/2026.1/</code></td>
+                        </tr>
+                        <tr>
+                            <td>FPGA-Board</td>
+                            <td>Digilent Arty S7-50</td>
+                            <td>FPGA: XC7S50CSGA324-1</td>
+                        </tr>
+                        <tr>
+                            <td>USB-Kabel</td>
+                            <td>Micro-USB (Datenkabel)</td>
+                            <td>Kein reines Ladekabel verwenden!</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+            
+            <section id="vivado-startprobleme">
+                <h2>⚙️ Vivado Startprobleme & Lösung</h2>
+                
+                <h3>Problem: Vivado startet nicht aus dem Startmenü</h3>
+                <p>Nach der Installation von Vivado 2026.1 konnte das Programm nicht über das Startmenü gestartet werden. Der Menüeintrag existierte, aber der Klick hatte keine Wirkung.</p>
+                
+                <div class="error-box">
+                    <strong>🔍 Fehleranalyse:</strong> Vivado benötigt spezifische Bibliotheken, die sich in <code>/home/alex/Xilinx/2026.1/Vivado/lib/lnx64.o/Ubuntu/24/</code> befinden. Diese wurden nicht automatisch in den Library Path aufgenommen.
+                </div>
+                
+                <h3>Lösung: LD_LIBRARY_PATH in .desktop-Datei anpassen</h3>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <h4>Aktuellen Inhalt der .desktop-Datei prüfen</h4>
+                    <p>Die Originaldatei enthielt:</p>
+                    <div class="code-block">
+[Desktop Entry]<br>
+Encoding=UTF-8<br>
+Type=Application<br>
+Name=Vivado 2026.1<br>
+Comment=Vivado 2026.1<br>
+Icon=/home/alex/Xilinx/2026.1/Vivado/doc/images/vivado_logo.png<br>
+<b>Exec=/home/alex/Xilinx/2026.1/Vivado/bin/vivado</b>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <h4>.desktop-Datei bearbeiten</h4>
+                    <p>Die <code>Exec</code>-Zeile wurde angepasst, um die Umgebungsvariable <code>LD_LIBRARY_PATH</code> zu setzen:</p>
+                    <div class="code-block">
+Exec=env LD_LIBRARY_PATH=/home/alex/Xilinx/2026.1/Vivado/lib/lnx64.o/Ubuntu/24:$LD_LIBRARY_PATH /home/alex/Xilinx/2026.1/Vivado/bin/vivado
+                    </div>
+                    <p><strong>Befehl zum Bearbeiten:</strong></p>
+                    <div class="code-block">
+nano "/home/alex/.local/share/applications/Vivado 2026.1_1787339248861.desktop"
+                    </div>
+                    <p><strong>Speichern:</strong> STRG + O → Enter → STRG + X</p>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <h4>Menü aktualisieren</h4>
+                    <p>Nach dem Speichern der Änderungen:</p>
+                    <ul>
+                        <li>Normalerweise erkennt Linux Mint die Änderung automatisch</li>
+                        <li>Falls nicht: Ab- und wieder anmelden</li>
+                        <li>Alternativ: <code>update-desktop-database ~/.local/share/applications/</code></li>
+                    </ul>
+                </div>
+                
+                <div class="success-box">
+                    <strong>✅ Ergebnis:</strong> Vivado 2026.1 startet nun erfolgreich über das Startmenü.
+                </div>
+                
+                <h3>🔍 Warum war diese Änderung notwendig?</h3>
+                <p>Vivado ist eine komplexe Anwendung, die auf viele dynamische Bibliotheken (.so-Dateien) zugreift. Unter Linux werden diese Bibliotheken über die Umgebungsvariable <code>LD_LIBRARY_PATH</code> gefunden.</p>
+                <p>Xilinx installiert seine Bibliotheken in einem spezifischen Verzeichnis (<code>lnx64.o/Ubuntu/24/</code>), das nicht standardmäßig in der Suchpfad für Bibliotheken enthalten ist. Durch das Setzen von <code>LD_LIBRARY_PATH</code> vor dem Start von Vivado wird dieses Verzeichnis in den Suchpfad aufgenommen.</p>
+                
+                <div class="resource-card">
+                    <h4>📚 Weiterführende Informationen zu LD_LIBRARY_PATH</h4>
+                    <p>Die <code>LD_LIBRARY_PATH</code> ist eine Umgebungsvariable unter Unix-ähnlichen Systemen, die den Lader anweist, wo er nach Shared Libraries suchen soll.</p>
+                    <a href="https://man7.org/linux/man-pages/man8/ld.so.8.html" class="resource-link">Linux man-pages: ld.so(8) - Dynamic linker/loader</a>
+                    <a href="https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html" class="resource-link">TLDP: Shared Libraries HOWTO</a>
+                </div>
+            </section>
+            
+            <section id="board-files">
+                <h2>📥 Digilent Board Files installieren</h2>
+                
+                <h3>Problem: Arty S7-50 nicht in der Board-Liste</h3>
+                <p>Bei der Projekterstellung in Vivado wurde das Arty S7-50 Board nicht in der Board-Liste angezeigt. Stattdessen wurden nur generische FPGA-Parts wie <code>xc7s50csga324-1</code> angezeigt.</p>
+                
+                <div class="info-box">
+                    <strong>💡 Hintergrund:</strong> Vivado kennt zwar die Spartan-7 FPGA-Familie, aber ohne die spezifischen Board Files von Digilent fehlen:
+                    <ul>
+                        <li>Board-spezifische Pin-Belegungen</li>
+                        <li>Vorgefertigte Constraints</li>
+                        <li>Board-spezifische IP-Cores</li>
+                        <li>Einfache Board-Auswahl statt manueller Part-Auswahl</li>
+                    </ul>
+                </div>
+                
+                <h3>Lösung 1: Board Files über Vivado Refresh herunterladen (empfohlen)</h3>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <h4>Projekt-Erstellung starten</h4>
+                    <p>In Vivado: <strong>Create Project</strong> → <strong>Next</strong></p>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <h4>Board-Auswahl öffnen</h4>
+                    <p>Im Fenster <strong>Default Part</strong> zum Reiter <strong>Boards</strong> wechseln.</p>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <h4>Refresh-Button klicken</h4>
+                    <p>Unten links im Fenster befindet sich ein blauer Kreispfeil (↻). Auf diesen klicken, um die Board-Dateien aus dem Git-Repository herunterzuladen.</p>
+                    <div class="info-box">
+                        <strong>📝 Hinweis:</strong> Vivado zeigt oben den Hinweis: "To fetch the latest available boards from git repository, click on 'Refresh' button."
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <h4>Arty S7-50 auswählen</h4>
+                    <p>Nach dem Refresh im Suchfeld <strong>Arty S7</strong> eingeben. Das Board sollte nun angezeigt werden:</p>
+                    <ul>
+                        <li><strong>Vendor:</strong> Digilent</li>
+                        <li><strong>Display Name:</strong> Arty S7-50</li>
+                        <li><strong>Part:</strong> xc7s50csga324-1</li>
+                    </ul>
+                </div>
+                
+                <h3>Lösung 2: Manuelle Installation der Board Files (Fallback)</h3>
+                <p>Falls der Refresh-Button nicht funktioniert, können die Board Files manuell installiert werden.</p>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <h4>Repository klonen</h4>
+                    <div class="code-block">
+git clone https://github.com/Digilent/vivado-boards.git
+cd vivado-boards
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <h4>Board Files kopieren</h4>
+                    <p>Die Board Files müssen in das Vivado-Board-Verzeichnis kopiert werden:</p>
+                    <div class="code-block">
+# Standardpfad für Vivado Board Files
+BOARD_DIR="/home/alex/Xilinx/2026.1/Vivado/data/boards/board_files"
+
+# Board Files kopieren
+sudo cp -r new/board_files/* "$BOARD_DIR/"
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <h4>Vivado neustarten</h4>
+                    <p>Nach der Installation Vivado neu starten. Das Arty S7-50 sollte nun in der Board-Liste angezeigt werden.</p>
+                </div>
+                
+                <div class="success-box">
+                    <strong>✅ Ergebnis:</strong> Das Arty S7-50 Board wird nun in Vivado erkannt und kann für neue Projekte ausgewählt werden.
+                </div>
+                
+                <h3>🔍 Warum sind Board Files notwendig?</h3>
+                <p>FPGA-Boards wie das Arty S7-50 haben spezifische Hardware-Konfigurationen:</p>
+                <ul>
+                    <li><strong>Pin-Belegung:</strong> Welche Pins des FPGA mit welchen Board-Komponenten (LEDs, Schalter, USB, etc.) verbunden sind</li>
+                    <li><strong>Constraints:</strong> Timing- und Platzierungs-Constraints für optimale Performance</li>
+                    <li><strong>IP-Cores:</strong> Vorgefertigte IP-Blöcke für Board-spezifische Komponenten (z.B. USB-PHY)</li>
+                    <li><strong>Board-Definition:</strong> Automatische Erkennung von Board-Features</li>
+                </ul>
+                <p>Ohne diese Informationen müsste man alle Pin-Belegungen manuell definieren, was fehleranfällig und zeitaufwendig ist.</p>
+                
+                <div class="resource-card">
+                    <h4>📚 Offizielle Digilent Board Files</h4>
+                    <p>Digilent stellt die Board Files in einem offiziellen GitHub-Repository bereit, das für Vivado 2015.x und neuer geeignet ist.</p>
+                    <a href="https://github.com/Digilent/vivado-boards" class="resource-link">Digilent vivado-boards Repository</a>
+                    <a href="https://digilent.com/reference/_media/reference/programmable-logic/arty-s7/arty-s7-50-master-xdc.zip" class="resource-link">Arty S7-50 Master XDC Constraints</a>
+                </div>
+            </section>
+            
+            <section id="projekt-erstellung">
+                <h2>📁 Vivado Projekt-Erstellung für Arty S7-50</h2>
+                
+                <h3>Schritt-für-Schritt Anleitung</h3>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <h4>Neues Projekt erstellen</h4>
+                    <p><strong>Create Project</strong> → <strong>Next</strong></p>
+                    <ul>
+                        <li><strong>Project name:</strong> <code>ArtyS7_Test</code> (oder beliebiger Name)</li>
+                        <li><strong>Project location:</strong> <code>/home/alex/FPGA/ArtyS7_Test/</code></li>
+                    </ul>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <h4>Projekt-Typ auswählen</h4>
+                    <ul>
+                        <li><strong>Project Type:</strong> <code>RTL Project</code></li>
+                        <li><strong>Do not specify sources at this time:</strong> ✅ Häkchen setzen</li>
+                    </ul>
+                    <p><strong>Begründung:</strong> Für den ersten Test (LED-Blinken) benötigen wir keine vordefinierten Sources. Wir erstellen die Verilog-Datei später manuell.</p>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <h4>Board auswählen</h4>
+                    <p>Im Fenster <strong>Default Part</strong>:</p>
+                    <ul>
+                        <li>Zum Reiter <strong>Boards</strong> wechseln</li>
+                        <li>Im Suchfeld <strong>Arty S7-50</strong> eingeben</li>
+                        <li>Das Board <strong>Digilent Arty S7-50</strong> auswählen</li>
+                        <li><strong>Part:</strong> <code>xc7s50csga324-1</code> (wird automatisch gesetzt)</li>
+                    </ul>
+                    <div class="warning-box">
+                        <strong>⚠️ Wichtig:</strong> Nicht den generischen Part <code>xc7s50csga324-1</code> aus der Part-Liste auswählen! Dies würde die Board-spezifischen Einstellungen überspringen.
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <h4>Projekt Zusammenfassung</h4>
+                    <p>Im letzten Fenster die Einstellungen überprüfen:</p>
+                    <ul>
+                        <li><strong>Board:</strong> Arty S7-50</li>
+                        <li><strong>Part:</strong> xc7s50csga324-1</li>
+                        <li><strong>Vendor:</strong> Digilent</li>
+                    </ul>
+                    <p>Mit <strong>Finish</strong> das Projekt erstellen.</p>
+                </div>
+                
+                <div class="success-box">
+                    <strong>✅ Ergebnis:</strong> Ein neues Vivado-Projekt für das Arty S7-50 Board wurde erfolgreich erstellt.
+                </div>
+                
+                <h3>🔍 Was wurde durch die Board-Auswahl automatisch konfiguriert?</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Konfiguration</th>
+                            <th>Wert</th>
+                            <th>Bedeutung</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>FPGA Part</td>
+                            <td>xc7s50csga324-1</td>
+                            <td>Spartan-7 FPGA mit 50K Logikzellen, 324-Pin CSGA-Package</td>
+                        </tr>
+                        <tr>
+                            <td>Board Part</td>
+                            <td>Arty S7-50</td>
+                            <td>Digilent Board-Definition</td>
+                        </tr>
+                        <tr>
+                            <td>Target Language</td>
+                            <td>Verilog</td>
+                            <td>Standard-Sprache für RTL-Design</td>
+                        </tr>
+                        <tr>
+                            <td>Simulator</td>
+                            <td>XSim</td>
+                            <td>Xilinx Simulator für Testbenches</td>
+                        </tr>
+                        <tr>
+                            <td>Synthesizer</td>
+                            <td>Vivado Synthesizer</td>
+                            <td>Für die Logiksynthese</td>
+                        </tr>
+                        <tr>
+                            <td>Implementation</td>
+                            <td>Vivado Implementation</td>
+                            <td>Für Place & Route</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+            
+            <section id="technische-erklaerungen">
+                <h2>🔬 Technische Erklärungen</h2>
+                
+                <h3>1. Warum LD_LIBRARY_PATH für Vivado?</h3>
+                <p>Vivado besteht aus Hunderten von Shared Libraries (.so-Dateien), die in verschiedenen Verzeichnissen liegen:</p>
+                <ul>
+                    <li><code>/home/alex/Xilinx/2026.1/Vivado/lib/lnx64.o/</code> - Hauptbibliotheken</li>
+                    <li><code>/home/alex/Xilinx/2026.1/Vivado/lib/lnx64.o/Ubuntu/24/</code> - Ubuntu 24-spezifische Bibliotheken</li>
+                    <li><code>/home/alex/Xilinx/2026.1/Vivado/lib/lnx64.o/Default/</code> - Standard-Bibliotheken</li>
+                </ul>
+                <p>Der Linux Dynamic Linker (<code>ld.so</code>) sucht standardmäßig in:</p>
+                <ul>
+                    <li><code>/lib</code></li>
+                    <li><code>/usr/lib</code></li>
+                    <li><code>/lib64</code></li>
+                    <li><code>/usr/lib64</code></li>
+                    <li>Pfade in <code>/etc/ld.so.conf</code></li>
+                </ul>
+                <p>Da die Xilinx-Bibliotheken in einem benutzerdefinierten Pfad liegen, müssen wir diesen explizit angeben.</p>
+                
+                <div class="code-block">
+# Anzeigen der aktuellen LD_LIBRARY_PATH
+echo $LD_LIBRARY_PATH
+
+# Anzeigen der von Vivado benötigten Bibliotheken
+ldd /home/alex/Xilinx/2026.1/Vivado/bin/vivado | head -20
+                </div>
+                
+                <h3>2. Warum Board Files statt generischer Parts?</h3>
+                <p>Ein FPGA-Board ist mehr als nur der FPGA-Chip. Das Arty S7-50 enthält:</p>
+                <ul>
+                    <li><strong>FPGA:</strong> XC7S50CSGA324-1 (Spartan-7)</li>
+                    <li><strong>Speicher:</strong> 512 MB DDR3L</li>
+                    <li><strong>Flash:</strong> 16 MB Quad-SPI Flash</li>
+                    <li><strong>USB:</strong> USB-JTAG für Programmierung und Debugging</li>
+                    <li><strong>LEDs:</strong> 4x Benutzer-LEDs, 2x RGB-LEDs</li>
+                    <li><strong>Schalter:</strong> 4x Dip-Schalter, 4x Drucktaster</li>
+                    <li><strong>UART:</strong> USB-UART Bridge (FT2232H)</li>
+                    <li><strong>Pmod:</strong> 4x Pmod-Ports (2x 6-Pin, 2x 12-Pin)</li>
+                    <li><strong>Arduino:</strong> Arduino-compatible Header</li>
+                    <li><strong>Clock:</strong> 100 MHz System-Clock</li>
+                </ul>
+                <p>Die Board Files enthalten die genaue Pin-Belegung für all diese Komponenten, sodass Vivado automatisch weiß, welche FPGA-Pins mit welchen Board-Features verbunden sind.</p>
+                
+                <h3>3. Unterschied zwischen Part und Board in Vivado</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Aspekt</th>
+                            <th>Part (z.B. xc7s50csga324-1)</th>
+                            <th>Board (z.B. Arty S7-50)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Definition</td>
+                            <td>Nur der FPGA-Chip</td>
+                            <td>Komplettes Board mit FPGA und Peripherie</td>
+                        </tr>
+                        <tr>
+                            <td>Pin-Belegung</td>
+                            <td>Manuell definieren</td>
+                            <td>Automatisch vordefiniert</td>
+                        </tr>
+                        <tr>
+                            <td>Constraints</td>
+                            <td>Manuell erstellen</td>
+                            <td>Board-spezifische Constraints enthalten</td>
+                        </tr>
+                        <tr>
+                            <td>IP-Cores</td>
+                            <td>Generische IP-Cores</td>
+                            <td>Board-spezifische IP-Cores verfügbar</td>
+                        </tr>
+                        <tr>
+                            <td>Einfachheit</td>
+                            <td>❌ Komplexer</td>
+                            <td>✅ Einfacher</td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <h3>4. Vivado Projekt-Struktur</h3>
+                <p>Ein Vivado RTL-Projekt hat folgende Struktur:</p>
+                <div class="code-block">
+ArtyS7_Test/
+├── ArtyS7_Test.srcs/
+│   ├── sources_1/
+│   │   └── new/          # Hier kommen Verilog/VHDL-Dateien hin
+│   └── constrs_1/
+│       └── new/          # Hier kommen Constraint-Dateien (.xdc) hin
+├── ArtyS7_Test.sim/
+│   └── sim_1/
+│       └── new/          # Hier kommen Testbench-Dateien hin
+└── ArtyS7_Test.xpr      # Projekt-Datei
+                </div>
+            </section>
+            
+            <section id="ressourcen">
+                <h2>📚 Ressourcen & Weiterführende Links</h2>
+                
+                <h3>Offizielle Dokumentation</h3>
+                
+                <div class="resource-card">
+                    <h4>Xilinx Vivado Dokumentation</h4>
+                    <p>Offizielle Dokumentation zu Vivado, inklusive Tutorials und Referenzhandbüchern.</p>
+                    <a href="https://www.xilinx.com/support/documentation/sw_manuals/xilinx2026_1/ug893-vivado-tutorial-getting-started-with-ip-integration.pdf" class="resource-link">Vivado Getting Started Tutorial</a>
+                    <a href="https://www.xilinx.com/support/documentation/sw_manuals/xilinx2026_1/ug973-vivado-release-notes-install-license.pdf" class="resource-link">Vivado Installation Guide</a>
+                </div>
+                
+                <div class="resource-card">
+                    <h4>Digilent Arty S7-50 Dokumentation</h4>
+                    <p>Offizielle Dokumentation und Referenzdesigns für das Arty S7-50 Board.</p>
+                    <a href="https://digilent.com/reference/programmable-logic/arty-s7/start" class="resource-link">Arty S7 Getting Started Guide</a>
+                    <a href="https://digilent.com/reference/_media/reference/programmable-logic/arty-s7/arty-s7-rm.pdf" class="resource-link">Arty S7 Reference Manual</a>
+                    <a href="https://digilent.com/reference/_media/reference/programmable-logic/arty-s7/arty-s7-schematic.pdf" class="resource-link">Arty S7 Schematic</a>
+                </div>
+                
+                <div class="resource-card">
+                    <h4>Digilent GitHub Repositories</h4>
+                    <p>Offizielle GitHub-Repositories mit Board Files, Beispielprojekten und IP-Cores.</p>
+                    <a href="https://github.com/Digilent/vivado-boards" class="resource-link">vivado-boards - Board Files für alle Digilent Boards</a>
+                    <a href="https://github.com/Digilent/Arty-S7" class="resource-link">Arty-S7 - Beispielprojekte und Demos</a>
+                </div>
+                
+                <h3>Tutorials & Lernressourcen</h3>
+                
+                <div class="resource-card">
+                    <h4>FPGA Tutorials</h4>
+                    <p>Kostenlose Tutorials für den Einstieg in FPGA-Entwicklung.</p>
+                    <a href="https://nandland.com/" class="resource-link">Nandland - FPGA Tutorials für Anfänger</a>
+                    <a href="https://www.fpga4student.com/" class="resource-link">FPGA4Student - Verilog Tutorials</a>
+                    <a href="https://www.asic-world.com/verilog/" class="resource-link">ASIC World - Verilog Referenz</a>
+                </div>
+                
+                <div class="resource-card">
+                    <h4>Verilog Lernressourcen</h4>
+                    <p>Bücher und Online-Kurse für Verilog.</p>
+                    <a href="https://www.amazon.com/Verilog-Quickstart-Guide-Digital-Synthesis/dp/1497397496" class="resource-link">Verilog Quickstart - Buch für schnellen Einstieg</a>
+                    <a href="https://www.coursera.org/learn/fpga-design" class="resource-link">Coursera: FPGA Design for Embedded Systems</a>
+                </div>
+                
+                <h3>Community & Support</h3>
+                
+                <div class="resource-card">
+                    <h4>Foren & Communities</h4>
+                    <p>Hilfe und Diskussionen mit anderen FPGA-Entwicklern.</p>
+                    <a href="https://forums.xilinx.com/" class="resource-link">Xilinx Foren</a>
+                    <a href="https://forum.digilentinc.com/" class="resource-link">Digilent Forum</a>
+                    <a href="https://www.reddit.com/r/FPGA/" class="resource-link">Reddit r/FPGA</a>
+                </div>
+            </section>
+            
+            <section id="troubleshooting">
+                <h2>⚠️ Troubleshooting</h2>
+                
+                <h3>Häufige Probleme & Lösungen</h3>
+                
+                <div class="resource-card">
+                    <h4>Problem: Vivado startet nicht nach .desktop-Änderung</h4>
+                    <p><strong>Symptome:</strong> Menüeintrag existiert, aber nichts passiert beim Klicken.</p>
+                    <p><strong>Lösungen:</strong></p>
+                    <ol>
+                        <li>Prüfen, ob die .desktop-Datei korrekt gespeichert wurde</li>
+                        <li>Menü-Cache aktualisieren: <code>update-desktop-database ~/.local/share/applications/</code></li>
+                        <li>Ab- und wieder anmelden</li>
+                        <li>Rechner neustarten</li>
+                        <li>Manuell testen: <code>env LD_LIBRARY_PATH=/home/alex/Xilinx/2026.1/Vivado/lib/lnx64.o/Ubuntu/24:$LD_LIBRARY_PATH /home/alex/Xilinx/2026.1/Vivado/bin/vivado</code></li>
+                    </ol>
+                </div>
+                
+                <div class="resource-card">
+                    <h4>Problem: Arty S7-50 wird nicht erkannt (USB)</h4>
+                    <p><strong>Symptome:</strong> Board wird nicht in Vivado angezeigt, obwohl Board Files installiert sind.</p>
+                    <p><strong>Lösungen:</strong></p>
+                    <ol>
+                        <li>Prüfen, ob das USB-Kabel ein Datenkabel ist (kein reines Ladekabel)</li>
+                        <li>Prüfen, ob die LEDs auf dem Board leuchten (Stromversorgung)</li>
+                        <li>USB-Gerät prüfen: <code>lsusb | grep -i digilent</code></li>
+                        <li>JTAG-Treiber prüfen: <code>ls /dev/ttyUSB*</code> oder <code>ls /dev/ttyACM*</code></li>
+                        <li>Board neu anschließen (USB-Kabel abziehen und wieder anstecken)</li>
+                        <li>Vivado neu starten</li>
+                    </ol>
+                </div>
+                
+                <div class="resource-card">
+                    <h4>Problem: Board Files werden nicht geladen</h4>
+                    <p><strong>Symptome:</strong> Refresh-Button in Vivado funktioniert nicht.</p>
+                    <p><strong>Lösungen:</strong></p>
+                    <ol>
+                        <li>Internetverbindung prüfen</li>
+                        <li>Proxy-Einstellungen prüfen (falls in einem Firmennetzwerk)</li>
+                        <li>Manuelle Installation der Board Files (siehe Abschnitt <a href="#board-files">Board Files installieren</a>)</li>
+                        <li>Vivado als Root starten (nur für Testzwecke): <code>sudo vivado</code></li>
+                    </ol>
+                </div>
+                
+                <div class="resource-card">
+                    <h4>Problem: Synthese fehlgeschlagen</h4>
+                    <p><strong>Symptome:</strong> Fehler bei der Synthese des Verilog-Codes.</p>
+                    <p><strong>Lösungen:</strong></p>
+                    <ol>
+                        <li>Fehlermeldung genau lesen und verstehen</li>
+                        <li>Syntax des Verilog-Codes prüfen</li>
+                        <li>Module korrekt instanziieren</li>
+                        <li>Alle Signale deklarieren</li>
+                        <li>Einfaches Design testen (z.B. nur eine LED ansteuern)</li>
+                    </ol>
+                </div>
+                
+                <div class="resource-card">
+                    <h4>Problem: Programmierung fehlgeschlagen</h4>
+                    <p><strong>Symptome:</strong> Bitstream kann nicht auf das FPGA geladen werden.</p>
+                    <p><strong>Lösungen:</strong></p>
+                    <ol>
+                        <li>Prüfen, ob das Board erkannt wird: <code>vivado -mode batch -source tcl_commands.tcl</code></li>
+                        <li>JTAG-Kette prüfen: In Vivado Hardware Manager → Open Target → Auto Connect</li>
+                        <li>Board neu anschließen</li>
+                        <li>Anderes USB-Kabel testen</li>
+                        <li>Anderen USB-Port testen</li>
+                    </ol>
+                </div>
+                
+                <h3>Diagnose-Befehle</h3>
+                
+                <div class="code-block">
+# Vivado Version prüfen
+/home/alex/Xilinx/2026.1/Vivado/bin/vivado -version
+
+# USB-Geräte auflisten
+lsusb
+
+# Digilent-Geräte suchen
+lsusb | grep -i digilent
+
+# JTAG-Geräte prüfen
+dmesg | grep -i jtag
+dmesg | grep -i ftdi
+
+# Board Files Verzeichnis prüfen
+ls /home/alex/Xilinx/2026.1/Vivado/data/boards/board_files/ | grep -i arty
+
+# LD_LIBRARY_PATH prüfen
+echo $LD_LIBRARY_PATH
+
+# Vivado Bibliotheken prüfen
+ldd /home/alex/Xilinx/2026.1/Vivado/bin/vivado | grep "not found"
+                </div>
+            </section>
+            
+            <section id="naechste-schritte">
+                <h2>🎯 Nächste Schritte: LED-Blink-Test</h2>
+                
+                <p>Nach der erfolgreichen Einrichtung von Vivado und der Erkennung des Arty S7-50 Boards ist der nächste logische Schritt, einen einfachen Test durchzuführen: <strong>Eine LED zum Blinken bringen</strong>.</p>
+                
+                <div class="info-box">
+                    <strong>💡 Warum ein LED-Blink-Test?</strong>
+                    <ul>
+                        <li>Verifiziert, dass Vivado korrekt funktioniert</li>
+                        <li>Bestätigt, dass das Arty S7-50 Board erkannt wird</li>
+                        <li>Testet die USB/JTAG-Verbindung</li>
+                        <li>Überprüft die Bitstream-Erzeugung</li>
+                        <li>Validiert die FPGA-Programmierung</li>
+                        <li>Gibt sofortige visuelle Rückmeldung</li>
+                    </ul>
+                </div>
+                
+                <h3>Vorbereitung für den LED-Blink-Test</h3>
+                
+                <div class="step">
+                    <span class="step-number">1</span>
+                    <h4>Board anschließen</h4>
+                    <ul>
+                        <li>Micro-USB-Kabel an den <strong>PROG</strong>-Port des Arty S7-50 anschließen</li>
+                        <li>Anderes Ende mit dem PC verbinden</li>
+                        <li>Prüfen, dass die <strong>Power-LED (D1)</strong> leuchtet</li>
+                    </ul>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">2</span>
+                    <h4>Projekt öffnen</h4>
+                    <ul>
+                        <li>Vivado über das Startmenü öffnen</li>
+                        <li>Das zuvor erstellte Projekt <code>ArtyS7_Test</code> öffnen</li>
+                    </ul>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">3</span>
+                    <h4>Verilog-Datei erstellen</h4>
+                    <p>Eine neue Verilog-Datei für den LED-Blinker erstellen:</p>
+                    <ol>
+                        <li>Rechtsklick auf <strong>Design Sources</strong> → <strong>Add or create design sources</strong></li>
+                        <li><strong>Create File</strong> auswählen</li>
+                        <li>Dateiname: <code>led_blink.v</code></li>
+                        <li>Sprache: <strong>Verilog</strong></li>
+                    </ol>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">4</span>
+                    <h4>Verilog-Code für LED-Blinker</h4>
+                    <p>Folgenden Code in die <code>led_blink.v</code> Datei einfügen:</p>
+                    <div class="code-block">
+// LED Blinker für Arty S7-50
+// Blinkt mit LED0 (D4) mit ca. 1 Hz
+
+module led_blink (
+    input wire clk_100mhz,  // 100 MHz System-Clock
+    output reg led          // LED0 (Pin D4 auf dem Arty S7-50)
+);
+
+    // 25-Bit Zähler für ca. 1 Hz Blinkfrequenz
+    // 100 MHz / (2^25) ≈ 2.98 Hz → ca. 0.5 Hz Blinken
+    reg [24:0] counter;
+
+    always @(posedge clk_100mhz) begin
+        counter <= counter + 1;
+        
+        // Bei Überlauf LED umschalten
+        if (counter == 25'd33333333) begin
+            led <= ~led;
+            counter <= 0;
+        end
+    end
+
+endmodule
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">5</span>
+                    <h4>Constraints-Datei erstellen</h4>
+                    <p>Eine XDC-Datei für die Pin-Belegung erstellen:</p>
+                    <ol>
+                        <li>Rechtsklick auf <strong>Constraints</strong> → <strong>Add or create constraints</strong></li>
+                        <li><strong>Create File</strong> auswählen</li>
+                        <li>Dateiname: <code>arty_s7_50_led.xdc</code></li>
+                    </ol>
+                    <p>Folgenden Inhalt einfügen:</p>
+                    <div class="code-block">
+# Arty S7-50 LED Constraints
+# LED0 ist mit FPGA Pin D4 verbunden
+
+# LED Pins (Arty S7-50)
+set_property PACKAGE_PIN D4 [get_ports led]
+set_property IOSTANDARD LVCMOS33 [get_ports led]
+
+# Clock Pin (100 MHz System-Clock)
+set_property PACKAGE_PIN E3 [get_ports clk_100mhz]
+set_property IOSTANDARD LVCMOS33 [get_ports clk_100mhz]
+
+# Clock Period Constraint
+create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports clk_100mhz]
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">6</span>
+                    <h4>Design synthetisieren & implementieren</h4>
+                    <ol>
+                        <li><strong>Run Synthesis</strong> klicken</li>
+                        <li>Nach erfolgreicher Synthese: <strong>Run Implementation</strong> klicken</li>
+                        <li>Nach erfolgreicher Implementierung: <strong>Generate Bitstream</strong> klicken</li>
+                    </ol>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">7</span>
+                    <h4>Bitstream auf das FPGA programmieren</h4>
+                    <ol>
+                        <li><strong>Open Hardware Manager</strong> klicken (oder <strong>Program and Debug</strong>)</li>
+                        <li><strong>Open Target</strong> → <strong>Auto Connect</strong></li>
+                        <li>Das Arty S7-50 Board sollte angezeigt werden</li>
+                        <li>Rechtsklick auf das Board → <strong>Program Device...</strong></li>
+                        <li>Die generierte Bitstream-Datei auswählen und programmieren</li>
+                    </ol>
+                </div>
+                
+                <div class="step">
+                    <span class="step-number">8</span>
+                    <h4>Test durchführen</h4>
+                    <p>Nach erfolgreicher Programmierung:</p>
+                    <ul>
+                        <li>Die <strong>LED D4</strong> auf dem Arty S7-50 sollte nun mit ca. 0.5 Hz blinken</li>
+                        <li>Falls nicht: Troubleshooting (siehe Abschnitt <a href="#troubleshooting">Troubleshooting</a>)</li>
+                    </ul>
+                </div>
+                
+                <div class="success-box">
+                    <strong>✅ Erfolg!</strong> Wenn die LED blinkt, funktioniert dein Vivado-Setup mit dem Arty S7-50 Board einwandfrei! 🎉
+                </div>
+                
+                <h3>Arty S7-50 Pin-Belegung für LEDs</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>LED</th>
+                            <th>Board-Bezeichnung</th>
+                            <th>FPGA Pin</th>
+                            <th>Farbe</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>LED0</td>
+                            <td>D4</td>
+                            <td>D4</td>
+                            <td>Grün</td>
+                        </tr>
+                        <tr>
+                            <td>LED1</td>
+                            <td>D3</td>
+                            <td>F4</td>
+                            <td>Grün</td>
+                        </tr>
+                        <tr>
+                            <td>LED2</td>
+                            <td>D2</td>
+                            <td>E4</td>
+                            <td>Grün</td>
+                        </tr>
+                        <tr>
+                            <td>LED3</td>
+                            <td>D1</td>
+                            <td>H5</td>
+                            <td>Grün</td>
+                        </tr>
+                        <tr>
+                            <td>RGB LED0</td>
+                            <td>-</td>
+                            <td>G6 (R), F6 (G), E6 (B)</td>
+                            <td>RGB</td>
+                        </tr>
+                        <tr>
+                            <td>RGB LED1</td>
+                            <td>-</td>
+                            <td>D5 (R), C5 (G), B5 (B)</td>
+                            <td>RGB</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+        </main>
+        
+        <footer>
+            <p><strong>Dokumentation erstellt für:</strong> Jack Reichert</p>
+            <p><strong>Datum:</strong> 22. August 2026</p>
+            <p><strong>Vivado Version:</strong> 2026.1 (Build 1787339248861)</p>
+            <p><strong>Board:</strong> Digilent Arty S7-50 (XC7S50CSGA324-1)</p>
+            <p>🔧 Diese Dokumentation wird bei Bedarf aktualisiert.</p>
+        </footer>
+    </div>
+</body>
+</html>

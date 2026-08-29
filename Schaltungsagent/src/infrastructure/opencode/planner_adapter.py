@@ -1,9 +1,7 @@
 import json
 import logging
 from typing import Any
-
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
 from src.domain.ports import PlannerService
 from src.domain.ports.tool import ToolRegistry, ToolExecutor
 

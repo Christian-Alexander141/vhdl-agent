@@ -3,7 +3,7 @@ import json
 import sys
 import logging
 
-from src.config import load_config
+from src.config import load_config, load_fpga_registry
 from src.domain.event_bus import EventBus
 from src.domain.models import EventType, Event, TaskState
 from src.domain.domain_registry import DomainRegistry
@@ -12,6 +12,8 @@ from src.services.rag_service import VHDLRAGService
 from src.services.artifact_generator import VHDLArtifactGenerator
 from src.services.filesystem_service import LocalFileSystemService
 from src.services.opencode_service import SubprocessOpenCodeService
+from src.infrastructure.validation.ghdl_validator import GHDLValidator
+from src.infrastructure.synthesis import VivadoBitstreamService, VivadoFlashService
 from src.orchestrator import AgentOrchestrator
 
 
@@ -66,7 +68,7 @@ def create_orchestrator(settings) -> AgentOrchestrator:
     rag = create_rag_service(settings)
     artifact_gen = VHDLArtifactGenerator()
     fs = LocalFileSystemService(
-        base_dir=settings.workspace.base_dir,
+        base_dir=settings.resolve_path(settings.workspace.base_dir),
         cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
         max_workspaces=settings.workspace.max_workspaces,
     )
@@ -76,7 +78,7 @@ def create_orchestrator(settings) -> AgentOrchestrator:
         opencode = DockerOpenCodeService(
             container=settings.opencode.docker_container,
             docker_workspace=settings.opencode.docker_workspace,
-            host_workspace=settings.opencode.docker_host_workspace,
+            host_workspace=settings.resolve_path(settings.opencode.docker_host_workspace),
             binary=settings.opencode.binary,
             default_timeout=settings.opencode.default_timeout,
         )
@@ -86,6 +88,47 @@ def create_orchestrator(settings) -> AgentOrchestrator:
             default_timeout=settings.opencode.default_timeout,
         )
 
+    validator = GHDLValidator(
+        ghdl_binary=settings.ghdl.binary,
+        timeout_seconds=settings.ghdl.timeout_seconds,
+    )
+    
+    # Bitstream-Service (Vivado)
+    fpga_registry = load_fpga_registry()
+    bitstream_service = VivadoBitstreamService(
+        vivado_binary=settings.vivado.binary,
+        settings_script=settings.vivado.settings_script,
+        timeout_seconds=settings.vivado.timeout_seconds,
+        fpga_registry=fpga_registry,
+    )
+    
+    # Flash-Services erstellen (basierend auf Board-Profil)
+    from src.services.flash_service import OpenFPGALoaderFlashService
+    
+    vivado_flash = VivadoFlashService(
+        vivado_binary=settings.vivado.binary,
+        settings_script=settings.vivado.settings_script,
+        timeout_seconds=settings.flash.timeout_seconds,
+    )
+    openfpgaloader_flash = OpenFPGALoaderFlashService(
+        binary="openFPGALoader",
+        timeout_seconds=settings.flash.timeout_seconds,
+    )
+    
+    # Default Flash-Service basierend auf konfiguriertem FPGA
+    default_fpga = settings.synthesis.default_fpga
+    fpga_config = fpga_registry.get(default_fpga)
+    if fpga_config and fpga_config.programmer == "openfpgaloader":
+        flash_service = openfpgaloader_flash
+    else:
+        flash_service = vivado_flash
+    
+    # Flash-Services als Dict für den Orchestrator
+    flash_services = {
+        "vivado": vivado_flash,
+        "openfpgaloader": openfpgaloader_flash,
+    }
+    
     orchestrator = AgentOrchestrator(
         llm_service=llm,
         rag_service=rag,
@@ -93,7 +136,13 @@ def create_orchestrator(settings) -> AgentOrchestrator:
         filesystem_service=fs,
         opencode_service=opencode,
         event_publisher=event_bus,
+        validation_service=validator,
+        bitstream_service=bitstream_service,
+        flash_service=flash_service,
+        flash_services=flash_services,
+        fpga_registry=fpga_registry,
         max_repair_iterations=settings.opencode.max_repair_iterations,
+        approval_timeout_seconds=300,
     )
     return orchestrator
 
@@ -114,26 +163,28 @@ def cmd_list(args) -> None:
     import os
     from src.config import load_config
     settings = load_config()
-    projects_dir = settings.workspace.base_dir
+    projects_dir = settings.resolve_path(settings.workspace.base_dir)
     if not os.path.isdir(projects_dir):
         print("No projects directory found.")
         return
     for item in sorted(os.listdir(projects_dir)):
         item_path = os.path.join(projects_dir, item)
+        if os.path.isdir(item_path) and item.startswith("_"):
+            continue
         if os.path.isdir(item_path):
             state_file = os.path.join(item_path, "state.json")
             if os.path.exists(state_file):
                 with open(state_file) as f:
                     data = json.load(f)
-                print(f"  {item[:8]}... | {data.get('status', '?'):15} | {data.get('request', '')[:50]}")
+                print(f"  {item:40} | {data.get('status', '?'):15} | {data.get('request', '')[:50]}")
             else:
-                print(f"  {item[:8]}... | NO STATE")
+                print(f"  {item:40} | NO STATE")
 
 
 def cmd_show(args) -> None:
     from src.config import load_config
     settings = load_config()
-    state_file = f"{settings.workspace.base_dir}/{args.task_id}/state.json"
+    state_file = f"{settings.resolve_path(settings.workspace.base_dir)}/{args.task_id}/state.json"
     import os
     if not os.path.exists(state_file):
         print(f"Task {args.task_id} not found.")
@@ -146,7 +197,7 @@ def cmd_show(args) -> None:
 def cmd_file(args) -> None:
     from src.config import load_config
     settings = load_config()
-    file_path = f"{settings.workspace.base_dir}/{args.task_id}/{args.filename}"
+    file_path = f"{settings.resolve_path(settings.workspace.base_dir)}/{args.task_id}/{args.filename}"
     if not os.path.exists(file_path):
         print(f"File not found: {file_path}")
         return
@@ -170,6 +221,8 @@ def cmd_rag_interactive(args) -> None:
     pipeline = RAGChatPipeline(
         model=settings.llm.model,
         base_url=settings.llm.base_url,
+        qdrant_path=settings.rag.vector_store_path,
+        memory_dir=settings.rag.memory_dir,
         api_key=load_api_key(),
     )
 

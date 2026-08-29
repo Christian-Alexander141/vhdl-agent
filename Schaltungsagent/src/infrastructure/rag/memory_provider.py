@@ -3,12 +3,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-DEFAULT_MEMORY_DIR = Path(__file__).resolve().parents[3] / "memory"
-
-
 class MemoryProvider:
     def __init__(self, memory_dir: str | Path | None = None):
-        self._memory_dir = Path(memory_dir) if memory_dir else DEFAULT_MEMORY_DIR
+        self._memory_dir = Path(memory_dir) if memory_dir else Path("./memory")
 
     def create_session(self, chat_id: str | None = None) -> dict:
         self._memory_dir.mkdir(parents=True, exist_ok=True)
