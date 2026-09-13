@@ -1,0 +1,4 @@
+v 4
+file / "/home/alex/Dokumente/Github/vhdl-agent/projects/erstelle-einen-led-blinker-für-das-konfigurierte-fpga-board-72944e/src/led_blinker.vhd" "71724cd141ec89243449a2da79670193617be3b7" "20260912202710.912":
+  entity led_blinker at 1( 0) + 0 on 11;
+  architecture rtl of led_blinker at 17( 322) + 0 on 12;
