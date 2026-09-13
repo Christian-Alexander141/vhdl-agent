@@ -41,6 +41,7 @@ class OpenCodeConfig:
     default_timeout: int = 600
     max_repair_iterations: int = 5
     use_docker: bool = False
+    test_mode: bool = False
     docker_container: str = "opencode-agent"
     docker_workspace: str = "/workspace"
     docker_host_workspace: str = "./projects"
@@ -198,6 +199,9 @@ def load_config(config_path: str | None = None) -> Settings:
         settings.eda_tools = EdaToolsConfig(**data["eda_tools"])
     if "synthesis" in data:
         settings.synthesis = SynthesisConfig(**data["synthesis"])
+
+    if os.environ.get("VHDL_AGENT_TEST_MODE", "").lower() in {"1", "true", "yes", "on"}:
+        settings.opencode.test_mode = True
 
     return settings
 

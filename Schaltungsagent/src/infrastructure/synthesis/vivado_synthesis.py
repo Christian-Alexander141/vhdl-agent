@@ -8,6 +8,7 @@ from typing import Optional
 
 from src.domain.ports.bitstream_service import BitstreamResult, BitstreamService
 from src.config import load_fpga_registry
+from src.infrastructure.synthesis.vivado_artifacts import move_artifacts_to_logs, archive_logs
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,7 @@ class VivadoBitstreamService(BitstreamService):
             bitstream_path=bitstream_file,
             clock_hz=clock_hz,
             workspace=ws_path,
+            board_name=board_name,
         )
         tcl_file = build_dir / "build_bitstream.tcl"
         tcl_file.write_text(tcl_script)
@@ -151,18 +153,29 @@ class VivadoBitstreamService(BitstreamService):
         # Logs und Journals in dedizierten Ordner umleiten
         log_dir = build_dir / "vivado_logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Archivierung: Bevor neue Logs erzeugt werden, alte archivieren
+        archive_dir = build_dir / "vivado_logs_archive"
+        archive_logs(log_dir, archive_dir)
+
         log_file = log_dir / f"{top_name}.log"
         jou_file = log_dir / f"{top_name}.jou"
 
+        # Use absolute paths for Vivado -log, -journal, -source
+        # to avoid cwd-relative path issues
         cmd = [
             self._vivado_binary,
             "-mode", "batch",
-            "-log", str(log_file),
-            "-journal", str(jou_file),
-            "-source", str(tcl_file),
+            "-log", str(log_file.absolute()),
+            "-journal", str(jou_file.absolute()),
+            "-source", str(tcl_file.absolute()),
         ]
         step = self._run_step("vivado_bitstream", top_name, cmd, build_dir)
         steps.append(step)
+
+        # Vivado-Artefakte aufräumen: Alles was im build_dir gelandet ist
+        # (clockInfo.txt, .Xil, etc.) nach vivado_logs verschieben
+        move_artifacts_to_logs(build_dir, log_dir, prefix=top_name)
 
         if step["returncode"] != 0:
             return self._fail(
@@ -232,6 +245,7 @@ class VivadoBitstreamService(BitstreamService):
         bitstream_path: Path,
         clock_hz: int,
         workspace: Path | None = None,
+        board_name: str = "",
     ) -> str:
         """Erzeugt das Vivado Tcl-Skript im Non-Project-Mode."""
         # Relative Pfade für read_vhdl
@@ -242,8 +256,9 @@ class VivadoBitstreamService(BitstreamService):
         # XDC Constraints einlesen oder auto-generieren
         xdc_reads = ""
         xdc_generated = False
-        if workspace:
-            constraints_dir = workspace / "constraints"
+        ws_path_check = Path(workspace) if workspace else None
+        if ws_path_check:
+            constraints_dir = ws_path_check / "constraints"
             if constraints_dir.exists():
                 xdc_files = sorted(constraints_dir.glob("*.xdc"))
                 if xdc_files:
@@ -253,10 +268,11 @@ class VivadoBitstreamService(BitstreamService):
                     xdc_reads = f"\n# Read XDC constraints\n{xdc_reads}\n"
 
             # Auto-generate XDC from board profile if no constraints found
-            if not xdc_reads and workspace:
+            if not xdc_reads and ws_path_check:
                 # Board-Profil aus self._fpga_registry bestimmen
                 # (wird über den Aufrufer via fpga_name gesetzt)
-                board_name = getattr(self, "_current_board_name", "")
+                if not board_name:
+                    board_name = getattr(self, "_current_board_name", "")
                 generated_xdc = self._generatexdc_for_board(
                     top_entity, src_files, board_name, clock_hz,
                 )
@@ -293,8 +309,8 @@ route_design
 write_bitstream -force "{bitstream_path.absolute()}"
 
 # Report utilization
-report_utilization -file "{bitstream_path.parent}/utilization.rpt"
-report_timing_summary -file "{bitstream_path.parent}/timing.rpt"
+report_utilization -file "{bitstream_path.parent.absolute()}/utilization.rpt"
+report_timing_summary -file "{bitstream_path.parent.absolute()}/timing.rpt"
 
 exit
 """
@@ -348,9 +364,9 @@ exit
             return {}
 
         ports: dict[str, dict] = {}
-        # Find the Port section inside entity
+        # Find the Port section inside entity (with optional generic clause)
         port_match = re.search(
-            r"\bentity\s+\w+\s+is\s+port\s*\((.*?)\)\s*;",
+            r"\bentity\s+\w+\s+is\s+(?:generic\s*\([^)]*\)\s*;\s*)?port\s*\((.*?)\)\s*;",
             content,
             re.IGNORECASE | re.DOTALL,
         )
@@ -363,15 +379,15 @@ exit
             decl = decl.strip()
             if not decl:
                 continue
-            # Match: name [range] : direction type
+            # Match: name : direction type(range)  OR  name(range) : direction type
             m = re.match(
-                r"(\w+)\s*(?:\(([^)]+)\)\s*)?:\s*(in|out|inout)\s+(\w+)",
+                r"(\w+)\s*(?:\(([^)]+)\)\s*)?:\s*(in|out|inout)\s+\w+(?:\(([^)]+)\))?",
                 decl,
                 re.IGNORECASE,
             )
             if m:
                 port_name = m.group(1)
-                port_range = m.group(2) or ""
+                port_range = m.group(2) or m.group(4) or ""
                 direction = m.group(3).lower()
                 # Calculate width from range
                 width = 1
@@ -381,6 +397,9 @@ exit
                         high = int(rm.group(1))
                         low = int(rm.group(2))
                         width = high - low + 1
+                    else:
+                        # Generic-based range (e.g., WIDTH-1 downto 0) - default to 8
+                        width = 8
                 ports[port_name] = {
                     "direction": direction,
                     "width": width,
@@ -413,13 +432,14 @@ exit
         if not all_ports:
             return None
 
-        # Arty S7-50 Pin-Mapping
+        # Arty S7-50 Pin-Mapping (Rev. E)
         clock_period_ns = round(1_000_000_000 / clock_hz, 3)
 
-        # Known pin mappings for Arty S7-50
-        arty_clk_pin = "E3"
-        arty_leds = ["G6", "F6", "E6", "E5", "H4", "H3", "K1", "J1"]  # LD0..LD7
-        arty_buttons = ["D9", "C9", "A8", "C11"]  # BTN0..BTN3
+        # Correct pin mappings for Arty S7-50 Rev. E
+        arty_clk_pin = "R2"  # CLK100MHZ on DDR3 clock pin
+        arty_leds = ["E18", "F13", "E13", "H15", "G13", "F15", "E15", "N14"]  # led[0..3], ja[6..9]
+        arty_buttons = ["G15", "K16", "J16", "H13"]  # btn[0..3]
+        arty_switches = ["H14", "H18", "G18", "M5"]  # sw[0..3]
 
         xdc_lines = []
         mapped_ports = set()
@@ -453,13 +473,13 @@ exit
                     mapped_ports.add(port_name)
                     break
 
-        # Enable zuordnen (Button BTN1)
+        # Enable zuordnen (Switch SW0)
         for port_name in all_ports:
             if port_name.upper() in ("ENABLE", "EN"):
                 p = all_ports[port_name]
                 if p["direction"] == "in" and p["width"] == 1:
                     xdc_lines.append(
-                        f"set_property -dict {{ PACKAGE_PIN {arty_buttons[1]} "
+                        f"set_property -dict {{ PACKAGE_PIN {arty_switches[0]} "
                         f"IOSTANDARD LVCMOS33 }} [get_ports {port_name}]"
                     )
                     mapped_ports.add(port_name)
@@ -511,6 +531,16 @@ exit
         if not xdc_lines:
             return None
 
+        # Add bitstream configuration for Arty S7-50
+        xdc_lines.append("")
+        xdc_lines.append("## Bitstream configuration")
+        xdc_lines.append("set_property BITSTREAM.CONFIG.CONFIGRATE 50 [current_design]")
+        xdc_lines.append("set_property CONFIG_VOLTAGE 3.3 [current_design]")
+        xdc_lines.append("set_property CFGBVS VCCO [current_design]")
+        xdc_lines.append("set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]")
+        xdc_lines.append("set_property CONFIG_MODE SPIx4 [current_design]")
+        xdc_lines.append("set_property INTERNAL_VREF 0.675 [get_iobanks 34]")
+
         return "\n".join(xdc_lines) + "\n"
 
     def _attach_artifacts(self, details: dict, src_dir: Path) -> dict:
@@ -542,8 +572,6 @@ exit
         # Wenn settings_script konfiguriert ist, Umgebung laden
         if self._settings_script and Path(self._settings_script).is_file():
             settings = Path(self._settings_script)
-            # Vivado needs LD_LIBRARY_PATH for libncurses.so.5 etc.
-            # Find the lib directory relative to settings script (settings is in Vivado/)
             vivado_dir = settings.parent
             lib_dir = vivado_dir / "lib" / "lnx64.o" / "Ubuntu" / "24"
             if lib_dir.exists():
@@ -554,9 +582,12 @@ exit
             else:
                 ld_path = os.environ.get('LD_LIBRARY_PATH', '')
             vivado_cmd = " ".join(f'"{c}"' for c in cmd)
+            # DISPLAY leeren damit Vivado keinen GTK-UI/X11-Server startet
+            # (verhindert System-Freeze bei Batch-Mode)
             wrapper = (
                 f'source "{settings}" && '
                 f'export LD_LIBRARY_PATH="{ld_path}" && '
+                f'export DISPLAY="" && '
                 + vivado_cmd
             )
             effective_cmd = ["bash", "-c", wrapper]
@@ -564,12 +595,21 @@ exit
 
         logger.debug("Vivado %s (%s): %s", step_name, label, " ".join(effective_cmd))
         try:
+            # Ressourcen-Limit für Vivado: Max 4GB RAM verwenden
+            # Verhindert System-Freeze bei begrenztem Arbeitsspeicher
+            import resource
+            def set_memory_limit():
+                # 4GB in Bytes
+                four_gb = 4 * 1024 * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (four_gb, four_gb))
+
             result = subprocess.run(
                 effective_cmd,
                 cwd=str(cwd),
                 capture_output=True,
                 text=True,
                 timeout=self._timeout_seconds,
+                preexec_fn=set_memory_limit,
             )
             return {
                 "step": step_name,

@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 import logging
+import os
 
 from src.config import load_config, load_fpga_registry
 from src.domain.event_bus import EventBus
@@ -11,10 +12,10 @@ from src.services.llm_service import OllamaLLMService
 from src.services.rag_service import VHDLRAGService
 from src.services.artifact_generator import VHDLArtifactGenerator
 from src.services.filesystem_service import LocalFileSystemService
-from src.services.opencode_service import SubprocessOpenCodeService
+from src.services.opencode_service import create_opencode_service
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
 from src.infrastructure.synthesis import VivadoBitstreamService, VivadoFlashService
-from src.orchestrator import AgentOrchestrator
+from src.orchestrator import AgentOrchestrator, SupervisorOrchestrator
 
 
 def setup_logging(settings) -> None:
@@ -60,7 +61,8 @@ def create_rag_service(settings):
     )
 
 
-def create_orchestrator(settings) -> AgentOrchestrator:
+def create_orchestrator(settings) -> SupervisorOrchestrator:
+    """Create the SupervisorOrchestrator for the multi-agent workflow."""
     DomainRegistry.discover(settings.domains.search_paths)
 
     event_bus = EventBus()
@@ -72,21 +74,7 @@ def create_orchestrator(settings) -> AgentOrchestrator:
         cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
         max_workspaces=settings.workspace.max_workspaces,
     )
-    if settings.opencode.use_docker:
-        from src.services.opencode_service import DockerOpenCodeService
-
-        opencode = DockerOpenCodeService(
-            container=settings.opencode.docker_container,
-            docker_workspace=settings.opencode.docker_workspace,
-            host_workspace=settings.resolve_path(settings.opencode.docker_host_workspace),
-            binary=settings.opencode.binary,
-            default_timeout=settings.opencode.default_timeout,
-        )
-    else:
-        opencode = SubprocessOpenCodeService(
-            binary=settings.opencode.binary,
-            default_timeout=settings.opencode.default_timeout,
-        )
+    opencode = create_opencode_service(settings)
 
     validator = GHDLValidator(
         ghdl_binary=settings.ghdl.binary,
@@ -113,6 +101,8 @@ def create_orchestrator(settings) -> AgentOrchestrator:
     openfpgaloader_flash = OpenFPGALoaderFlashService(
         binary="openFPGALoader",
         timeout_seconds=settings.flash.timeout_seconds,
+        default_board="arty_s7_50",
+        cable="digilent",
     )
     
     # Default Flash-Service basierend auf konfiguriertem FPGA
@@ -129,7 +119,8 @@ def create_orchestrator(settings) -> AgentOrchestrator:
         "openfpgaloader": openfpgaloader_flash,
     }
     
-    orchestrator = AgentOrchestrator(
+    # Create SupervisorOrchestrator (new production path)
+    orchestrator = SupervisorOrchestrator(
         llm_service=llm,
         rag_service=rag,
         artifact_generator=artifact_gen,
@@ -142,12 +133,11 @@ def create_orchestrator(settings) -> AgentOrchestrator:
         flash_services=flash_services,
         fpga_registry=fpga_registry,
         max_repair_iterations=settings.opencode.max_repair_iterations,
-        approval_timeout_seconds=300,
     )
     return orchestrator
 
 
-def cmd_run(args, orchestrator: AgentOrchestrator) -> None:
+def cmd_run(args, orchestrator: SupervisorOrchestrator) -> None:
     result = orchestrator.execute(args.request, args.domain)
     print("\n=== Task Result ===")
     print(f"Task ID: {result['task_id']}")
@@ -255,6 +245,11 @@ def main():
     parser = argparse.ArgumentParser(description="AI Engineer Platform")
     parser.add_argument("--domain", default=settings.domains.default,
                         help=f"Domain (default: {settings.domains.default})")
+    parser.add_argument(
+        "--test-mode",
+        action="store_true",
+        help="Use the local OpenCode CLI and never start OpenCode in Docker",
+    )
     parser.set_defaults(
         command="serve",
         host=settings.dashboard.host,
@@ -289,6 +284,10 @@ def main():
     subparsers.add_parser("rag", help="Start interactive RAG chat session")
 
     args = parser.parse_args()
+
+    if args.test_mode:
+        settings.opencode.test_mode = True
+        os.environ["VHDL_AGENT_TEST_MODE"] = "1"
 
     if args.command is None:
         args.command = "serve"

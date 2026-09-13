@@ -123,6 +123,7 @@ function handleServerMessage(msg) {
   const eventType = msg.event_type || msg.type;
   const payload = msg.payload || msg.data || {};
   const message = payload.message || payload.status || '';
+  const agent = payload.agent || 'Supervisor';
 
   switch (eventType) {
     case 'TASK_CREATED':
@@ -158,14 +159,51 @@ function handleServerMessage(msg) {
     case 'SYNTHESIS_FINISHED':
     case 'FLASH_STARTED':
     case 'FLASH_FINISHED':
+    case 'ARCHITECTURE_CREATED':
+    case 'ARCHITECTURE_FAILED':
+    case 'IMPLEMENTATION_STARTED':
+    case 'IMPLEMENTATION_COMPLETED':
+    case 'IMPLEMENTATION_FAILED':
+    case 'STATIC_CHECK_STARTED':
+    case 'STATIC_CHECK_PASSED':
+    case 'STATIC_CHECK_FAILED':
+    case 'SIMULATION_STARTED':
+    case 'SIMULATION_PASSED':
+    case 'SIMULATION_FAILED':
+    case 'DEBUG_STARTED':
+    case 'DEBUG_COMPLETED':
+    case 'REPAIR_ASSIGNED':
+    case 'REPAIR_COMPLETED':
+    case 'REPAIR_FAILED':
+    case 'NO_PROGRESS':
+    case 'IDENTICAL_ERROR':
       addLogEntry('info', eventType + (message ? ': ' + message : ''));
-      addAgentMessage(message || `Event: ${eventType}`);
+      if (eventType === 'AGENT_FINISHED' && (payload.stdout || payload.stderr)) {
+        addAgentMessageWithLabel(agent, formatAgentOutput(payload));
+      } else {
+        addAgentMessageWithLabel(agent, message || formatEventPayload(eventType, payload));
+      }
+      break;
+
+    case 'OPENCODE_STARTED':
+      addLogEntry('info', `${agent}: OpenCode gestartet`);
+      addAgentMessageWithLabel(agent, 'OpenCode gestartet' + (payload.module ? ` für ${payload.module}` : ''));
+      break;
+
+    case 'OPENCODE_COMPLETED':
+      addLogEntry('info', `${agent}: OpenCode abgeschlossen`);
+      addAgentMessageWithLabel(agent, formatAgentOutput(payload, 'OpenCode abgeschlossen'));
+      break;
+
+    case 'OPENCODE_FAILED':
+      addLogEntry('error', `${agent}: OpenCode fehlgeschlagen`);
+      addAgentMessageWithLabel(agent, formatAgentOutput(payload, 'OpenCode fehlgeschlagen'));
       break;
 
     case 'TEST_FAILED':
     case 'REPAIR_STARTED':
       addLogEntry('event', eventType + (message ? ': ' + message : ''));
-      addAgentMessage(`Event: ${eventType} — ${message || ''}`);
+      addAgentMessageWithLabel(agent, `Event: ${eventType} — ${message || ''}`);
       if (payload.stderr) {
         testOutputEl.textContent += `\n[ERROR] ${payload.stderr.substring(0, 500)}`;
       }
@@ -499,11 +537,34 @@ function addUserMessage(text) {
 }
 
 function addAgentMessage(text) {
+  addAgentMessageWithLabel('AI Engineer', text);
+}
+
+function addAgentMessageWithLabel(agent, text) {
   const el = document.createElement('div');
   el.className = 'message agent';
-  el.innerHTML = `<div class="msg-label">AI Engineer</div><div class="msg-text">${escapeHtml(text)}</div><span class="timestamp">${now()}</span>`;
+  el.innerHTML = `<div class="msg-label">${escapeHtml(agent)}</div><div class="msg-text">${escapeHtml(text)}</div><span class="timestamp">${now()}</span>`;
   messagesEl.appendChild(el);
   scrollChat();
+}
+
+function formatAgentOutput(payload, prefix = '') {
+  const parts = [];
+  if (prefix) parts.push(prefix);
+  if (payload.stdout) parts.push(`Ausgabe:\n${payload.stdout}`);
+  if (payload.stderr) parts.push(`Fehlerausgabe:\n${payload.stderr}`);
+  if (payload.error && !payload.stderr) parts.push(`Fehler:\n${payload.error}`);
+  return parts.join('\n\n') || prefix || 'Keine Ausgabe';
+}
+
+function formatEventPayload(eventType, payload) {
+  const details = [];
+  if (payload.module) details.push(`Modul: ${payload.module}`);
+  if (payload.stage) details.push(`Phase: ${payload.stage}`);
+  if (payload.failures?.length) details.push(`Fehler: ${payload.failures.join('\n')}`);
+  if (payload.error) details.push(`Fehler: ${payload.error}`);
+  if (payload.diagnosis) details.push(`Diagnose: ${JSON.stringify(payload.diagnosis, null, 2)}`);
+  return details.length ? `${eventType}\n${details.join('\n')}` : `Event: ${eventType}`;
 }
 
 function addSystemMessage(text) {
@@ -952,7 +1013,6 @@ function initSettings() {
         opencode: {
           max_repair_iterations: parseInt(document.getElementById('settings-max-repairs')?.value || '5'),
         },
-        approval_timeout_seconds: parseInt(document.getElementById('settings-approval-timeout')?.value || '300'),
         vivado: {
           binary: document.getElementById('settings-vivado-binary')?.value || '',
           settings_script: document.getElementById('settings-vivado-settings')?.value || '',
@@ -995,7 +1055,6 @@ function initSettings() {
         'settings-theme': 'dark',
         'settings-max-repairs': '5',
         'settings-default-fpga': 'arty_s7_50',
-        'settings-approval-timeout': '300',
         'settings-vivado-binary': '/home/alex/Xilinx/2026.1/Vivado/bin/vivado',
         'settings-vivado-settings': '/home/alex/Xilinx/2026.1/Vivado/settings64.sh',
         'settings-ghdl-binary': 'ghdl',
@@ -1030,7 +1089,6 @@ function loadSettings() {
     if (saved.theme) setVal('settings-theme', saved.theme);
     if (saved.synthesis?.default_fpga) setVal('settings-default-fpga', saved.synthesis.default_fpga);
     if (saved.opencode?.max_repair_iterations) setVal('settings-max-repairs', saved.opencode.max_repair_iterations);
-    if (saved.approval_timeout_seconds) setVal('settings-approval-timeout', saved.approval_timeout_seconds);
     if (saved.vivado?.binary) setVal('settings-vivado-binary', saved.vivado.binary);
     if (saved.vivado?.settings_script) setVal('settings-vivado-settings', saved.vivado.settings_script);
     if (saved.ghdl?.binary) setVal('settings-ghdl-binary', saved.ghdl.binary);

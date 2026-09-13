@@ -18,17 +18,28 @@ class WorkflowState:
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
+    # New states for multi-agent system
+    ARCHITECTING = "ARCHITECTING"
+    IMPLEMENTING = "IMPLEMENTING"
+    STATIC_CHECK = "STATIC_CHECK"
+    SIMULATING = "SIMULATING"
+    DEBUGGING = "DEBUGGING"
+    FPGA_PROGRAMMING = "FPGA_PROGRAMMING"
+    HARDWARE_TESTING = "HARDWARE_TESTING"
+    AUTONOMOUS_LIMIT_REACHED = "AUTONOMOUS_LIMIT_REACHED"
+
 
 TRANSITIONS = {
     WorkflowState.CREATED: [WorkflowState.ANALYZING, WorkflowState.FAILED],
     WorkflowState.ANALYZING: [WorkflowState.RAG_SEARCH, WorkflowState.FAILED],
-    WorkflowState.RAG_SEARCH: [WorkflowState.GENERATING_ARTIFACTS, WorkflowState.FAILED],
+    WorkflowState.RAG_SEARCH: [WorkflowState.GENERATING_ARTIFACTS, WorkflowState.ARCHITECTING, WorkflowState.FAILED],
     WorkflowState.GENERATING_ARTIFACTS: [WorkflowState.WORKSPACE_READY, WorkflowState.FAILED],
-    WorkflowState.WORKSPACE_READY: [WorkflowState.RUNNING_AGENT, WorkflowState.FAILED],
+    WorkflowState.WORKSPACE_READY: [WorkflowState.RUNNING_AGENT, WorkflowState.IMPLEMENTING, WorkflowState.FAILED],
     WorkflowState.RUNNING_AGENT: [WorkflowState.TESTING, WorkflowState.FAILED],
     WorkflowState.TESTING: [
         WorkflowState.VALIDATING,
         WorkflowState.REPAIRING,
+        WorkflowState.COMPLETED,
         WorkflowState.FAILED,
     ],
     WorkflowState.REPAIRING: [
@@ -38,6 +49,7 @@ TRANSITIONS = {
     ],
     WorkflowState.VALIDATING: [
         WorkflowState.SYNTHESIZING,
+        WorkflowState.COMPLETED,
         WorkflowState.FAILED,
     ],
     WorkflowState.SYNTHESIZING: [
@@ -60,6 +72,50 @@ TRANSITIONS = {
     ],
     WorkflowState.COMPLETED: [],
     WorkflowState.FAILED: [],
+
+    # New multi-agent transitions
+    WorkflowState.ARCHITECTING: [
+        WorkflowState.IMPLEMENTING,
+        WorkflowState.DEBUGGING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.IMPLEMENTING: [
+        WorkflowState.STATIC_CHECK,
+        WorkflowState.DEBUGGING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.STATIC_CHECK: [
+        WorkflowState.SIMULATING,
+        WorkflowState.DEBUGGING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.SIMULATING: [
+        WorkflowState.VALIDATING,
+        WorkflowState.DEBUGGING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.DEBUGGING: [
+        WorkflowState.ARCHITECTING,
+        WorkflowState.IMPLEMENTING,
+        WorkflowState.SIMULATING,
+        WorkflowState.SYNTHESIZING,
+        WorkflowState.FPGA_PROGRAMMING,
+        WorkflowState.HARDWARE_TESTING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.FPGA_PROGRAMMING: [
+        WorkflowState.HARDWARE_TESTING,
+        WorkflowState.AWAITING_APPROVAL,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.HARDWARE_TESTING: [
+        WorkflowState.COMPLETED,
+        WorkflowState.DEBUGGING,
+        WorkflowState.FAILED,
+    ],
+    WorkflowState.AUTONOMOUS_LIMIT_REACHED: [
+        WorkflowState.FAILED,
+    ],
 }
 
 

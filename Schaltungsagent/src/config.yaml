@@ -28,6 +28,7 @@ opencode:
   default_timeout: 4000
   max_repair_iterations: 5
   use_docker: false
+  test_mode: false
 
 vivado:
   binary: /home/alex/Xilinx/2026.1/Vivado/bin/vivado
@@ -35,7 +36,7 @@ vivado:
   timeout_seconds: 600
 
 flash:
-  method: vivado_jtag
+  method: openfpgaloader
   timeout_seconds: 120
 
 dashboard:

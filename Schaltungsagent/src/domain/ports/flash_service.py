@@ -40,7 +40,7 @@ class FlashService(ABC):
     """
 
     @abstractmethod
-    def flash(self, bitstream_path: str, board: str = "") -> FlashResult:
+    def flash(self, bitstream_path: str, board: str = "", expected_part: str = "", workspace: str = "") -> FlashResult:
         ...
 
     @abstractmethod
@@ -48,10 +48,13 @@ class FlashService(ABC):
         ...
 
     @abstractmethod
-    def detect_boards(self) -> list[dict]:
+    def detect_boards(self, expected_part: str = "") -> list[dict]:
         """Erkennt angeschlossene Boards.
         
+        Args:
+            expected_part: Optionaler Filter für den FPGA-Part-Namen.
+        
         Returns:
-            Liste von Board-Informationen (name, id, etc.).
+            Liste von Board-Informationen (name, part, device, etc.).
         """
         ...

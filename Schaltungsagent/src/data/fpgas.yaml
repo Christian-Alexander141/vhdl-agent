@@ -16,5 +16,5 @@ fpgas:
     toolchain: vivado
     wiki: fpga_xilinx_7series
     clock_hz: 100000000
-    programmer: vivado
-    board_name: arty_s7
+    programmer: openfpgaloader
+    board_name: arty_s7_50

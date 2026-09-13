@@ -25,6 +25,13 @@ CORE_MODULES = [
 ]
 
 
+def test_mode_enabled():
+    return (
+        os.environ.get("VHDL_AGENT_TEST_MODE", "").lower() in {"1", "true", "yes", "on"}
+        or "--test-mode" in sys.argv
+    )
+
+
 def has_command(name):
     return shutil.which(name) is not None
 
@@ -61,10 +68,11 @@ def has_venv():
 
 def missing_components():
     missing = []
-    for cmd in REQUIRED_COMMANDS:
+    required_commands = [cmd for cmd in REQUIRED_COMMANDS if not (test_mode_enabled() and cmd == "docker")]
+    for cmd in required_commands:
         if not has_command(cmd):
             missing.append(cmd)
-    if not has_compose():
+    if not test_mode_enabled() and not has_compose():
         missing.append("docker compose")
     if not has_venv():
         missing.append("Python venv (Abhängigkeiten)")
@@ -108,6 +116,8 @@ def check_components():
 
 
 def main():
+    if "--test-mode" in sys.argv:
+        os.environ["VHDL_AGENT_TEST_MODE"] = "1"
     check_components()
 
     if SRC_ROOT not in sys.path:

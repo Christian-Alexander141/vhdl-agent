@@ -8,6 +8,22 @@ from src.domain.exceptions import AgentExecutionError
 logger = logging.getLogger(__name__)
 
 
+def create_opencode_service(settings):
+    """Create the configured OpenCode runner."""
+    if settings.opencode.use_docker and not settings.opencode.test_mode:
+        return DockerOpenCodeService(
+            container=settings.opencode.docker_container,
+            docker_workspace=settings.opencode.docker_workspace,
+            host_workspace=settings.resolve_path(settings.opencode.docker_host_workspace),
+            binary=settings.opencode.binary,
+            default_timeout=settings.opencode.default_timeout,
+        )
+    return SubprocessOpenCodeService(
+        binary=settings.opencode.binary,
+        default_timeout=settings.opencode.default_timeout,
+    )
+
+
 class SubprocessOpenCodeService(OpenCodeService):
     def __init__(self, binary: str = "opencode", default_timeout: int = 600):
         self._binary = binary

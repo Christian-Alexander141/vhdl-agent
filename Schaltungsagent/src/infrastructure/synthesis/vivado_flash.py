@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.domain.ports.flash_service import FlashResult, FlashService
+from src.infrastructure.synthesis.vivado_artifacts import move_artifacts_to_logs, archive_logs
 
 logger = logging.getLogger(__name__)
 
@@ -54,29 +55,35 @@ class VivadoFlashService(FlashService):
         for line in (result.get("stdout", "")).splitlines():
             line = line.strip()
             if line.startswith("BOARD:"):
-                parts = line.split(":", 3)
-                if len(parts) >= 4:
-                    name = parts[1]
-                    part = parts[2]
-                    device = parts[3]
-                    if expected_part and expected_part not in part:
+                parts = line.split(":", 2)
+                if len(parts) >= 3:
+                    part = parts[1]
+                    device = parts[2]
+                    if expected_part and not (expected_part == part or expected_part.startswith(part) or part.startswith(expected_part)):
                         continue
                     boards.append({
                         "index": len(boards),
-                        "name": name,
+                        "name": part,
                         "part": part,
                         "device": device,
                         "details": f"{part} ({device})",
                     })
         return boards
 
-    def flash(self, bitstream_path: str, board: str = "", expected_part: str = "") -> FlashResult:
+    def flash(
+        self,
+        bitstream_path: str,
+        board: str = "",
+        expected_part: str = "",
+        workspace: str = "",
+    ) -> FlashResult:
         """Programmiert den Bitstream auf das FPGA via Vivado JTAG.
 
         Args:
             bitstream_path: Pfad zur .bit-Datei
             board: Board-Name (optional, wird ignoriert, Auswahl über expected_part)
             expected_part: Erwarteter FPGA-Part-Name (z.B. "xc7s50csga324-1" oder "xc7s50")
+            workspace: Optionaler Workspace-Pfad für saubere Log-Ablage
 
         Returns:
             FlashResult mit Erfolgsstatus, Board-Informationen und Details.
@@ -137,8 +144,40 @@ class VivadoFlashService(FlashService):
         selected_part = boards[0]["part"]
         logger.info("Flashing bitstream %s to device %s (part: %s)", bitstream_path, selected_device, selected_part)
 
+        # Bestimme CWD und Log-Pfade
+        # Wenn workspace angegeben, nutze build/bitstream als CWD
+        # Sonst Temp-Verzeichnis
+        ws_path = Path(workspace) if workspace else None
+        if ws_path:
+            cwd_dir = ws_path / "build" / "bitstream"
+            cwd_dir.mkdir(parents=True, exist_ok=True)
+            log_dir = cwd_dir / "vivado_logs"
+        else:
+            cwd_dir = Path(tempfile.mkdtemp(prefix="vivado_flash_"))
+            log_dir = cwd_dir
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Archivierung: Bevor neue Logs erzeugt werden, alte archivieren
+        archive_dir = (ws_path / "build" / "bitstream" / "vivado_logs_archive") if ws_path else None
+        if archive_dir:
+            archive_logs(log_dir, archive_dir)
+
+        log_file = log_dir / "flash.log"
+        jou_file = log_dir / "flash.jou"
+
         tcl_script = self._generate_program_script(str(bitstream_file.absolute()), selected_device)
-        result = self._run_vivado(tcl_script)
+        result = self._run_vivado(tcl_script, cwd=cwd_dir, log_file=log_file, jou_file=jou_file)
+
+        # Vivado-Artefakte aufräumen (falls welche im CWD gelandet sind)
+        if ws_path:
+            # Innerhalb des Workspaces: nach vivado_logs verschieben
+            move_artifacts_to_logs(cwd_dir, log_dir)
+            # Auch Artefakte aus dem Repo-Root aufräumen (hw_server-Prozess)
+            repo_root = Path(__file__).resolve().parent.parent.parent.parent
+            move_artifacts_to_logs(repo_root, log_dir, prefix="vivado")
+        else:
+            # Kein Workspace: Artefakte aus Temp-Dir aufräumen
+            move_artifacts_to_logs(cwd_dir, log_dir)
 
         if result["returncode"] != 0:
             error_msg = result.get("stderr", "") or result.get("stdout", "")
@@ -173,6 +212,8 @@ class VivadoFlashService(FlashService):
                     "selected_part": selected_part,
                     "stdout": stdout,
                     "detected_devices": boards,
+                    "log_file": str(log_file),
+                    "jou_file": str(jou_file),
                 },
                 board_detected=True,
                 board_count=board_count,
@@ -195,12 +236,6 @@ class VivadoFlashService(FlashService):
         )
 
     def _generate_detect_script(self, expected_part: str = "") -> str:
-        filter_clause = ""
-        if expected_part:
-            filter_clause = f"""
-# Filter nach erwartetem Part
-set expected_part "{expected_part}"
-"""
         return f"""# Auto-generated: detect FPGA boards via JTAG
 open_hw_manager
 connect_hw_server -allow_non_jtag
@@ -226,19 +261,14 @@ open_hw_target
 set hw_devices [get_hw_devices]
 if {{[llength $hw_devices] == 0}} {{
     puts "ERROR: No hardware devices found"
-    close_hw_manager
+    close_hw_target
     disconnect_hw_server
     exit 1
 }}
 
-set target_device "{device}"
-if {{![lsearch -exact $hw_devices $target_device] >= 0}} {{
-    puts "ERROR: Target device $target_device not found in detected devices"
-    puts "Available: $hw_devices"
-    close_hw_manager
-    disconnect_hw_server
-    exit 1
-}}
+# Das erste verfügbare Gerät programmieren
+# (detect_boards garantiert genau ein passendes Gerät)
+set target_device [lindex $hw_devices 0]
 
 puts "Programming device: $target_device"
 set_property PROGRAM.FILE "{bitstream_path}" $target_device
@@ -250,12 +280,24 @@ disconnect_hw_server
 exit
 """
 
-    def _run_vivado(self, tcl_script: str) -> dict:
+    def _run_vivado(
+        self,
+        tcl_script: str,
+        cwd: Path | None = None,
+        log_file: Path | None = None,
+        jou_file: Path | None = None,
+    ) -> dict:
         """Führt ein Tcl-Skript im Vivado Batch-Modus aus.
 
         Das Skript wird in eine temporäre Datei geschrieben und mit
         `vivado -mode batch -source <file>` ausgeführt.
         Falls settings_script konfiguriert ist, wird die Umgebung davor geladen.
+
+        Args:
+            tcl_script: Tcl-Quellcode
+            cwd: Arbeitsverzeichnis für Vivado (verhindert Artefakte im Repo-Root)
+            log_file: Pfad für Vivado-Logdatei (-log Flag)
+            jou_file: Pfad für Vivado-Journal (-journal Flag)
         """
         # Tcl-Skript in temporäre Datei schreiben
         with tempfile.NamedTemporaryFile(
@@ -267,11 +309,22 @@ exit
         try:
             effective_cmd = None
 
+            # Befehl zusammenbauen
+            vivado_args = [self._vivado_binary, "-mode", "batch"]
+
+            # Log und Journal explizit setzen
+            if log_file:
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                vivado_args.extend(["-log", str(log_file)])
+            if jou_file:
+                jou_file.parent.mkdir(parents=True, exist_ok=True)
+                vivado_args.extend(["-journal", str(jou_file)])
+
+            vivado_args.extend(["-source", str(tcl_file)])
+
             # Wenn settings_script konfiguriert ist, Umgebung laden
             if self._settings_script and Path(self._settings_script).is_file():
                 settings = Path(self._settings_script)
-                # Vivado needs LD_LIBRARY_PATH for libncurses.so.5 etc.
-                # Find the lib directory relative to settings script (settings is in Vivado/)
                 vivado_dir = settings.parent
                 lib_dir = vivado_dir / "lib" / "lnx64.o" / "Ubuntu" / "24"
                 if lib_dir.exists():
@@ -281,19 +334,19 @@ exit
                         ld_path = f"{ld_path}:{existing}"
                 else:
                     ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+                vivado_cmd = " ".join(f'"{c}"' for c in vivado_args)
+                # DISPLAY leeren damit Vivado keinen GTK-UI/X11-Server startet
+                # (verhindert System-Freeze bei Batch-Mode)
                 wrapper = (
                     f'source "{settings}" && '
                     f'export LD_LIBRARY_PATH="{ld_path}" && '
-                    f'{self._vivado_binary} -mode batch -source "{tcl_file}"'
+                    f'export DISPLAY="" && '
+                    + vivado_cmd
                 )
                 effective_cmd = ["bash", "-c", wrapper]
                 logger.debug("Wrapping vivado command with settings64.sh: %s (LD_LIBRARY_PATH=%s)", settings, ld_path)
             elif shutil.which(self._vivado_binary) is not None:
-                effective_cmd = [
-                    self._vivado_binary,
-                    "-mode", "batch",
-                    "-source", tcl_file,
-                ]
+                effective_cmd = vivado_args
             else:
                 return {
                     "returncode": -1,
@@ -304,6 +357,7 @@ exit
             logger.debug("Vivado flash command: %s", " ".join(effective_cmd))
             result = subprocess.run(
                 effective_cmd,
+                cwd=str(cwd) if cwd else None,
                 capture_output=True,
                 text=True,
                 timeout=self._timeout_seconds,
@@ -326,7 +380,7 @@ exit
                 "stderr": f"Vivado timed out after {self._timeout_seconds}s",
             }
         finally:
-            # Temporäre Datei aufräumen
+            # Temporäre Tcl-Datei aufräumen
             try:
                 Path(tcl_file).unlink(missing_ok=True)
             except Exception:

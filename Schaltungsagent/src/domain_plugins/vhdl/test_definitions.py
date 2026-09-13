@@ -10,7 +10,7 @@ class VHDLTestDefinition:
     simulator: str = "ghdl"
     analyze_flags: list[str] = field(default_factory=lambda: ["-a"])
     elaborate_flags: list[str] = field(default_factory=lambda: ["-e"])
-    run_flags: list[str] = field(default_factory=lambda: ["-r", "--stop-time=20us"])
+    run_flags: list[str] = field(default_factory=lambda: ["-r", "--stop-time=1ms"])
 
     def analyze_command(self, file: str) -> list[str]:
         return [self.simulator] + self.analyze_flags + [file]

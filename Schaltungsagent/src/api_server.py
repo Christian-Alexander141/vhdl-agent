@@ -21,7 +21,7 @@ from src.services.llm_service import OllamaLLMService
 from src.services.rag_service import VHDLRAGService
 from src.services.artifact_generator import VHDLArtifactGenerator
 from src.services.filesystem_service import LocalFileSystemService
-from src.services.opencode_service import SubprocessOpenCodeService
+from src.services.opencode_service import create_opencode_service
 from src.services.eda_tools import detect_eda_tools, open_project_in_tool
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
 from src.infrastructure.synthesis import VivadoBitstreamService, VivadoFlashService
@@ -69,21 +69,7 @@ fs = LocalFileSystemService(
     cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
     max_workspaces=settings.workspace.max_workspaces,
 )
-if settings.opencode.use_docker:
-    from src.services.opencode_service import DockerOpenCodeService
-
-    opencode = DockerOpenCodeService(
-        container=settings.opencode.docker_container,
-        docker_workspace=settings.opencode.docker_workspace,
-        host_workspace=settings.resolve_path(settings.opencode.docker_host_workspace),
-        binary=settings.opencode.binary,
-        default_timeout=settings.opencode.default_timeout,
-    )
-else:
-    opencode = SubprocessOpenCodeService(
-        binary=settings.opencode.binary,
-        default_timeout=settings.opencode.default_timeout,
-)
+opencode = create_opencode_service(settings)
 
 validator = GHDLValidator(
     ghdl_binary=settings.ghdl.binary,
@@ -139,7 +125,6 @@ orchestrator = AgentOrchestrator(
     flash_services=flash_services,
     fpga_registry=fpga_registry,
     max_repair_iterations=settings.opencode.max_repair_iterations,
-    approval_timeout_seconds=300,
 )
 
 active_tasks: dict[str, dict] = {}
@@ -384,8 +369,10 @@ async def websocket_endpoint(ws: WebSocket):
                     request = msg.get("request", "")
                     domain = msg.get("domain", settings.domains.default)
                     result = orchestrator.execute(request, domain)
+                    actual_status = result.get("status", "UNKNOWN")
+                    event_type = "TASK_FAILED" if actual_status == "FAILED" else "TASK_COMPLETED"
                     await ws.send_text(json.dumps({
-                        "event_type": "TASK_COMPLETED",
+                        "event_type": event_type,
                         "payload": result,
                     }, ensure_ascii=False))
                 elif action == "chat":

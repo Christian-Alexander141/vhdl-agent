@@ -15,6 +15,7 @@ from .commands import (
     RepairCommand,
     ValidateCommand,
 )
+from .design_state import DesignState, DesignStage, Requirement, ModuleInfo, ArchitectureInfo, VerificationInfo, SynthesisInfo, HardwareTestInfo
 
 __all__ = [
     "EventType", "Event",
@@ -32,4 +33,5 @@ __all__ = [
     "TestCommand",
     "RepairCommand",
     "ValidateCommand",
+    "DesignState", "DesignStage", "Requirement", "ModuleInfo", "ArchitectureInfo", "VerificationInfo", "SynthesisInfo", "HardwareTestInfo",
 ]

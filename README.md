@@ -12,6 +12,20 @@ Der Fokus liegt auf einer Architektur, die autonome Softwareentwicklung ermögli
 
 # Zielsetzung
 
+## Lokaler OpenCode-Testmodus
+
+Für Entwicklung auf Rechnern mit begrenzten Ressourcen kann OpenCode ohne Docker
+ausgeführt werden. Der Modus ignoriert `opencode.use_docker` und verwendet direkt
+das lokale `opencode`-Binary:
+
+```bash
+VHDL_AGENT_TEST_MODE=1 python3 start.py
+```
+
+Alternativ kann er in `config.yaml` mit `opencode.test_mode: true` aktiviert oder
+beim direkten CLI-Start mit `--test-mode` gesetzt werden. Für den API-/Dashboard-
+Start wird der Schalter an den Server-Prozess weitergereicht.
+
 Moderne Large Language Models ermöglichen die Entwicklung autonomer Agentensysteme, welche nicht nur Texte erzeugen, sondern komplexe Aufgaben planen, Werkzeuge verwenden und Ergebnisse überprüfen können.
 
 Für die Erzeugung komplexer Softwareartefakte entstehen jedoch besondere Anforderungen:

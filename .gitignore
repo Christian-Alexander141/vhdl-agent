@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# GHDL artifacts
+*.ghw
+*.cf
+*.vcd
+
 # Virtual environments
 venv/
 .env/
@@ -18,9 +23,11 @@ Python*/
 
 # Logs
 *.log
+*.jou
 logs/
 **/logs/
 vivado_logs/
+vivado_logs_archive/
 
 # Temporary files
 *.tmp
@@ -29,6 +36,12 @@ vivado_logs/
 *.swo
 *.bak
 *~
+.Xil/
+clockInfo.txt
+
+# Vivado generated files
+vivado_*.backup.*
+work-obj*.cf
 
 # IDE/editor folders
 .vscode/

@@ -63,7 +63,6 @@ class AsyncAgentOrchestrator:
         flash_services: dict[str, FlashService] | None = None,
         fpga_registry: dict | None = None,
         max_repair_iterations: int = 5,
-        approval_timeout_seconds: int = 300,
     ):
         self._llm = llm_service
         self._rag = rag_service
@@ -78,7 +77,6 @@ class AsyncAgentOrchestrator:
         self._flash_services = flash_services or {}
         self._fpga_registry = fpga_registry or load_fpga_registry()
         self._max_repair_iterations = max_repair_iterations
-        self._approval_timeout_seconds = approval_timeout_seconds
 
         self._workflow = Workflow(
             llm_service=llm_service,
@@ -119,17 +117,13 @@ class AsyncAgentOrchestrator:
         if not event:
             return False, "No approval event registered"
         
-        # Warten mit Timeout
-        event_is_set = event.wait(timeout=self._approval_timeout_seconds)
+        # Die Freigabe bleibt offen, bis der Benutzer explizit entscheidet.
+        event.wait()
         
         with self._approval_lock:
             result = self._approval_results.get(task_id)
-            # Wenn Event nicht gesetzt wurde (Timeout), aber Result vorhanden ist (initialisiert),
-            # dann war es ein Timeout
-            if not event_is_set and result is not None and result == (False, ""):
-                result = (False, "Timeout")
-            elif result is None:
-                result = (False, "Timeout")
+            if result is None:
+                result = (False, "No approval result")
             # Cleanup
             self._approval_events.pop(task_id, None)
             self._approval_results.pop(task_id, None)
@@ -808,6 +802,7 @@ class AsyncAgentOrchestrator:
             f"OpenCode finished: returncode={result.returncode}"
         )
         self._emit(state, EventType.AGENT_FINISHED, {
+            "agent": "OpenCode",
             "returncode": result.returncode,
             "stdout": result.stdout[:500],
             "stderr": result.stderr[:500],
@@ -819,7 +814,7 @@ class AsyncAgentOrchestrator:
         sm: StateMachine,
         workspace: str,
     ) -> None:
-        iteration = 0
+        iteration = state.iterations
         while iteration < self._max_repair_iterations:
             self._transition(state, sm, WorkflowState.TESTING)
             self._emit(state, EventType.TEST_STARTED,
@@ -855,6 +850,7 @@ class AsyncAgentOrchestrator:
                 self._emit(state, EventType.TEST_PASSED,
                            {"iteration": iteration + 1})
                 state.add_log("Tests passed!")
+                state.iterations = iteration
                 return
 
             self._emit(state, EventType.TEST_FAILED,
@@ -865,6 +861,7 @@ class AsyncAgentOrchestrator:
             iteration += 1
             if iteration >= self._max_repair_iterations:
                 state.add_log("Max repair iterations reached")
+                state.iterations = iteration
                 self._transition(state, sm, WorkflowState.FAILED)
                 return
 
@@ -894,6 +891,7 @@ class AsyncAgentOrchestrator:
 
             # Nach der Reparatur direkt erneut testen. Ein erneutes Ausfuehren
             # des Implementierungs-Agenten wuerde die Reparatur ueberschreiben.
+        state.iterations = iteration
         self._transition(state, sm, WorkflowState.FAILED)
 
     def _synthesize_and_approve(
@@ -902,70 +900,75 @@ class AsyncAgentOrchestrator:
         sm: StateMachine,
         workspace: str,
     ) -> None:
-        """Führt Synthese durch, wartet auf User-Freigabe, dann Flash."""
-        # 1. Synthese (Bitstream-Erzeugung)
+        """Führt Synthese durch, wartet auf User-Freigabe, dann Flash.
+        
+        Verwendet einen flachen Loop statt Rekursion, um das
+        max_repair_iterations-Limit korrekt zu respektieren.
+        """
         if not self._bitstream_service:
-            self._handle_failure(
-                state, sm, "Bitstream service not configured"
-            )
+            self._handle_failure(state, sm, "Bitstream service not configured")
             return
 
         if not self._bitstream_service.toolchain_available():
-            self._handle_failure(
-                state, sm, "Vivado toolchain not available (binary not found in PATH)"
+            self._handle_failure(state, sm, "Vivado toolchain not available (binary not found in PATH)")
+            return
+
+        # Flacher Loop: Test -> Synthese -> (Repair -> Test -> Synthese)* -> Approval -> Flash
+        for syn_iter in range(self._max_repair_iterations):
+            # Prüfen ob durch vorherigen _test_and_repair Aufruf bereits max erreicht
+            if state.iterations >= self._max_repair_iterations:
+                state.add_log("Max repair iterations reached")
+                self._handle_failure(state, sm, "Max repair iterations reached during synthesis repair loop")
+                return
+
+            # TESTING → VALIDATING → SYNTHESIZING
+            if sm.current in (WorkflowState.TESTING, WorkflowState.REPAIRING):
+                self._transition(state, sm, WorkflowState.VALIDATING)
+            self._transition(state, sm, WorkflowState.SYNTHESIZING)
+            self._emit(state, EventType.SYNTHESIS_STARTED)
+
+            state.add_log(f"Starting Vivado bitstream generation (attempt {syn_iter + 1})...")
+
+            target_fpga = state.metadata.get("target_fpga", "arty_s7_50")
+            bitstream_result = self._bitstream_service.build_bitstream(
+                workspace, target=target_fpga, domain=state.domain
             )
-            return
 
-        # Rekursions-Schutz: Max. Reparatur-Iterationen respektieren
-        if state.iterations >= self._max_repair_iterations:
-            state.add_log("Max repair iterations reached during synthesis repair loop")
-            self._handle_failure(state, sm, "Max repair iterations reached during synthesis repair loop")
-            return
+            if bitstream_result.passed:
+                # Synthese erfolgreich -> Approval + Flash
+                break
 
-        # TESTING → VALIDATING → SYNTHESIZING (Standard-Flow nach _test_and_repair)
-        if sm.current == WorkflowState.TESTING:
-            self._transition(state, sm, WorkflowState.VALIDATING)
-        self._transition(state, sm, WorkflowState.SYNTHESIZING)
-        self._emit(state, EventType.SYNTHESIS_STARTED)
-
-        state.add_log("Starting Vivado bitstream generation...")
-        
-        target_fpga = state.metadata.get("target_fpga", "arty_s7_50")
-        bitstream_result = self._bitstream_service.build_bitstream(
-            workspace, target=target_fpga, domain=state.domain
-        )
-
-        if not bitstream_result.passed:
-            # Synthese fehlgeschlagen -> Repair-Loop
+            # Synthese fehlgeschlagen -> Repair
             self._emit(state, EventType.SYNTHESIS_FINISHED, {
                 "passed": False,
                 "message": bitstream_result.message,
             })
             state.add_log(f"Synthesis failed: {bitstream_result.message}")
-            
-            # Repair-Instruktion bauen und in Repair-Loop zurück
+
             repair_instruction = bitstream_result.build_repair_instruction(
                 original_request=state.request,
                 iteration=state.iterations + 1,
             )
-            
-            # Status auf REPAIRING setzen und Reparatur durchführen
+
             self._transition(state, sm, WorkflowState.REPAIRING)
             self._emit(state, EventType.REPAIR_STARTED, {"iteration": state.iterations + 1})
-            
             state.add_log("Repairing after synthesis failure...")
+
             repair_result = self._opencode.execute(workspace, repair_instruction)
-            
             state.iterations += 1
             self._emit(state, EventType.REPAIR_FINISHED, {
                 "iteration": state.iterations,
                 "returncode": repair_result.returncode,
             })
-            
-            # Nach Reparatur direkt erneut testen (Tests laufen wieder)
+
+            # Nach Reparatur: erneut testen
             self._test_and_repair(state, sm, workspace)
-            if state.status != WorkflowState.FAILED:
-                self._synthesize_and_approve(state, sm, workspace)
+            if state.status == WorkflowState.FAILED:
+                return
+        else:
+            # Loop durchlaufen ohne break -> alle Versuche aufgebraucht
+            state.add_log("Max synthesis repair iterations reached")
+            self._handle_failure(state, sm, "Max synthesis repair iterations reached")
             return
 
         # Synthese erfolgreich
@@ -980,7 +983,7 @@ class AsyncAgentOrchestrator:
         })
         state.add_log(f"Synthesis succeeded: {bitstream_path}")
 
-        # 2. Auf User-Freigabe warten (AWAITING_APPROVAL)
+        # Auf User-Freigabe warten (AWAITING_APPROVAL)
         self._transition(state, sm, WorkflowState.AWAITING_APPROVAL)
         self._emit(state, EventType.APPROVAL_REQUESTED, {
             "bitstream_path": bitstream_path,
@@ -991,42 +994,34 @@ class AsyncAgentOrchestrator:
         })
 
         state.add_log("Awaiting user approval for flashing...")
-        
-        # Approval-Event registrieren und blockierend auf Freigabe warten
+
         self._create_approval_event(state.task_id)
         approved, feedback = self._wait_for_approval(state.task_id)
 
         if not approved:
-            # User hat abgelehnt -> zurück zu REPAIRING mit User-Feedback
-            self._emit(state, EventType.APPROVAL_REJECTED, {
-                "feedback": feedback,
-            })
+            self._emit(state, EventType.APPROVAL_REJECTED, {"feedback": feedback})
             state.add_log(f"User rejected: {feedback or 'No feedback provided'}")
-            
+
             if feedback:
-                # Max-Iter prüfen
                 if state.iterations >= self._max_repair_iterations:
                     state.add_log("Max repair iterations reached after rejection")
                     self._transition(state, sm, WorkflowState.FAILED)
                     return
-                # User-Feedback als Repair-Instruktion verwenden
+                # User-Feedback als Repair-Instruktion, dann erneut testen+synthetisieren
                 self._transition(state, sm, WorkflowState.REPAIRING)
                 self._emit(state, EventType.REPAIR_STARTED, {"iteration": state.iterations + 1})
                 state.add_log("Repairing based on user feedback...")
                 repair_result = self._opencode.execute(workspace, feedback)
-                
                 state.iterations += 1
                 self._emit(state, EventType.REPAIR_FINISHED, {
                     "iteration": state.iterations,
                     "returncode": repair_result.returncode,
                 })
-                
-                # Nach Reparatur erneut testen und synthetisieren
+                # Erneut testen und synthetisieren (iterativer Aufruf, nicht rekursiv)
                 self._test_and_repair(state, sm, workspace)
                 if state.status != WorkflowState.FAILED:
                     self._synthesize_and_approve(state, sm, workspace)
             else:
-                # Kein Feedback -> FAILED
                 self._transition(state, sm, WorkflowState.FAILED)
             return
 
@@ -1070,7 +1065,13 @@ class AsyncAgentOrchestrator:
         state.add_log(f"Flashing bitstream to FPGA via {programmer}...")
         
         # Flash-Service aufrufen mit expected_part für Board-Matching
-        flash_result = flash_service.flash(bitstream_path, board=board_name, expected_part=expected_part)
+        # workspace übergeben damit Vivado-Logs sauber abgelegt werden
+        flash_result = flash_service.flash(
+            bitstream_path,
+            board=board_name,
+            expected_part=expected_part,
+            workspace=state.workspace or "",
+        )
 
         if not flash_result.passed:
             # Flash fehlgeschlagen -> zurück zu AWAITING_APPROVAL (erneuter Versuch möglich)

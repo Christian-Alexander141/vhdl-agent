@@ -208,7 +208,9 @@ class OllamaLLMService(LLMService):
 
         full_prompt = f"{context}\n\n{prompt}" if context else prompt
         try:
-            response = llm.invoke(full_prompt, temperature=temperature)
+            # langchain-ollama's invoke() does not accept a temperature kwarg here;
+            # the model is configured with temperature at construction time.
+            response = llm.invoke(full_prompt)
             return str(response).strip()
         except Exception as e:
             logger.error("LLM code generation failed: %s", e)

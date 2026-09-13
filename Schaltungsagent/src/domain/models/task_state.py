@@ -21,6 +21,16 @@ class WorkflowStatus(str):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
+    # New multi-agent states
+    ARCHITECTING = "ARCHITECTING"
+    IMPLEMENTING = "IMPLEMENTING"
+    STATIC_CHECK = "STATIC_CHECK"
+    SIMULATING = "SIMULATING"
+    DEBUGGING = "DEBUGGING"
+    FPGA_PROGRAMMING = "FPGA_PROGRAMMING"
+    HARDWARE_TESTING = "HARDWARE_TESTING"
+    AUTONOMOUS_LIMIT_REACHED = "AUTONOMOUS_LIMIT_REACHED"
+
 
 class TaskState(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

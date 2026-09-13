@@ -66,6 +66,9 @@ class GHDLValidator(ValidationService):
         if not src_files:
             return self._fail("No VHDL files found in src/", steps)
 
+        # Sort files by dependency order: entities referenced by others come first
+        src_files = self._sort_by_dependency(src_files)
+
         tb_files = self._find_vhdl_files(tests_dir) if tests_dir.exists() else []
 
         # --- Schritt A: Analyse aller VHDL-Dateien (DUTs und Testbenches) ---
@@ -253,6 +256,60 @@ class GHDLValidator(ValidationService):
             if p.is_file() and p.suffix.lower() in VHDL_EXTENSIONS
         )
 
+    def _sort_by_dependency(self, files: list[Path]) -> list[Path]:
+        """Sort VHDL files by dependency order.
+        
+        Files that are referenced by others (via entity instantiation)
+        are placed first. This ensures GHDL analysis succeeds.
+        """
+        # Build entity -> file mapping
+        entity_to_file: dict[str, Path] = {}
+        file_entities: dict[Path, set[str]] = {}
+        
+        for f in files:
+            try:
+                content = f.read_text(errors="replace")
+            except OSError:
+                continue
+            
+            # Find entity name
+            entity_match = re.search(r'\bentity\s+(\w+)\s+is', content, re.IGNORECASE)
+            if entity_match:
+                entity_to_file[entity_match.group(1).lower()] = f
+                file_entities[f] = {entity_match.group(1).lower()}
+            else:
+                file_entities[f] = set()
+            
+            # Find instantiated entities (component or direct entity instantiation)
+            instantiated = set()
+            for m in re.finditer(r'\bentity\s+work\.(\w+)', content, re.IGNORECASE):
+                instantiated.add(m.group(1).lower())
+            for m in re.finditer(r'\bcomponent\s+(\w+)\s+is', content, re.IGNORECASE):
+                instantiated.add(m.group(1).lower())
+            
+            if instantiated:
+                file_entities[f] = file_entities.get(f, set()) | instantiated
+        
+        # Topological sort
+        visited: set[Path] = set()
+        result: list[Path] = []
+        
+        def visit(f: Path):
+            if f in visited:
+                return
+            visited.add(f)
+            # Visit dependencies first
+            for dep_entity in file_entities.get(f, set()):
+                dep_file = entity_to_file.get(dep_entity)
+                if dep_file and dep_file != f:
+                    visit(dep_file)
+            result.append(f)
+        
+        for f in files:
+            visit(f)
+        
+        return result
+
     @staticmethod
     def _extract_entity_name(vhd_file: Path) -> str | None:
         try:
@@ -328,7 +385,7 @@ class GHDLValidator(ValidationService):
     def _ensure_assert_level(
         self, simulate_command: Callable[[str], list[str]]
     ) -> Callable[[str], list[str]]:
-        """GHDL 4.x stoppt bei severity error nur, wenn --assert-level=error
+        """GHDL 4.x stops bei severity error nur, wenn --assert-level=error
         gesetzt ist; ohne das Flag endet die Simulation mit Exit-Code 0.
         Der Validator erzwingt daher das Flag, falls es fehlt."""
         if any(flag.startswith("--assert-level") for flag in self._test_def.run_flags):

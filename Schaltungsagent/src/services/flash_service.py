@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -32,18 +33,20 @@ class OpenFPGALoaderFlashService(FlashService):
         self,
         binary: str = "openFPGALoader",
         timeout_seconds: int = 60,
-        default_board: str = "arty_s7",
+        default_board: str = "arty_s7_50",
+        cable: str = "digilent",
     ):
         self._binary = binary
         self._timeout_seconds = timeout_seconds
         self._default_board = default_board
+        self._cable = cable
 
     def toolchain_available(self) -> bool:
         return shutil.which(self._binary) is not None
 
     def detect_boards(self, expected_part: str = "") -> list[dict]:
         """Erkennt angeschlossene Boards via openFPGALoader --detect."""
-        cmd = [self._binary, "--detect"]
+        cmd = [self._binary, "-c", self._cable, "--detect"]
         try:
             result = subprocess.run(
                 cmd,
@@ -51,24 +54,53 @@ class OpenFPGALoaderFlashService(FlashService):
                 text=True,
                 timeout=10,
             )
+            output = "\n".join(
+                part for part in (result.stdout or "", result.stderr or "") if part
+            )
+            self._last_detect_output = output[-2000:]
+            if result.returncode != 0:
+                logger.warning(
+                    "openFPGALoader --detect returned %d: %s",
+                    result.returncode,
+                    output[-1000:],
+                )
             boards = []
-            # openFPGALoader --detect gibt Zeilen wie:
-            # "Found 1 device(s):"
-            # "  0: Arty S7 (serial=210299A5B3E3)"
-            for line in (result.stdout or "").splitlines():
-                line = line.strip()
-                if line.startswith(("0:", "1:", "2:", "3:")):
-                    # Format: "0: Arty S7 (serial=210299A5B3E3)"
-                    parts = line.split(":", 1)
-                    if len(parts) == 2:
-                        board_info = parts[1].strip()
-                        name = board_info.split("(")[0].strip()
-                        boards.append({
-                            "index": int(parts[0]),
-                            "name": name,
-                            "details": board_info,
-                            "part": name,  # openFPGALoader liefert keinen expliziten Part
-                        })
+            current = None
+            # openFPGALoader verwendet je nach Version entweder
+            # "0: Arty S7 (...)" oder "index 0:" mit model/idcode-Feldern.
+            for raw_line in output.splitlines():
+                line = raw_line.strip()
+                legacy = re.match(r"^(\d+):\s*(.+)$", line)
+                indexed = re.match(r"^index\s+(\d+):$", line, re.IGNORECASE)
+                if legacy:
+                    board_info = legacy.group(2).strip()
+                    name = board_info.split("(")[0].strip()
+                    boards.append({
+                        "index": int(legacy.group(1)),
+                        "name": name,
+                        "details": board_info,
+                        "part": name,
+                    })
+                elif indexed:
+                    if current:
+                        boards.append(current)
+                    current = {
+                        "index": int(indexed.group(1)),
+                        "name": "FPGA",
+                        "details": "",
+                        "part": "",
+                    }
+                elif current and line:
+                    field = re.match(r"^(model|family|idcode|manufacturer)\s+(.+)$", line)
+                    if field:
+                        key, value = field.groups()
+                        current[key] = value.strip()
+                        if key == "model":
+                            current["name"] = value.strip()
+                            current["part"] = value.strip()
+                    current["details"] = (current["details"] + " " + line).strip()
+            if current:
+                boards.append(current)
             return boards
         except FileNotFoundError:
             logger.error("openFPGALoader binary not found: %s", self._binary)
@@ -80,13 +112,14 @@ class OpenFPGALoaderFlashService(FlashService):
             logger.error("openFPGALoader --detect failed: %s", e)
             return []
 
-    def flash(self, bitstream_path: str, board: str = "", expected_part: str = "") -> FlashResult:
+    def flash(self, bitstream_path: str, board: str = "", expected_part: str = "", workspace: str = "") -> FlashResult:
         """Flasht den Bitstream auf das angegebene Board.
 
         Args:
             bitstream_path: Pfad zur .bit-Datei
             board: Board-Name für openFPGALoader -b Option (Default: arty_s7)
             expected_part: Wird ignoriert (openFPGALoader verwendet board-Name)
+            workspace: Wird ignoriert (openFPGALoader erzeugt keine Vivado-Artefakte)
 
         Returns:
             FlashResult mit Erfolgsstatus und Board-Informationen.
@@ -116,6 +149,7 @@ class OpenFPGALoaderFlashService(FlashService):
                     "target_board": target_board,
                     "expected_part": expected_part,
                     "error": "no_board_detected",
+                    "detect_output": getattr(self, "_last_detect_output", ""),
                 },
                 board_detected=False,
                 board_count=0,
@@ -144,7 +178,9 @@ class OpenFPGALoaderFlashService(FlashService):
         logger.info("Flashing bitstream %s to board %s", bitstream_path, target_board)
         cmd = [
             self._binary,
+            "-c", self._cable,
             "-b", target_board,
+            "-f",
             str(bitstream_file),
         ]
 

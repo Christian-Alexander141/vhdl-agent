@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.domain.models import KnowledgeBundle
+from src.infrastructure.rag.embedding_provider import EmbeddingProvider
 
 logger = logging.getLogger(__name__)
 
@@ -62,24 +63,7 @@ def get_embeddings(embedding_model: str = "jina-embeddings-v5-text-small"):
     global _embeddings
     if _embeddings is not None:
         return _embeddings
-    try:
-        from langchain_huggingface import HuggingFaceEmbeddings
-    except ImportError:
-        logger.warning("langchain-huggingface not installed")
-        return None
-
-    candidates = [embedding_model, "sentence-transformers/all-MiniLM-L6-v2"]
-    for model in candidates:
-        try:
-            _embeddings = HuggingFaceEmbeddings(
-                model_name=model,
-                encode_kwargs={"normalize_embeddings": True},
-            )
-            logger.info("Embeddings loaded: %s", model)
-            break
-        except Exception as e:
-            logger.debug("Embeddings model %s failed: %s", model, e)
-            continue
+    _embeddings = EmbeddingProvider(embedding_model).get_embeddings()
     return _embeddings
 
 
