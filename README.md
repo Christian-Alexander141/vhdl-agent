@@ -1,5 +1,8 @@
 # LLM-basierte autonome Agentenplattform zur Software- und Systemartefakterzeugung
 
+<img width="1364" height="642" alt="Bildschirmfoto vom 2026-09-13 16-51-03" src="https://github.com/user-attachments/assets/aab4d544-d0bd-458b-9c0f-b93042981817" />
+
+
 ## Übersicht
 
 Dieses Projekt untersucht und implementiert eine Umgebung zur autonomen Erzeugung komplexer Software- und Systemartefakte mithilfe LLM-basierter Agenten.
