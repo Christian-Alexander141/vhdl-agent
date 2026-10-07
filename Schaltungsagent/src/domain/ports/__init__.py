@@ -1,5 +1,4 @@
-from .llm_service import LLMService
-from .rag_service import RAGService
+from .llm_service import ChatLLM, NamingLLM
 from .artifact_generator import ArtifactGenerator
 from .filesystem_service import FileSystemService
 from .opencode_service import OpenCodeService, OpenCodeResult
@@ -12,8 +11,8 @@ from .flash_service import FlashService, FlashResult
 from .tool import Tool, ToolRegistry, ToolExecutor, ToolResult
 
 __all__ = [
-    "LLMService",
-    "RAGService",
+    "ChatLLM",
+    "NamingLLM",
     "ArtifactGenerator",
     "FileSystemService",
     "OpenCodeService",

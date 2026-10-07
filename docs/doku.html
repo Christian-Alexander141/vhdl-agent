@@ -19,7 +19,7 @@
 </head>
 <body>
   <h1>Softwaredokumentation</h1>
-  <p>Diese Dokumentation beschreibt die Architektur und Funktionsweise der KI-gestützten Agentenplattform im Projekt.</p>
+  <p>Historische Übersicht: Die frühere RAG-Pipeline wurde entfernt. Aktuell erzeugt OpenCode HDL-Dateien; Ollama wird nur für Textaufgaben verwendet.</p>
 
   <section>
     <h2>1. Architekturüberblick</h2>
@@ -110,7 +110,7 @@
 
   <section>
     <h2>5. Orchestrator & Workflow</h2>
-    <p>Der zentrale Orchestrator befindet sich in <code>Schaltungsagent/src/orchestrator/orchestrator.py</code>. Er kapselt den Workflow in einer ausführbaren Komponente mit synchroner und asynchroner Ausführung.</p>
+    <p>Der zentrale Orchestrator befindet sich in <code>Schaltungsagent/src/orchestrator/supervisor_orchestrator.py</code> und verwendet den LangGraph-Workflow.</p>
     <p>Die Hauptfunktionen:</p>
     <ul>
       <li><code>execute()</code>: Führt eine Task sequenziell aus.</li>

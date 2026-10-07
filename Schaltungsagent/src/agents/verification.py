@@ -6,6 +6,8 @@ from typing import Any
 from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.domain.agents.communication import VerificationResult
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
+from src.domain.exceptions import OpenCodeDeliveryError
+from src.services.opencode_service import describe_opencode_failure
 
 logger = logging.getLogger(__name__)
 
@@ -23,30 +25,24 @@ class VerificationAgent(BaseAgent):
 
     def __init__(
         self,
-        llm_service,
-        rag_service,
         filesystem_service,
         opencode_service,
         event_publisher=None,
     ):
         super().__init__("VerificationAgent", event_publisher)
-        self._llm = llm_service
-        self._rag = rag_service
         self._fs = filesystem_service
         self._opencode = opencode_service
         self._validator = GHDLValidator()
 
     @property
     def supported_task_types(self) -> list[str]:
-        return ["verify", "create_testplan", "generate_testbench", "analyze_coverage"]
+        return ["verify", "generate_testbench", "analyze_coverage"]
 
     async def execute(self, task: AgentTask) -> AgentResult:
         task_type = task.type
         
         if task_type == "verify":
             return await self._run_verification(task)
-        elif task_type == "create_testplan":
-            return await self._create_testplan(task)
         elif task_type == "generate_testbench":
             return await self._generate_testbench(task)
         elif task_type == "analyze_coverage":
@@ -120,96 +116,115 @@ class VerificationAgent(BaseAgent):
                 error_message=f"Verification error: {e}",
             )
 
-    async def _create_testplan(self, task: AgentTask) -> AgentResult:
-        """Erstellt Testplan aus Anforderungen und Architektur."""
-        architecture = task.inputs.get("architecture", {})
-        requirements = task.inputs.get("requirements", [])
-        
-        prompt = f"""Erstelle einen detaillierten Testplan für folgende Architektur:
-
-ARCHITEKTUR:
-{architecture}
-
-ANFORDERUNGEN:
-{requirements}
-
-Der Testplan soll enthalten:
-1. Unit Tests pro Modul
-2. Integration Tests für Modul-Verbindungen
-3. Corner Cases
-4. Timing Tests (falls relevant)
-5. Expected Coverage Targets
-
-Format: YAML mit test_cases Liste."""
-
-        try:
-            testplan_yaml = self._llm.generate_code(prompt, temperature=0.2)
-            
-            import yaml
-            import re
-            yaml_match = re.search(r'```yaml\n(.*?)\n```', testplan_yaml, re.DOTALL)
-            if yaml_match:
-                testplan_yaml = yaml_match.group(1)
-            
-            testplan = yaml.safe_load(testplan_yaml)
-            
-            return AgentResult(
-                task_id=task.id,
-                status=AgentStatus.COMPLETED,
-                outputs={"testplan": testplan},
-            )
-        except Exception as e:
-            return AgentResult(
-                task_id=task.id,
-                status=AgentStatus.FAILED,
-                error_message=f"Testplan creation failed: {e}",
-            )
-
     async def _generate_testbench(self, task: AgentTask) -> AgentResult:
         """Generiert Testbench für spezifisches Modul."""
         module = task.inputs.get("module", {})
         workspace = task.inputs.get("workspace", "")
         domain = task.inputs.get("domain", "vhdl")
         
-        # RAG für Test-Strategien abfragen
-        test_knowledge = self._rag.retrieve_knowledge(
-            f"testbench {module.get('name', '')} VHDL", domain
-        )
-        
-        prompt = f"""Generiere VHDL-Testbench für Modul:
+        # VHDL-Code des Moduls lesen
+        module_name = module.get("name", "") if isinstance(module, dict) else getattr(module, "name", "")
+        vhdl_content = ""
+        if module_name and workspace:
+            src_dir = Path(workspace) / "src"
+            for ext in (".vhd", ".vhdl"):
+                vhdl_file = src_dir / f"{module_name}{ext}"
+                if vhdl_file.exists():
+                    try:
+                        vhdl_content = vhdl_file.read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        pass
+                    break
 
-MODUL: {module}
+        prompt = f"""Generiere eine vollständige VHDL-Testbench für folgendes Modul:
 
-TEST-STRATEGIEN:
-{test_knowledge.raw_context if hasattr(test_knowledge, 'raw_context') else test_knowledge}
+VHDL-CODE DES MODULS:
+{vhdl_content if vhdl_content else 'Kein VHDL-Code verfügbar - generiere basierend auf Modul-Info'}
+
+MODUL-INFORMATIONEN:
+{module}
 
 ANFORDERUNGEN:
-- GHDL-kompatibel
-- Vollständige Stimulus-Generierung
-- Assertions mit Report
-- TB_COMPLETE Marker am Ende"""
+- GHDL-kompatibel (VHDL-2008)
+- Clock-Generierung mit stabiler Periodendauer
+- Reset-Sequenz (aktiv für mindestens 2 Clock-Zyklen)
+- Vollständige Stimulus-Generierung für alle Input-Signale
+- Assertions mit Report-Text für fehlgeschlagene Prüfungen
+- Am Ende: assert false report "TB_COMPLETE" severity note;
+- Entity-Name muss "_tb" Suffix haben und zum Modul passen
+- Ports müssen exakt zum Entity-Declaration des Moduls passen
+
+Antworte ausschließlich mit dem VHDL-Testbench-Code (Entity + Architecture). Ändere keine Dateien."""
 
         try:
-            tb_code = self._llm.generate_code(prompt, temperature=0.1)
+            result = self._opencode.execute(workspace, prompt)
+            if not result.success:
+                cause, hint = describe_opencode_failure(result.returncode, result.stdout, result.stderr)
+                raise OpenCodeDeliveryError(
+                    f"Testbench für '{module_name}': OpenCode-Aufruf fehlgeschlagen",
+                    cause=cause, hint=hint,
+                    context={"Exit-Code": result.returncode, "stderr (Ende)": (result.stderr or "")[-2000:]},
+                )
+
+            import re
+            tb_code = re.sub(r'^```vhdl\s*', '', result.stdout, flags=re.MULTILINE)
+            tb_code = re.sub(r'^```\s*$', '', tb_code, flags=re.MULTILINE).strip()
+            if not tb_code:
+                raise OpenCodeDeliveryError(
+                    f"Testbench für '{module_name}': keine Ausgabe",
+                    cause="OpenCode endete ohne Fehler, hat aber keinen Testbench-Code ausgegeben.",
+                    hint="Das Modell hat vermutlich eine Datei geschrieben statt den Code auszugeben; anderes Modell versuchen.",
+                )
             
-            # Testbench speichern
+            # Testbench nur übernehmen, wenn sie den DUT instanziiert und der
+            # Workspace damit weiterhin kompiliert, elaboriert und simuliert.
+            from src.domain.agents.test_plan import _instantiations
+
+            dut = module.get("name", "dut")
+            if dut.lower() not in _instantiations(tb_code):
+                raise OpenCodeDeliveryError(
+                    f"Generated testbench does not instantiate DUT '{dut}'",
+                    cause=f"Die erzeugte Testbench enthält keine Instanz von '{dut}' und würde das Modul nicht prüfen.",
+                    hint="Die vorhandene Testbench bleibt unverändert; Auftrag erneut ausführen oder Testbench manuell ergänzen.",
+                )
+
             tb_dir = Path(workspace) / "tests"
             tb_dir.mkdir(parents=True, exist_ok=True)
-            
-            file_name = f"{module.get('name', 'dut')}_tb.vhd"
+            file_name = f"{dut}_tb.vhd"
             file_path = tb_dir / file_name
+            previous = file_path.read_text(errors="replace") if file_path.exists() else None
             self._fs.write_file(str(file_path), tb_code)
-            
+
+            check = self._validator.validate(workspace, domain)
+            if not check.passed:
+                if previous is None:
+                    file_path.unlink(missing_ok=True)
+                else:
+                    self._fs.write_file(str(file_path), previous)
+                raise OpenCodeDeliveryError(
+                    "Generated testbench rejected",
+                    cause=f"GHDL lehnt den Workspace mit der neuen Testbench ab: {check.message}",
+                    hint="Die vorherige Testbench wurde wiederhergestellt.",
+                    context={"GHDL-Ausgabe": str((check.details or {}).get("error", ""))[-2000:]},
+                )
+
             return AgentResult(
                 task_id=task.id,
                 status=AgentStatus.COMPLETED,
                 outputs={"testbench_file": f"tests/{file_name}"},
             )
         except Exception as e:
+            logger.error("Testbench generation failed:\n%s", e)
             return AgentResult(
                 task_id=task.id,
                 status=AgentStatus.FAILED,
                 error_message=f"Testbench generation failed: {e}",
+                diagnostics=[{
+                    "type": "testbench_generation",
+                    "module": module_name,
+                    "message": str(e),
+                    **({"details": e.to_dict()} if hasattr(e, "to_dict") else {}),
+                }],
             )
 
     async def _analyze_coverage(self, task: AgentTask) -> AgentResult:

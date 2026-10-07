@@ -7,20 +7,35 @@ import uuid
 
 class DesignStage(str, Enum):
     CREATED = "CREATED"
+    RECEIVED = "RECEIVED"
     ANALYZING = "ANALYZING"
     ARCHITECTING = "ARCHITECTING"
+    UART_INTEGRATION = "UART_INTEGRATION"
+    PLANNING = "PLANNING"
+    TASK_GRAPH_CREATED = "TASK_GRAPH_CREATED"
+    GENERATING = "GENERATING"
     IMPLEMENTING = "IMPLEMENTING"
+    INTEGRATING = "INTEGRATING"
     STATIC_CHECK = "STATIC_CHECK"
+    VERIFYING = "VERIFYING"
     SIMULATING = "SIMULATING"
     VALIDATING = "VALIDATING"
+    SIMULATION_PASSED = "SIMULATION_PASSED"
     DEBUGGING = "DEBUGGING"
+    REPAIRING = "REPAIRING"
     SYNTHESIZING = "SYNTHESIZING"
     FPGA_PROGRAMMING = "FPGA_PROGRAMMING"
     HARDWARE_TESTING = "HARDWARE_TESTING"
+    SUCCESS = "SUCCESS"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     AUTONOMOUS_LIMIT_REACHED = "AUTONOMOUS_LIMIT_REACHED"
     INFRASTRUCTURE_FAILURE = "INFRASTRUCTURE_FAILURE"
+    MAX_REPAIR_ITERATIONS = "MAX_REPAIR_ITERATIONS"
+    MAX_WORKER_ATTEMPTS = "MAX_WORKER_ATTEMPTS"
+    TIMEOUT = "TIMEOUT"
+    UNRECOVERABLE_ERROR = "UNRECOVERABLE_ERROR"
+    RESOURCE_LIMIT = "RESOURCE_LIMIT"
 
 
 class RequirementStatus(str, Enum):
@@ -48,16 +63,21 @@ class ModuleInfo(BaseModel):
     status: str = "planned"
     dependencies: list[str] = Field(default_factory=list)
     files: list[str] = Field(default_factory=list)
+    # Maschinenprüfbarer Port-Contract: {port: {"direction": "in", "type": "..."}}
+    ports: dict = Field(default_factory=dict)
 
 
 class ArchitectureInfo(BaseModel):
     status: str = "pending"
     version: int = 0
+    top_module: str = ""
     modules: list[ModuleInfo] = Field(default_factory=list)
     interfaces: dict = Field(default_factory=dict)
     clock_domain: str = "clk"
     reset_concept: str = "async_active_high"
     decisions: list[dict] = Field(default_factory=list)
+    # Projektspezifische Hardware-Testvektoren (siehe HardwareTestAgent).
+    hardware_tests: list[dict] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -86,6 +106,11 @@ class VerificationInfo(BaseModel):
     failed: int = 0
     coverage: float = 0.0
     last_run: str = ""
+    # Versionierte Gate-Ergebnisse: Architekturversion, Testplan, Contracts.
+    architecture_version: int = 0
+    test_plan: dict = Field(default_factory=dict)
+    contract_check: dict = Field(default_factory=dict)
+    history: list[dict] = Field(default_factory=list)
 
 
 class SynthesisInfo(BaseModel):
@@ -107,6 +132,8 @@ class FPGAInfo(BaseModel):
 
 class HardwareTestInfo(BaseModel):
     status: str = "pending"
+    # MOCK | REAL_HARDWARE | NONE – Erfolg zählt nur bei REAL_HARDWARE.
+    test_mode: str = "NONE"
     tests: list[TestInfo] = Field(default_factory=list)
     passed: int = 0
     failed: int = 0
@@ -149,9 +176,19 @@ class DesignState(BaseModel):
     current_stage: DesignStage = DesignStage.CREATED
     metadata: dict = Field(default_factory=dict)
 
-    def increment_iteration(self, stage: str) -> None:
+    def _stage_name(self, stage: str | DesignStage | None) -> str:
+        if isinstance(stage, DesignStage):
+            return stage.value
+        if stage is None:
+            stage = self.current_stage
+        if isinstance(stage, DesignStage):
+            return stage.value
+        return str(stage or DesignStage.CREATED.value)
+
+    def increment_iteration(self, stage: str | DesignStage | None) -> None:
+        stage_name = self._stage_name(stage)
         self.iterations["total"] += 1
-        self.iterations["by_stage"][stage] = self.iterations["by_stage"].get(stage, 0) + 1
+        self.iterations["by_stage"][stage_name] = self.iterations["by_stage"].get(stage_name, 0) + 1
 
     def increment_repairs(self) -> None:
         self.iterations["repairs"] += 1
@@ -162,6 +199,16 @@ class DesignState(BaseModel):
         self.human_interventions.last_intervention = datetime.now(timezone.utc).isoformat()
 
     def transition_to(self, new_stage: DesignStage) -> None:
+        from src.domain.state_machine import StateMachine, WorkflowState, TRANSITIONS
+        from src.domain.exceptions import StateMachineError
+        current_val = self.current_stage.value if isinstance(self.current_stage, DesignStage) else str(self.current_stage)
+        new_val = new_stage.value if isinstance(new_stage, DesignStage) else str(new_stage)
+        allowed = TRANSITIONS.get(current_val, [])
+        if new_val not in allowed and new_val != current_val:
+            raise StateMachineError(
+                f"Invalid transition: {current_val} -> {new_val}. "
+                f"Allowed: {allowed}"
+            )
         self.current_stage = new_stage
         self.project["updated_at"] = datetime.now(timezone.utc).isoformat()
 

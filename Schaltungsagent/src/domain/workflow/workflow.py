@@ -2,8 +2,6 @@ import logging
 
 from ..state_machine import StateMachine, WorkflowState
 from ..ports import (
-    LLMService,
-    RAGService,
     ArtifactGenerator,
     FileSystemService,
     OpenCodeService,
@@ -11,16 +9,16 @@ from ..ports import (
     ValidationService,
     PlannerService,
 )
-from ..models import TaskState, KnowledgeBundle, ArtifactBundle, EventType
+from ..models import TaskState, ArtifactBundle, EventType
 from ..exceptions import (
     WorkflowError,
-    RAGError,
     LLMError,
     ArtifactError,
     WorkspaceError,
     AgentExecutionError,
 )
 from src.services.project_namer import make_unique
+from src.services.project_namer import derive_project_name
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +26,6 @@ logger = logging.getLogger(__name__)
 class Workflow:
     def __init__(
         self,
-        llm_service: LLMService,
-        rag_service: RAGService,
         artifact_generator: ArtifactGenerator,
         filesystem_service: FileSystemService,
         opencode_service: OpenCodeService,
@@ -38,8 +34,6 @@ class Workflow:
         planner_service: PlannerService | None = None,
         max_repair_iterations: int = 5,
     ):
-        self._llm = llm_service
-        self._rag = rag_service
         self._artifact_generator = artifact_generator
         self._fs = filesystem_service
         self._opencode = opencode_service
@@ -58,15 +52,14 @@ class Workflow:
         if task_id:
             state.task_id = task_id
         else:
-            state.task_id = make_unique(self._llm.generate_project_name(request))
+            state.task_id = make_unique(derive_project_name(request))
         sm = StateMachine(WorkflowState.CREATED)
 
         self._emit(state, EventType.TASK_CREATED, {"request": request, "domain": domain})
 
         try:
             self._analyze(state, sm)
-            knowledge = self._search_rag(state, sm)
-            artifacts = self._generate_artifacts(state, sm, knowledge)
+            artifacts = self._generate_artifacts(state, sm)
             workspace_root = self._prepare_workspace(state, sm, artifacts)
             if self._planner_service:
                 self._execute_planned(state, sm, workspace_root)
@@ -112,40 +105,22 @@ class Workflow:
     def _analyze(self, state: TaskState, sm: StateMachine) -> str:
         self._transition(state, sm, WorkflowState.ANALYZING)
         state.add_log("Analyzing request...")
-        try:
-            analysis = self._llm.analyze_request(state.request, state.domain)
-        except Exception as e:
-            raise LLMError(f"Analysis failed: {e}") from e
+        analysis = "Original request preserved for OpenCode planning and implementation."
         state.metadata["analysis"] = analysis
         state.add_log(f"Analysis complete: {analysis}")
         return analysis
-
-    def _search_rag(self, state: TaskState, sm: StateMachine) -> KnowledgeBundle:
-        self._transition(state, sm, WorkflowState.RAG_SEARCH)
-        state.add_log("Searching RAG knowledge base...")
-        try:
-            knowledge = self._rag.retrieve_knowledge(state.request, state.domain)
-        except Exception as e:
-            raise RAGError(f"RAG search failed: {e}") from e
-        state.metadata["knowledge"] = knowledge.to_dict()
-        state.add_log(
-            f"RAG found {len(knowledge.coding_rules)} rules, "
-            f"{len(knowledge.reference_designs)} designs"
-        )
-        return knowledge
 
     def _generate_artifacts(
         self,
         state: TaskState,
         sm: StateMachine,
-        knowledge: KnowledgeBundle,
     ) -> ArtifactBundle:
         self._transition(state, sm, WorkflowState.GENERATING_ARTIFACTS)
         state.add_log("Generating artifacts...")
         analysis = state.metadata.get("analysis", "")
         try:
             artifacts = self._artifact_generator.generate(
-                state.request, analysis, knowledge, state.domain
+                state.request, analysis, state.domain
             )
         except Exception as e:
             raise ArtifactError(f"Artifact generation failed: {e}") from e
@@ -293,7 +268,10 @@ class Workflow:
     def _complete(self, state: TaskState, sm: StateMachine) -> None:
         self._transition(state, sm, WorkflowState.VALIDATING)
         state.add_log("Validating final result...")
-        summary = self._llm.summarize_result(state.to_dict())
+        summary = (
+            f"Task {state.task_id} completed with status {state.status}; "
+            f"generated {len(state.generated_files)} file(s)."
+        )
         state.metadata["summary"] = summary
         self._transition(state, sm, WorkflowState.COMPLETED)
         state.add_log("Task completed successfully")

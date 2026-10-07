@@ -4,68 +4,83 @@ llm:
   base_url: http://localhost:11434
   temperature: 0.1
   max_tokens: 4096
-
-rag:
-  enabled: true
-  vector_store: qdrant
-  vector_store_path: ./memory/qdrant
-  embedding_model: jina-embeddings-v5-text-small
-  chunk_size: 1000
-  chunk_overlap: 200
-  max_results: 5
-  data_dir: ./Dateien
-  memory_dir: ./memory
-
+  context_window: 32768
+  api_key_file: ''
+  chat_timeout_seconds: 120
+  naming_timeout_seconds: 30
+  naming_max_tokens: 96
+  fallback_model: llama3.2:1b
+  fallback_cooldown: 60
+  primary_timeout: 120
+  fallback_timeout: 600
 workspace:
   base_dir: ./projects
   cleanup_on_failure: false
+  cleanup_temp_files: true
   cleanup_ttl_hours: 72
   keep_logs: true
   max_workspaces: 100
-
 opencode:
   binary: opencode
-  default_timeout: 4000
-  max_repair_iterations: 5
-  use_docker: false
-  test_mode: false
-
+  model: opencode/nemotron-3.5-lightning-free
+  fallback_model: opencode/muse-spark-1.3-free
+  default_timeout: 3000
+  plan_timeout_seconds: 1200
+  skills_dir: .opencode/skills
+  max_repair_iterations: 3
+  test_mode: true
+  docker_isolation: per_task
+  docker_image: ghcr.io/anomalyco/opencode:latest
+  docker_binary: opencode
+  docker_network: bridge
+  docker_memory: ''
+  docker_cpus: ''
+  docker_auth_dir: ''
+  docker_container: opencode-agent
+  docker_workspace: /workspace
+  docker_host_workspace: ./projects
+limits:
+  max_prompt_bytes: 200000
+  max_parallel_workers: 2
+knowledge:
+  enabled: true
 ghdl:
   binary: ghdl
   timeout_seconds: 60
-
 vivado:
   binary: /home/alex/Xilinx/2026.1/Vivado/bin/vivado
   settings_script: /home/alex/Xilinx/2026.1/Vivado/settings64.sh
   timeout_seconds: 600
-
 flash:
   method: openfpgaloader
   timeout_seconds: 120
-
 dashboard:
   host: 0.0.0.0
   port: 8088
   websocket_path: /ws
-
 logging:
   level: INFO
   format: structured
   output: console
   log_dir: ./logs
-
 domains:
   default: vhdl
   search_paths:
-    - ./Schaltungsagent/src/domain_plugins
+  - ./Schaltungsagent/src/domain_plugins
   paths:
     vhdl: ./Schaltungsagent/src/domain_plugins/vhdl
-
 eda_tools:
   modelsim_binary: ~/.wine/drive_c/intelFPGA/18.1/modelsim_ase/win32aloem/vsim.exe
   modelsim_wine: wine
-
 synthesis:
   enabled: true
   default_fpga: arty_s7_50
   timeout_seconds: 120
+hardware_test:
+  uart_port: ''
+  baudrate: 115200
+  timeout_seconds: 5.0
+gates:
+  min_module_coverage: 1.0
+  enforce_contracts: true
+  require_timing_closure: true

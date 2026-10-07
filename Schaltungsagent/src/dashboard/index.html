@@ -1,964 +1,481 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>AI Engineer — Dashboard</title>
-
-    <link rel="stylesheet" href="/static/style.css?v=5">
+    <script>
+        // Theme vor dem ersten Rendern setzen (kein Aufblitzen).
+        try {
+            const saved = JSON.parse(localStorage.getItem('ai-engineer-settings') || '{}');
+            if (saved.theme) document.documentElement.dataset.theme = saved.theme;
+            if (saved.accent) document.documentElement.style.setProperty('--accent', saved.accent);
+        } catch (e) {}
+    </script>
+    <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+        <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 5l-4 14"/></symbol>
+        <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+        <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
+        <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    </defs>
+</svg>
+
 <div id="app">
 
-    <!-- =========================================================
-         HEADER
-         ========================================================= -->
+    <!-- ================= HEADER ================= -->
     <header id="header">
-
         <div class="header-left">
-
             <div class="logo">
-                <span class="logo-icon">⚙</span>
-                <span>AI Engineer</span>
+                <span class="logo-mark"><svg class="icon"><use href="#i-chip"/></svg></span>
+                <span class="logo-text">AI Engineer</span>
+                <span class="logo-sub">VHDL · FPGA</span>
             </div>
+        </div>
 
-            <span
-                class="badge"
-                id="status-badge">
-                Idle
+        <div class="header-center">
+            <span class="header-project" title="Aktives Projekt">
+                <span class="header-project-label">Projekt</span>
+                <span class="header-project-name" id="chat-task">—</span>
             </span>
-
+            <span class="badge" id="status-badge">Bereit</span>
         </div>
 
         <div class="header-right">
-
-            <span
-                class="connection"
-                id="connection-indicator">
-
-                <span
-                    class="dot offline">
-                </span>
-
-                <span>Disconnected</span>
-
+            <span class="connection" id="connection-indicator">
+                <span class="dot offline"></span>
+                <span>Getrennt</span>
             </span>
-
         </div>
-
     </header>
 
-
-    <!-- =========================================================
-         MAIN LAYOUT
-         Sidebar + Content
-         ========================================================= -->
     <div id="main-layout">
 
-
-        <!-- =====================================================
-             SIDEBAR
-             ===================================================== -->
+        <!-- ================= SIDEBAR ================= -->
         <aside id="sidebar">
-
             <nav id="nav-menu">
-
-                <!-- AI ENGINEER -->
-                <button
-                    class="nav-item active"
-                    data-view="ai-engineer"
-                    type="button">
-
-                    <span class="nav-icon">⚙</span>
-
-                    <span class="nav-label">
-                        AI Engineer
-                    </span>
-
+                <button class="nav-item active" data-view="ai-engineer" type="button">
+                    <svg class="icon nav-icon"><use href="#i-chip"/></svg>
+                    <span class="nav-label">Workflow</span>
                 </button>
-
-
-                <!-- RAG -->
-                <button
-                    class="nav-item"
-                    data-view="rag"
-                    type="button">
-
-                    <span class="nav-icon">📚</span>
-
-                    <span class="nav-label">
-                        RAG
-                    </span>
-
+                <button class="nav-item" data-view="projects" type="button">
+                    <svg class="icon nav-icon"><use href="#i-folder"/></svg>
+                    <span class="nav-label">Projekte</span>
                 </button>
-
-
-                <!-- PROJEKTE -->
-                <button
-                    class="nav-item"
-                    data-view="projects"
-                    type="button">
-
-                    <span class="nav-icon">📁</span>
-
-                    <span class="nav-label">
-                        Projekte
-                    </span>
-
+                <button class="nav-item" data-view="code" type="button">
+                    <svg class="icon nav-icon"><use href="#i-code"/></svg>
+                    <span class="nav-label">Code</span>
                 </button>
-
-
-                <!-- SETTINGS -->
-                <button
-                    class="nav-item"
-                    data-view="settings"
-                    type="button">
-
-                    <span class="nav-icon">⚙</span>
-
-                    <span class="nav-label">
-                        Einstellungen
-                    </span>
-
+                <div class="nav-spacer"></div>
+                <button class="nav-item" data-view="settings" type="button">
+                    <svg class="icon nav-icon"><use href="#i-gear"/></svg>
+                    <span class="nav-label">Einstellungen</span>
                 </button>
-
-
-                <!-- CODE -->
-                <button
-                    class="nav-item"
-                    data-view="code"
-                    type="button">
-
-                    <span class="nav-icon">📝</span>
-
-                    <span class="nav-label">
-                        Code
-                    </span>
-
-                </button>
-
             </nav>
-
         </aside>
 
-
-
-        <!-- =====================================================
-             MAIN CONTENT
-             ===================================================== -->
+        <!-- ================= MAIN ================= -->
         <main id="main-content">
 
+            <!-- ============ PAGE: WORKFLOW ============ -->
+            <section id="page-ai-engineer" class="page active">
 
-            <!-- =================================================
-                 PAGE: AI ENGINEER
-                 ================================================= -->
-            <section
-                id="page-ai-engineer"
-                class="page active">
-
-
-                <!-- =============================================
-                     LEFT COLUMN
-                     WORKFLOW
-                     ============================================= -->
-                <aside id="workflow-col">
-
+                <!-- WORKFLOW STEPPER -->
+                <aside id="workflow-col" class="surface">
                     <div class="workflow-header">
-
-                        <span class="panel-title">
-                            Workflow
-                        </span>
-
+                        <span class="panel-title">Ablauf</span>
+                        <span class="workflow-progress-text" id="workflow-progress-text">0 %</span>
                     </div>
-
+                    <div class="workflow-progress"><div class="workflow-progress-bar" id="workflow-progress-bar"></div></div>
 
                     <ul id="workflow-steps">
+                        <li class="step-group">Planung</li>
+                        <li class="step" data-step="CREATED"><span class="step-marker"></span><span class="step-label">Auftrag</span></li>
+                        <li class="step" data-step="ANALYZING"><span class="step-marker"></span><span class="step-label">Analyse</span></li>
+                        <li class="step" data-step="ARCHITECTING"><span class="step-marker"></span><span class="step-label">Architektur</span></li>
+                        <li class="step" data-step="UART_INTEGRATION"><span class="step-marker"></span><span class="step-label">UART-Integration</span></li>
 
-                        <li
-                            class="step"
-                            data-step="CREATED">
+                        <li class="step-group">Umsetzung &amp; Prüfung</li>
+                        <li class="step" data-step="IMPLEMENTING"><span class="step-marker"></span><span class="step-label">Implementierung</span></li>
+                        <li class="step" data-step="STATIC_CHECK"><span class="step-marker"></span><span class="step-label">Statischer Check</span></li>
+                        <li class="step" data-step="SIMULATING"><span class="step-marker"></span><span class="step-label">Simulation</span></li>
+                        <li class="step" data-step="VALIDATING"><span class="step-marker"></span><span class="step-label">Validierung</span></li>
+                        <li class="step step-optional" data-step="DEBUGGING"><span class="step-marker"></span><span class="step-label">Diagnose</span></li>
+                        <li class="step step-optional" data-step="REPAIRING"><span class="step-marker"></span><span class="step-label">Reparatur</span></li>
 
-                            <span class="step-icon">📋</span>
-                            <span>Created</span>
+                        <li class="step-group">Hardware</li>
+                        <li class="step" data-step="SYNTHESIZING"><span class="step-marker"></span><span class="step-label">Synthese</span></li>
+                        <li class="step" data-step="AWAITING_APPROVAL"><span class="step-marker"></span><span class="step-label">Freigabe</span></li>
+                        <li class="step" data-step="FPGA_PROGRAMMING"><span class="step-marker"></span><span class="step-label">FPGA flashen</span></li>
+                        <li class="step" data-step="HARDWARE_TESTING"><span class="step-marker"></span><span class="step-label">Hardwaretest</span></li>
 
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="ANALYZING">
-
-                            <span class="step-icon">🔍</span>
-                            <span>Analyzing</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="RAG_SEARCH">
-
-                            <span class="step-icon">📚</span>
-                            <span>RAG Search</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="GENERATING_ARTIFACTS">
-
-                            <span class="step-icon">⚡</span>
-                            <span>Generating Artifacts</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="WORKSPACE_READY">
-
-                            <span class="step-icon">📁</span>
-                            <span>Workspace Ready</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="RUNNING_AGENT">
-
-                            <span class="step-icon">🤖</span>
-                            <span>Running Agent</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="TESTING">
-
-                            <span class="step-icon">🧪</span>
-                            <span>Testing</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="REPAIRING">
-
-                            <span class="step-icon">🔧</span>
-                            <span>Repairing</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="VALIDATING">
-
-                            <span class="step-icon">✓</span>
-                            <span>Validating</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="SYNTHESIZING">
-
-                            <span class="step-icon">🔨</span>
-                            <span>Synthesizing</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="AWAITING_APPROVAL">
-
-                            <span class="step-icon">⏳</span>
-                            <span>Awaiting Approval</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="FLASHING">
-
-                            <span class="step-icon">⚡</span>
-                            <span>Flashing</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="FLASHED">
-
-                            <span class="step-icon">✓</span>
-                            <span>Flashed</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="COMPLETED">
-
-                            <span class="step-icon">✓</span>
-                            <span>Completed</span>
-
-                        </li>
-
-
-                        <li
-                            class="step"
-                            data-step="FAILED">
-
-                            <span class="step-icon">✕</span>
-                            <span>Failed</span>
-
-                        </li>
-
+                        <li class="step-group">Ergebnis</li>
+                        <li class="step" data-step="COMPLETED"><span class="step-marker"></span><span class="step-label">Abgeschlossen</span></li>
+                        <li class="step step-fail" data-step="FAILED"><span class="step-marker"></span><span class="step-label">Fehlgeschlagen</span></li>
                     </ul>
-
                 </aside>
 
-
-
-                <!-- =============================================
-                     CENTER COLUMN
-                     CHAT
-                     ============================================= -->
-                <section id="chat-col">
-
-
-                    <!-- CHAT HEADER -->
+                <!-- CHAT -->
+                <section id="chat-col" class="surface">
                     <header id="chat-header">
-
                         <div class="chat-header-main">
-
-                            <div class="chat-title">
-                                AI Engineer
-                            </div>
-
-                            <div class="chat-subtitle">
-                                Engineering Assistant
-                            </div>
-
+                            <div class="chat-title">Engineering-Chat</div>
+                            <div class="chat-subtitle">Beschreibe eine Schaltung – die Agenten planen, implementieren, prüfen und flashen sie.</div>
                         </div>
-
-
-                        <div
-                            class="chat-task"
-                            id="chat-task">
-                            —
-                        </div>
-
                     </header>
 
+                    <div id="messages"></div>
 
-
-                    <!-- CHAT MESSAGES -->
-                    <div id="messages">
-
-                        <!--
-                            Messages werden dynamisch
-                            von app.js eingefügt.
-                        -->
-
-                    </div>
-
-
-
-                    <!-- CHAT INPUT -->
                     <div id="input-area">
-
                         <div id="file-chips"></div>
-
                         <div id="input-row">
-
-                            <input
-                                type="file"
-                                id="chat-file-input"
-                                accept=".vhd,.vhdl,.zip,.md,.txt,image/*"
-                                multiple
-                                hidden>
-
-                            <button
-                                id="attach-btn"
-                                type="button"
-                                title="Dateien anhängen: VHDL (.vhd), ZIP, Markdown (.md), Text (.txt), Bilder">
-
-                                <span class="attach-icon">📎</span>
-
+                            <input type="file" id="chat-file-input" accept=".vhd,.vhdl,.zip,.md,.txt,image/*" multiple hidden>
+                            <button id="attach-btn" class="icon-btn" type="button" title="Dateien anhängen: VHDL (.vhd), ZIP, Markdown (.md), Text (.txt), Bilder">
+                                <svg class="icon"><use href="#i-clip"/></svg>
                             </button>
-
-                            <textarea
-                                id="chat-input"
-                                rows="3"
-                                placeholder="Beschreibe deine technische Aufgabe … (ex = hochgeladene VHDL-Dateien ins Projekt integrieren)"></textarea>
-
-                            <button
-                                id="send-btn"
-                                type="button">
-
-                                <span>Send</span>
-                                <span class="send-icon">➤</span>
-
+                            <textarea id="chat-input" rows="2" placeholder="z. B. „8-Bit-Zähler mit Reset für das Arty S7-50, Ausgabe auf den LEDs“"></textarea>
+                            <button id="send-btn" class="btn btn-primary" type="button">
+                                <span>Senden</span>
+                                <svg class="icon"><use href="#i-send"/></svg>
                             </button>
-
                         </div>
-
+                        <div class="input-hint">Enter senden · Shift+Enter neue Zeile</div>
                     </div>
-
                 </section>
 
-
-
-                <!-- =============================================
-                     RIGHT COLUMN
-                     PROJECT / FILES / LOGS / TESTS
-                     ============================================= -->
+                <!-- RIGHT COLUMN -->
                 <aside id="right-col">
-
-
-                    <!-- =========================================
-                         PROJECT
-                         ========================================= -->
-                    <section
-                        class="panel"
-                        id="project-panel">
-
-                        <div class="panel-title">
-                            Projekt
-                        </div>
-
-
-                        <div id="task-info">
-
-                            <div class="info-row">
-
-                                <span class="label">
-                                    Task ID
-                                </span>
-
-                                <span
-                                    class="value"
-                                    id="task-id">
-                                    —
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span class="label">
-                                    Status
-                                </span>
-
-                                <span
-                                    class="value"
-                                    id="task-status">
-                                    —
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span class="label">
-                                    Workspace
-                                </span>
-
-                                <span
-                                    class="value"
-                                    id="task-workspace">
-                                    —
-                                </span>
-
-                            </div>
-
-                        </div>
-
+                    <section class="panel" id="project-panel">
+                        <div class="panel-title">Projekt</div>
+                        <dl id="task-info">
+                            <div class="info-row"><dt class="label">Task-ID</dt><dd class="value mono" id="task-id">—</dd></div>
+                            <div class="info-row"><dt class="label">Status</dt><dd class="value" id="task-status">—</dd></div>
+                            <div class="info-row"><dt class="label">Workspace</dt><dd class="value mono" id="task-workspace">—</dd></div>
+                        </dl>
                     </section>
 
-
-
-                    <!-- =========================================
-                         FILES
-                         ========================================= -->
-                    <section
-                        class="panel"
-                        id="files-panel">
-
-                        <div class="panel-title">
-                            Files
-                        </div>
-
-
+                    <section class="panel" id="files-panel">
+                        <div class="panel-title">Dateien</div>
                         <div class="panel-content">
-
-                            <ul id="file-list">
-
-                                <li class="empty">
-                                    Noch keine Dateien generiert
-                                </li>
-
-                            </ul>
-
+                            <ul id="file-list"><li class="empty">Noch keine Dateien generiert</li></ul>
                         </div>
-
                     </section>
 
-
-
-                    <!-- =========================================
-                         LOGS
-                         ========================================= -->
-                    <section
-                        class="panel"
-                        id="logs-panel">
-
+                    <section class="panel panel-grow" id="logs-panel">
                         <div class="panel-title">
-                            Logs
+                            Ereignisse
+                            <button type="button" class="link-btn" id="log-clear-btn">leeren</button>
                         </div>
-
-
-                        <div
-                            id="log-list"
-                            class="panel-content">
-                        </div>
-
+                        <div id="log-list" class="panel-content"></div>
                     </section>
 
-
-
-                    <!-- =========================================
-                         TESTS
-                         ========================================= -->
-                    <section
-                        class="panel"
-                        id="tests-panel">
-
-                        <div class="panel-title">
-                            Tests
-                        </div>
-
-
-                        <pre
-                            id="test-output"
-                            class="panel-content">Warte auf Testergebnisse...</pre>
-
+                    <section class="panel" id="tests-panel">
+                        <div class="panel-title">Tests</div>
+                        <pre id="test-output" class="panel-content">Warte auf Testergebnisse …</pre>
                     </section>
-
                 </aside>
-
             </section>
 
-
-
-            <!-- =================================================
-                 PAGE: RAG
-                 ================================================= -->
-            <section
-                id="page-rag"
-                class="page">
-
-                <div id="rag-area">
-
-                    <h2>
-                        📚 RAG
-                    </h2>
-
-                    <p class="page-description">
-                        Technisches Wissen und Referenzmaterial
-                    </p>
-
-
-                    <div class="card">
-
-                        <h3>
-                            Neues Wissen hinzufügen
-                        </h3>
-
-
-                        <p class="hint">
-                            Lade Dokumente wie VHDL-Spezifikationen,
-                            Coding-Standards, PDFs oder Referenzdesigns
-                            hoch und indexiere sie anschließend.
-                        </p>
-
-
-                        <div class="row">
-
-                            <input
-                                type="file"
-                                id="rag-file-input"
-                                multiple>
-
+            <!-- ============ PAGE: PROJECTS ============ -->
+            <section id="page-projects" class="page">
+                <div id="projects-area" class="page-inner">
+                    <div class="page-head">
+                        <div>
+                            <h2>Projekte</h2>
+                            <p class="page-description">Vergangene Engineering-Aufgaben und Workspaces</p>
                         </div>
-
-
-                        <div class="row">
-
-                            <button
-                                id="rag-upload-btn"
-                                class="btn"
-                                type="button">
-
-                                Hochladen
-
-                            </button>
-
-
-                            <button
-                                id="rag-index-btn"
-                                class="btn"
-                                type="button">
-
-                                Wissen indexieren
-
-                            </button>
-
-                        </div>
-
-
-                        <div id="rag-status"></div>
-
-                    </div>
-
-
-                    <h3>
-                        Hinterlegte Dateien
-                    </h3>
-
-
-                    <ul id="rag-file-list">
-
-                        <li class="empty">
-                            Lade Dateien...
-                        </li>
-
-                    </ul>
-
-                </div>
-
-            </section>
-
-
-
-            <!-- =================================================
-                 PAGE: PROJECTS
-                 ================================================= -->
-            <section
-                id="page-projects"
-                class="page">
-
-                <div id="projects-area">
-
-                    <h2>
-                        📁 Projekte
-                    </h2>
-
-                    <p class="page-description">
-                        Vergangene Engineering-Aufgaben und Workspaces
-                    </p>
-
-
-                    <div class="row">
-
-                        <button
-                            id="project-new-btn"
-                            class="btn"
-                            type="button">
-
-                            ＋ Neues Projekt
-
+                        <button id="project-new-btn" class="btn btn-primary" type="button">
+                            <svg class="icon"><use href="#i-plus"/></svg> Neues Projekt
                         </button>
-
                     </div>
 
+                    <ul id="project-list"><li class="empty">Lade Projekte …</li></ul>
 
-                    <ul id="project-list">
-
-                        <li class="empty">
-                            Lade Projekte...
-                        </li>
-
-                    </ul>
-
-
-                    <!-- PROJECT DETAIL -->
-
-                    <div
-                        id="project-detail"
-                        class="hidden">
-
+                    <div id="project-detail" class="hidden">
                         <div class="row">
-
-                            <button
-                                id="project-back-btn"
-                                class="btn"
-                                type="button">
-
-                                ← Zurück
-
+                            <button id="project-back-btn" class="btn" type="button">
+                                <svg class="icon"><use href="#i-back"/></svg> Zurück
                             </button>
-
                         </div>
-
-
-                        <h3 id="project-detail-title"></h3>
-
-
-                        <div
-                            id="project-detail-tools"
-                            class="project-tools"></div>
-
-
-                        <p id="project-detail-request"></p>
-
-
-                        <h4>
-                            Dateien
-                        </h4>
-
-
-                        <ul id="project-detail-files"></ul>
-
-
-                        <h4>
-                            Gedächtnis (memory.md)
-                        </h4>
-
-
-                        <pre
-                            id="project-detail-memory"></pre>
-
-
-                        <pre
-                            id="project-detail-content"></pre>
-
+                        <div class="card">
+                            <h3 id="project-detail-title"></h3>
+                            <p id="project-detail-request"></p>
+                            <div id="project-detail-tools" class="project-tools"></div>
+                        </div>
+                        <div class="detail-grid">
+                            <div class="card">
+                                <h4>Dateien</h4>
+                                <ul id="project-detail-files" class="plain-list"></ul>
+                            </div>
+                            <div class="card">
+                                <h4>Gedächtnis (memory.md)</h4>
+                                <pre id="project-detail-memory"></pre>
+                            </div>
+                        </div>
+                        <pre id="project-detail-content"></pre>
                     </div>
-
                 </div>
-
             </section>
 
-
-
-            <!-- =================================================
-                 PAGE: CODE
-                 ================================================= -->
-            <section
-                id="page-code"
-                class="page">
-
-                <div id="code-area">
-
-                    <div class="code-header">
-
-                        <h2>
-                            📝 Code
-                        </h2>
-
-                        <div class="code-actions">
-
-                            <button
-                                id="code-new-btn"
-                                class="btn-small"
-                                type="button">
-
-                                + Neue Datei
-
-                            </button>
-
-                            <button
-                                id="code-save-btn"
-                                class="btn-small"
-                                type="button">
-
-                                Speichern
-
-                            </button>
-
-                            <button
-                                id="code-delete-btn"
-                                class="btn-small danger"
-                                type="button">
-
-                                Löschen
-
-                            </button>
-
+            <!-- ============ PAGE: CODE ============ -->
+            <section id="page-code" class="page">
+                <div id="code-area" class="page-inner page-wide">
+                    <div class="page-head">
+                        <div>
+                            <h2>Code</h2>
+                            <p class="page-description">Lokaler Notizblock für VHDL-Dateien (im Browser gespeichert)</p>
                         </div>
-
+                        <div class="code-actions">
+                            <button id="code-new-btn" class="btn" type="button"><svg class="icon"><use href="#i-plus"/></svg> Neue Datei</button>
+                            <button id="code-save-btn" class="btn btn-primary" type="button">Speichern</button>
+                            <button id="code-delete-btn" class="btn danger" type="button">Löschen</button>
+                        </div>
                     </div>
-
 
                     <div class="code-layout">
-
-
-                        <!-- FILE LIST -->
                         <aside class="code-sidebar">
-
-                            <div class="code-sidebar-title">
-                                Dateien
-                            </div>
-
-                            <ul id="code-file-list">
-
-                                <li class="empty">
-                                    Keine Dateien vorhanden
-                                </li>
-
-                            </ul>
-
+                            <div class="code-sidebar-title">Dateien</div>
+                            <ul id="code-file-list"><li class="empty">Keine Dateien vorhanden</li></ul>
                         </aside>
-
-
-                        <!-- EDITOR -->
-                        <main class="code-editor-area">
-
+                        <div class="code-editor-area">
                             <div class="code-editor-header">
-
-                                <span id="code-current-file" class="code-file-name">
-                                    Keine Datei ausgewählt
-                                </span>
-
-                                <span id="code-file-info" class="code-file-info">
-                                </span>
-
+                                <span id="code-current-file" class="code-file-name">Keine Datei ausgewählt</span>
+                                <span id="code-file-info" class="code-file-info"></span>
                             </div>
-
-                            <textarea
-                                id="code-editor"
-                                class="code-editor"
-                                spellcheck="false"
-                                placeholder="-- Wähle eine Datei aus der Liste oder erstelle eine neue --"></textarea>
-
-                            <div id="code-status" class="code-status">
-                                Bereit
-                            </div>
-
-                        </main>
-
+                            <textarea id="code-editor" class="code-editor" spellcheck="false" placeholder="-- Wähle eine Datei aus der Liste oder erstelle eine neue --"></textarea>
+                            <div id="code-status" class="code-status">Bereit</div>
+                        </div>
                     </div>
-
                 </div>
-
             </section>
 
+            <!-- ============ PAGE: SETTINGS ============ -->
+            <section id="page-settings" class="page">
+                <div id="settings-area" class="page-inner">
+                    <div class="page-head">
+                        <div>
+                            <h2>Einstellungen</h2>
+                            <p class="page-description">Werden in der config.yaml des Servers gespeichert. Felder mit ⟳ greifen nach einem Neustart.</p>
+                        </div>
+                    </div>
 
-
-            <!-- =================================================
-                 PAGE: SETTINGS
-                 ================================================= -->
-            <section
-                id="page-settings"
-                class="page">
-
-                <div id="settings-area">
-
-                    <h2>
-                        ⚙ Einstellungen
-                    </h2>
-
-                    <p class="page-description">
-                        Konfiguration von Sprachmodellen, Farbschema und Systemeinstellungen
-                    </p>
-
-
-                    <!-- ===== LLM / SPRACHMODELL ===== -->
-                    <div class="card">
-
-                        <h3>
-                            Sprachmodell (LLM)
-                        </h3>
-
-                        <p class="hint">
-                            Konfiguration des verwendeten Sprachmodells für die VHDL-Generierung.
-                        </p>
-
+                    <!-- Agenten-Ausführung -->
+                    <div class="card" id="exec-card">
+                        <div class="card-head">
+                            <h3>Agenten-Ausführung</h3>
+                            <span class="runner-pill" id="runner-pill">—</span>
+                        </div>
+                        <p class="hint">Produktiv laufen die OpenCode-Agenten immer isoliert in Docker. Die native Ausführung ist nur als Testweg für Rechner ohne ausreichende Docker-Leistung gedacht.</p>
+                        <div class="notice warning hidden" id="native-warning">
+                            <strong>Testmodus aktiv:</strong> Die Agenten laufen direkt auf dem Host und haben Zugriff auf alle Dateien des Benutzers. Nicht für Produktivumgebungen verwenden.
+                        </div>
+                        <div class="notice info hidden" id="env-test-mode">
+                            Der Testmodus wird beim Start erzwungen (<code>--test-mode</code> bzw. <code>VHDL_AGENT_TEST_MODE</code>) und überschreibt diese Einstellung bis zum nächsten Start ohne diese Option.
+                        </div>
                         <div class="settings-grid">
-
                             <div class="settings-field">
-                                <label for="settings-llm-provider">Provider</label>
-                                <select id="settings-llm-provider">
-                                    <option value="ollama" selected>Ollama (lokal)</option>
+                                <label for="set-exec-mode">Ausführungsmodus</label>
+                                <select id="set-exec-mode" data-setting="opencode.test_mode" data-type="bool">
+                                    <option value="false">Docker – isoliert (Produktiv)</option>
+                                    <option value="true">Nativ auf dem Host (nur Testmodus)</option>
+                                </select>
+                            </div>
+                            <div class="settings-field docker-only">
+                                <label for="set-isolation">Isolation</label>
+                                <select id="set-isolation" data-setting="opencode.docker_isolation">
+                                    <option value="per_task">Pro Auftrag (nur Projektordner)</option>
+                                    <option value="shared">Gemeinsamer Container (alle Projekte)</option>
+                                </select>
+                            </div>
+                            <div class="settings-field docker-only per-task-only">
+                                <label for="set-image">Docker-Image</label>
+                                <input type="text" id="set-image" data-setting="opencode.docker_image">
+                            </div>
+                            <div class="settings-field docker-only shared-only">
+                                <label for="set-container">Container-Name</label>
+                                <input type="text" id="set-container" data-setting="opencode.docker_container">
+                            </div>
+                            <div class="settings-field docker-only per-task-only">
+                                <label for="set-network">Netzwerk</label>
+                                <select id="set-network" data-setting="opencode.docker_network">
+                                    <option value="bridge">bridge – Internet für Modell-Provider</option>
+                                    <option value="none">none – kein Netzwerk (nur lokale Modelle)</option>
+                                    <option value="host">host – Netzwerk des Hosts</option>
+                                </select>
+                            </div>
+                            <div class="settings-field docker-only per-task-only">
+                                <label for="set-memory">Speicherlimit</label>
+                                <input type="text" id="set-memory" data-setting="opencode.docker_memory" placeholder="z. B. 4g – leer = unbegrenzt">
+                            </div>
+                            <div class="settings-field docker-only per-task-only">
+                                <label for="set-cpus">CPU-Limit</label>
+                                <input type="text" id="set-cpus" data-setting="opencode.docker_cpus" placeholder="z. B. 2 – leer = unbegrenzt">
+                            </div>
+                            <div class="settings-field docker-only per-task-only">
+                                <label for="set-auth">OpenCode-Zugangsdaten (Host-Pfad, schreibgeschützt)</label>
+                                <input type="text" id="set-auth" data-setting="opencode.docker_auth_dir" placeholder="z. B. ~/.local/share/opencode">
+                            </div>
+                            <div class="settings-field native-only">
+                                <label for="set-binary">OpenCode-Programm (nativ)</label>
+                                <input type="text" id="set-binary" data-setting="opencode.binary">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- OpenCode-Modelle -->
+                    <div class="card">
+                        <h3>OpenCode-Modelle</h3>
+                        <p class="hint">Modelle und Zeitlimits für Planung, Implementierung und Reparatur. Freie Modelle bei OpenCode heißen mit dem Suffix <code>-free</code> (z. B. <code>opencode/nemotron-3.5-lightning-free</code>) – ohne diesen Zusatz greift ein kostenpflichtiges Modell, das ohne Guthaben fehlschlägt.</p>
+                        <div class="row">
+                            <button id="oc-models-load-btn" class="btn" type="button">Modelle laden</button>
+                            <span id="oc-models-status" class="hint" style="margin:0"></span>
+                        </div>
+                        <div class="settings-grid">
+                            <div class="settings-field">
+                                <label for="set-oc-model">Modell</label>
+                                <select id="oc-model-picker" class="model-picker" data-pairs="set-oc-model" disabled>
+                                    <option value="">— zuerst "Modelle laden" klicken —</option>
+                                </select>
+                                <input type="text" id="set-oc-model" data-setting="opencode.model">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-oc-fallback">Fallback-Modell (bei Kontingentgrenzen)</label>
+                                <select id="oc-fallback-picker" class="model-picker" data-pairs="set-oc-fallback" disabled>
+                                    <option value="">— zuerst "Modelle laden" klicken —</option>
+                                </select>
+                                <input type="text" id="set-oc-fallback" data-setting="opencode.fallback_model">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-oc-repairs">Max. Reparatur-Iterationen ⟳</label>
+                                <input type="number" id="set-oc-repairs" data-setting="opencode.max_repair_iterations" min="1" max="50">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-oc-timeout">Zeitlimit pro Auftrag (s)</label>
+                                <input type="number" id="set-oc-timeout" data-setting="opencode.default_timeout" min="30" max="7200">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-oc-plan-timeout">Zeitlimit Planung (s) ⟳</label>
+                                <input type="number" id="set-oc-plan-timeout" data-setting="opencode.plan_timeout_seconds" min="30" max="7200">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Workflow & Gates -->
+                    <div class="card">
+                        <h3>Workflow &amp; Prüfungen</h3>
+                        <p class="hint">Ziel-Board, Parallelität und die harten Gates zwischen den Phasen.</p>
+                        <div class="settings-grid">
+                            <div class="settings-field">
+                                <label for="set-fpga">Standard-FPGA ⟳</label>
+                                <select id="set-fpga" data-setting="synthesis.default_fpga">
+                                    <option value="arty_s7_50">Arty S7-50 (Spartan-7)</option>
+                                    <option value="gatemate_a1">GateMate A1</option>
+                                </select>
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-workers">Parallele HDL-Worker ⟳</label>
+                                <input type="number" id="set-workers" data-setting="limits.max_parallel_workers" min="1" max="16">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-coverage">Mindest-Modulabdeckung (0–1) ⟳</label>
+                                <input type="number" id="set-coverage" data-setting="gates.min_module_coverage" min="0" max="1" step="0.05">
+                            </div>
+                        </div>
+                        <div class="toggle-list">
+                            <label class="toggle"><input type="checkbox" data-setting="gates.enforce_contracts"><span>Port-Verträge erzwingen (Richtung, Typ, Bitbreite) ⟳</span></label>
+                            <label class="toggle"><input type="checkbox" data-setting="gates.require_timing_closure"><span>Timing-Gate: WNS/WHS ≥ 0 und Reports Pflicht ⟳</span></label>
+                            <label class="toggle"><input type="checkbox" data-setting="knowledge.enabled"><span>Wissensbasis (Skills, Board-Daten) bereitstellen ⟳</span></label>
+                        </div>
+                    </div>
+
+                    <!-- Hardwaretest -->
+                    <div class="card">
+                        <h3>Hardwaretest</h3>
+                        <p class="hint">Ohne UART-Port wird kein Hardwaretest ausgeführt und auch kein Hardware-Erfolg gemeldet.</p>
+                        <div class="settings-grid">
+                            <div class="settings-field">
+                                <label for="set-uart">UART-Port ⟳</label>
+                                <input type="text" id="set-uart" data-setting="hardware_test.uart_port" placeholder="z. B. /dev/ttyUSB1 – leer = aus">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-baud">Baudrate ⟳</label>
+                                <input type="number" id="set-baud" data-setting="hardware_test.baudrate" min="300">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-hw-timeout">Antwort-Timeout (s) ⟳</label>
+                                <input type="number" id="set-hw-timeout" data-setting="hardware_test.timeout_seconds" min="0.1" step="0.1">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- LLM -->
+                    <div class="card">
+                        <h3>Sprachmodell (LLM)</h3>
+                        <p class="hint">Für Textaufgaben wie Rückfragen und Projektnamen.</p>
+                        <div class="settings-grid">
+                            <div class="settings-field">
+                                <label for="set-llm-provider">Provider ⟳</label>
+                                <select id="set-llm-provider" data-setting="llm.provider">
+                                    <option value="ollama">Ollama (lokal)</option>
                                     <option value="openai">OpenAI</option>
                                     <option value="anthropic">Anthropic</option>
                                     <option value="stub">Stub (Testmodus)</option>
                                 </select>
                             </div>
-
                             <div class="settings-field">
-                                <label for="settings-llm-model">Modell</label>
-                                <input
-                                    type="text"
-                                    id="settings-llm-model"
-                                    value="gpt-oss:120b-cloud"
-                                    placeholder="z.B. llama3, gpt-4o, claude-3">
+                                <label for="set-llm-model">Modell ⟳</label>
+                                <input type="text" id="set-llm-model" data-setting="llm.model">
                             </div>
-
                             <div class="settings-field">
-                                <label for="settings-llm-base-url">Base URL</label>
-                                <input
-                                    type="text"
-                                    id="settings-llm-base-url"
-                                    value="http://localhost:11434"
-                                    placeholder="http://localhost:11434">
+                                <label for="set-llm-url">Base URL ⟳</label>
+                                <input type="text" id="set-llm-url" data-setting="llm.base_url">
                             </div>
-
                             <div class="settings-field">
-                                <label for="settings-llm-temperature">Temperatur</label>
-                                <input
-                                    type="number"
-                                    id="settings-llm-temperature"
-                                    value="0.1"
-                                    min="0"
-                                    max="2"
-                                    step="0.1">
+                                <label for="set-llm-temp">Temperatur ⟳</label>
+                                <input type="number" id="set-llm-temp" data-setting="llm.temperature" min="0" max="2" step="0.1">
                             </div>
-
                             <div class="settings-field">
-                                <label for="settings-llm-max-tokens">Max Tokens</label>
-                                <input
-                                    type="number"
-                                    id="settings-llm-max-tokens"
-                                    value="4096"
-                                    min="256"
-                                    max="32768"
-                                    step="256">
+                                <label for="set-llm-tokens">Max Tokens ⟳</label>
+                                <input type="number" id="set-llm-tokens" data-setting="llm.max_tokens" min="256" step="256">
                             </div>
-
                         </div>
-
                     </div>
 
-
-                    <!-- ===== FARBSCHEMA / THEME ===== -->
+                    <!-- EDA -->
                     <div class="card">
-
-                        <h3>
-                            Farbschema
-                        </h3>
-
-                        <p class="hint">
-                            Wechsle das Erscheinungsbild der Benutzeroberfläche.
-                        </p>
-
+                        <h3>EDA-Tools</h3>
+                        <p class="hint">Pfade der Werkzeuge auf dem Host.</p>
                         <div class="settings-grid">
+                            <div class="settings-field">
+                                <label for="set-vivado">Vivado Binary ⟳</label>
+                                <input type="text" id="set-vivado" data-setting="vivado.binary">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-vivado-settings">Vivado Settings Script ⟳</label>
+                                <input type="text" id="set-vivado-settings" data-setting="vivado.settings_script">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-ghdl">GHDL Binary ⟳</label>
+                                <input type="text" id="set-ghdl" data-setting="ghdl.binary">
+                            </div>
+                        </div>
+                    </div>
 
+                    <!-- Darstellung (nur Browser) -->
+                    <div class="card">
+                        <h3>Darstellung</h3>
+                        <p class="hint">Wird nur in diesem Browser gespeichert und sofort angewendet.</p>
+                        <div class="settings-grid">
                             <div class="settings-field">
                                 <label for="settings-theme">Theme</label>
                                 <select id="settings-theme">
@@ -967,146 +484,31 @@
                                     <option value="blueprint">Blueprint</option>
                                 </select>
                             </div>
-
                             <div class="settings-field">
                                 <label>Akzentfarbe</label>
                                 <div class="color-swatches">
-                                    <button class="swatch active" data-accent="#3f8ef0" title="Blau" style="background: #3f8ef0;"></button>
-                                    <button class="swatch" data-accent="#3fbd76" title="Grün" style="background: #3fbd76;"></button>
-                                    <button class="swatch" data-accent="#e0973c" title="Orange" style="background: #e0973c;"></button>
-                                    <button class="swatch" data-accent="#9c8cf5" title="Lila" style="background: #9c8cf5;"></button>
-                                    <button class="swatch" data-accent="#e5555f" title="Rot" style="background: #e5555f;"></button>
+                                    <button class="swatch active" data-accent="#4c8dff" title="Blau" style="background:#4c8dff"></button>
+                                    <button class="swatch" data-accent="#2fb980" title="Grün" style="background:#2fb980"></button>
+                                    <button class="swatch" data-accent="#f0a03c" title="Orange" style="background:#f0a03c"></button>
+                                    <button class="swatch" data-accent="#9b87f5" title="Lila" style="background:#9b87f5"></button>
+                                    <button class="swatch" data-accent="#ef5d6a" title="Rot" style="background:#ef5d6a"></button>
                                 </div>
                             </div>
-
                         </div>
-
                     </div>
 
-
-                    <!-- ===== WORKFLOW ===== -->
-                    <div class="card">
-
-                        <h3>
-                            Workflow
-                        </h3>
-
-                        <p class="hint">
-                            Einstellungen für den Build- und Reparatur-Prozess.
-                        </p>
-
-                        <div class="settings-grid">
-
-                            <div class="settings-field">
-                                <label for="settings-max-repairs">Max. Reparatur-Iterationen</label>
-                                <input
-                                    type="number"
-                                    id="settings-max-repairs"
-                                    value="5"
-                                    min="1"
-                                    max="20">
-                            </div>
-
-                            <div class="settings-field">
-                                <label for="settings-default-fpga">Standard-FPGA</label>
-                                <select id="settings-default-fpga">
-                                    <option value="arty_s7_50" selected>Arty S7-50 (Spartan-7)</option>
-                                    <option value="gatemate_a1">GateMate A1</option>
-                                </select>
-                            </div>
-
-                        </div>
-
+                    <div class="settings-actions-bar">
+                        <span id="settings-status" class="status-pill" style="display:none"></span>
+                        <button id="settings-reset-btn" class="btn" type="button">Änderungen verwerfen</button>
+                        <button id="settings-save-btn" class="btn btn-primary" type="button">Einstellungen speichern</button>
                     </div>
-
-
-                    <!-- ===== TOOLS ===== -->
-                    <div class="card">
-
-                        <h3>
-                            EDA-Tools
-                        </h3>
-
-                        <p class="hint">
-                            Pfade und Verfügbakeit der verwendeten EDA-Werkzeuge.
-                        </p>
-
-                        <div class="settings-grid">
-
-                            <div class="settings-field">
-                                <label for="settings-vivado-binary">Vivado Binary</label>
-                                <input
-                                    type="text"
-                                    id="settings-vivado-binary"
-                                    value="/home/alex/Xilinx/2026.1/Vivado/bin/vivado"
-                                    placeholder="/path/to/vivado">
-                            </div>
-
-                            <div class="settings-field">
-                                <label for="settings-vivado-settings">Vivado Settings Script</label>
-                                <input
-                                    type="text"
-                                    id="settings-vivado-settings"
-                                    value="/home/alex/Xilinx/2026.1/Vivado/settings64.sh"
-                                    placeholder="/path/to/settings64.sh">
-                            </div>
-
-                            <div class="settings-field">
-                                <label for="settings-ghdl-binary">GHDL Binary</label>
-                                <input
-                                    type="text"
-                                    id="settings-ghdl-binary"
-                                    value="ghdl"
-                                    placeholder="ghdl">
-                            </div>
-
-                        </div>
-
-                    </div>
-
-
-                    <!-- ===== SPEICHERN ===== -->
-                    <div class="row" style="margin-top: 20px;">
-
-                        <button
-                            id="settings-save-btn"
-                            class="btn"
-                            type="button">
-
-                            Einstellungen speichern
-
-                        </button>
-
-                        <button
-                            id="settings-reset-btn"
-                            class="btn-small"
-                            type="button">
-
-                            Zurücksetzen
-
-                        </button>
-
-                        <span id="settings-status" class="rag-status" style="display: none;"></span>
-
-                    </div>
-
                 </div>
-
             </section>
 
-
         </main>
-
     </div>
-
 </div>
 
-
-<!-- =========================================================
-     JAVASCRIPT
-     ========================================================= -->
-
-<script src="/static/app.js?v=5"></script>
-
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

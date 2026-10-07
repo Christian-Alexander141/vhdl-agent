@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -6,6 +7,202 @@ from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.domain.agents.communication import DebugDiagnosis
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Regex-based error classifier (Section 11: 12 Typen + infrastructure)
+# Patterns are ordered by priority – first match wins.
+# ---------------------------------------------------------------------------
+
+_ERROR_PATTERNS: list[tuple[str, list[re.Pattern], str, str]] = [
+    # (failure_type, patterns, recommended_action, severity)
+    (
+        "infrastructure",
+        [
+            re.compile(r"missing\s+(lib|system|shared\s+object|cannot\s+open)", re.I),
+            re.compile(r"vivado.*(?:license|limit|tool\s+version)", re.I),
+            re.compile(r"(ghdl|vivado|vivado_lab|docker|opencode)[:,]?\s+(?:not\s+found|command not found)", re.I),
+            re.compile(r"\bdocker:\s+(?:docker\s+)?(?:permission denied|daemon not running|image not available|container not running)", re.I),
+            re.compile(r"serverfehler beim modell-provider|unexpected server error|unknownerror", re.I),
+            re.compile(r"keine netzwerkverbindung zum modell-provider|kontingent bzw\. rate-limit", re.I),
+            re.compile(r"anmeldung beim modell-provider fehlgeschlagen", re.I),
+        ],
+        "Install missing system dependency or check tool installation",
+        "critical",
+    ),
+    (
+        "constraint_error",
+        [
+            re.compile(r"no\s+user\s+specified\s+timing\s+constraints", re.I),
+            re.compile(r"(?:missing|unconstrained)\s+(?:pin|clock|port|timing)\s*(?:constraint|location)?", re.I),
+            re.compile(r"\b(?:UCIO-1|NSTD-1)\b"),
+        ],
+        "Add missing pin/clock constraints to the board constraint file",
+        "critical",
+    ),
+    (
+        "contract_violation",
+        [
+            re.compile(r"contract\s+violation", re.I),
+        ],
+        "Align the module entity with its architecture contract",
+        "high",
+    ),
+    (
+        "coverage_gap",
+        [
+            re.compile(r"coverage\s+gap|not\s+covered\s+by\s+any\s+(?:simulated\s+)?testbench", re.I),
+        ],
+        "Extend the test plan: add or adapt testbenches for uncovered modules",
+        "high",
+    ),
+    (
+        "flash_error",
+        [
+            re.compile(r"flash\s+(?:failed|toolchain\s+not\s+available)", re.I),
+            re.compile(r"no\s+(?:cable|device|target)\s+(?:found|detected)", re.I),
+        ],
+        "Check USB cable, drivers and programmer selection, then retry flashing",
+        "medium",
+    ),
+    (
+        "syntax_error",
+        [
+            re.compile(r"^\s*\*\*\s+Error:\s+.*\.vhd(?:hl)?:\d+:\d+:\s+syntax\s+error", re.M | re.I),
+            re.compile(r"parse\s+error|syntax\s+error", re.I),
+            re.compile(r"unexpected\s+(token|identifier|keyword|';')", re.I),
+            re.compile(r"expected\s+'[^']+'\s+but\s+found", re.I),
+        ],
+        "Fix VHDL syntax errors in reported files",
+        "high",
+    ),
+    (
+        "type_error",
+        [
+            re.compile(r"type\s+mismatch|cannot\s+associate|incompatible\s+(type|width)", re.I),
+            re.compile(r"no\s+declaration\s+for\s+identifier", re.I),
+            re.compile(r"not\s+declared", re.I),
+            re.compile(r" illegal\s+ expression\s+in\s+ a\s+ (?:signal|variable)\s+ assignment", re.I),
+            re.compile(r"must\s+be\s+(?:of\s+type|a\s+subtype)", re.I),
+        ],
+        "Fix type mismatches and undeclared identifiers",
+        "high",
+    ),
+    (
+        "elaboration_error",
+        [
+            re.compile(r"elaboration\s+error|cannot\s+find\s+entity|no\s+binding\s+for\s+instance", re.I),
+            re.compile(r"no\s+architecture\s+found\s+for\s+entity", re.I),
+            re.compile(r"generic\s+(?:map|value)\s+(?:mismatch|error)", re.I),
+        ],
+        "Check entity/architecture binding, generics, and component declarations",
+        "high",
+    ),
+    (
+        "interface_mismatch",
+        [
+            re.compile(r"port\s+(?:map|mismatch)|interface\s+mismatch", re.I),
+            re.compile(r"actual\s+(?:parameter|port)\s+(?:is\s+)?(?:too\s+(?:wide|narrow)|mismatch)", re.I),
+            re.compile(r"number\s+of\s+(?:ports|associations)\s+(?:do|does)\s+not\s+match", re.I),
+        ],
+        "Align port definitions and generic maps between instantiated entities",
+        "high",
+    ),
+    (
+        "clock_reset_error",
+        [
+            re.compile(r"clock|clk.*(?:not\s+driven|undriven|multiple\s+drivers)", re.I),
+            re.compile(r"reset|rst.*(?:not\s+connected|active|level)", re.I),
+            re.compile(r"signal\s+\w+\s+is\s+delayed\s+by\s+more\s+than", re.I),
+        ],
+        "Check clock and reset signal connections and drive strength",
+        "high",
+    ),
+    (
+        "testbench_error",
+        [
+            re.compile(r"no\s+testbench\s+found|testbench\s+(?:contains\s+)?no\s+assertions", re.I),
+            re.compile(r"TB_COMPLETE.*missing|completion\s+marker.*missing", re.I),
+            re.compile(r"testbench.*(?:entity|architecture)\s+not\s+(?:found|found\s+in)", re.I),
+        ],
+        "Add assertions to testbench and ensure TB_COMPLETE marker is present",
+        "high",
+    ),
+    (
+        "functional_simulation_error",
+        [
+            re.compile(r"runtime\s+error|simulation\s+failed|index\s+(?:out\s+of|range)", re.I),
+            re.compile(r"delta\s+cycle\s+limit|simulation\s+loop\s+(?:detected|exceeded)", re.I),
+            re.compile(r"^\s*\*\*\s+Error:\s+.*(?:range\s+constraint|stack\s+overflow)", re.M | re.I),
+        ],
+        "Fix runtime errors: check array bounds, loop termination, and signal drivers",
+        "high",
+    ),
+    (
+        "synthesis_error",
+        [
+            re.compile(r"synthesis\s+error|synth\s+(?:error|warning\[ynth-\d+\])", re.I),
+            re.compile(r"unsupported\s+(?:construct|expression|operator)", re.I),
+            re.compile(r"(?:infer(?:ring|red)|cannot)\s+(?:latch|ram|rom|flip-flop)", re.I),
+            re.compile(r"combinational\s+loop|zero\s+repeater", re.I),
+        ],
+        "Remove non-synthesizable constructs (wait, after, file I/O) and fix inference issues",
+        "high",
+    ),
+    (
+        "timing_error",
+        [
+            re.compile(r"timing\s+(?:violation|error|constraint|unmet)", re.I),
+            re.compile(r"(?:setup|hold)\s+(?:time|violation|slack\s+(?:is\s+)?negative)", re.I),
+            re.compile(r"maximum\s+frequency\s+(?:not\s+met|exceeded|below)", re.I),
+        ],
+        "Add pipeline registers, optimize critical path, or reduce clock frequency",
+        "critical",
+    ),
+    (
+        "resource_error",
+        [
+            re.compile(r"resource\s+(?:error|exceeded|limit|overflow)", re.I),
+            re.compile(r"(?:LUT|BRAM|DSP|FF)\s+(?:usage|count|limit)\s+(?:exceeded|over)", re.I),
+            re.compile(r"not\s+enough\s+(?:resources|logic\s+cells)", re.I),
+        ],
+        "Reduce resource usage or target a larger FPGA device",
+        "critical",
+    ),
+    (
+        "bitstream_error",
+        [
+            re.compile(r"bitstream\s+(?:error|failed|generation\s+failed)", re.I),
+            re.compile(r"(?:write_bitstream|program_bitstream)\s+failed", re.I),
+            re.compile(r"(?:invalid|corrupt)\s+bitstream", re.I),
+        ],
+        "Check design constraints and re-run synthesis/implementation",
+        "critical",
+    ),
+    (
+        "hardware_error",
+        [
+            re.compile(r"hardware\s+(?:test\s+)?(?:error|failed|mismatch)", re.I),
+            re.compile(r"(?:JTAG|SPI)\s+(?:error|not\s+found|chain\s+broken)", re.I),
+            re.compile(r"FPGA\s+(?:not\s+responding|programming\s+failed)", re.I),
+            re.compile(r"board\s+(?:not\s+found|disconnected)", re.I),
+        ],
+        "Check board connection, JTAG/SPI cable, and re-flash bitstream",
+        "medium",
+    ),
+]
+
+
+def classify_error(message: str, stage: str = "") -> tuple[str, str, str]:
+    """Klassifiziert eine Fehlermeldung anhand von Regex-Patterns.
+
+    Returns:
+        (failure_type, recommended_action, severity)
+    """
+    for failure_type, patterns, action, severity in _ERROR_PATTERNS:
+        for pat in patterns:
+            if pat.search(message):
+                return failure_type, action, severity
+    return "unknown", "Manual investigation required", "medium"
 
 
 class DebugAgent(BaseAgent):
@@ -23,10 +220,8 @@ class DebugAgent(BaseAgent):
     Erstellt strukturierte Diagnose und empfiehlt Reparatur-Aktionen.
     """
 
-    def __init__(self, llm_service, rag_service, event_publisher=None):
+    def __init__(self, event_publisher=None):
         super().__init__("DebugAgent", event_publisher)
-        self._llm = llm_service
-        self._rag = rag_service
 
     @property
     def supported_task_types(self) -> list[str]:
@@ -82,147 +277,67 @@ class DebugAgent(BaseAgent):
     async def _analyze_all_diagnostics(
         self, diagnostics: list[dict], stage: str, workspace: str, architecture: dict
     ) -> DebugDiagnosis | None:
-        """Analysiert alle Diagnosen und erstellt konsolidierte Diagnose."""
-        
+        """Classify only facts present in the supplied logs and architecture."""
         if not diagnostics:
             return DebugDiagnosis(
                 status="unknown",
                 stage=stage,
                 failure_type="no_diagnostics",
+                suspected_modules=[],
+                evidence=[],
                 recommended_action="Check logs for errors",
             )
-        
-        # Fehlertyp klassifizieren
-        failure_types = [d.get("type", "") for d in diagnostics]
-        stages = [d.get("stage", stage) for d in diagnostics]
-        messages = [d.get("message", "") for d in diagnostics]
-        
-        # RAG für bekannte Fehler-Patterns abfragen
-        error_context = "\n".join(messages[:3])
-        known_errors = self._rag.retrieve_knowledge(
-            f"debug {stage} error {error_context}", "vhdl"
-        )
-        
-        # LLM für detaillierte Analyse
-        prompt = f"""Analysiere folgende Hardware-Design-Fehler und erstelle eine strukturierte Diagnose:
-
-FEHLER-STAGE: {stage}
-FEHLER-TYPEN: {failure_types}
-FEHLER-MELDUNGEN:
-{chr(10).join(messages[:5])}
-
-ARCHITEKTUR:
-{architecture.get('modules', [])}
-
-BEKANNTE FEHLER-MUSTER:
-{known_errors.raw_context if hasattr(known_errors, 'raw_context') else known_errors}
-
-Erstelle eine JSON-Diagnose mit:
-- status: "failed" oder "unknown"
-- stage: "{stage}"
-- suspected_modules: Liste verdächtiger Module
-- failure_type: Klassifikation (z.B. "syntax_error", "timing_violation", "logic_error", "interface_mismatch", "synthesis_failure", "flash_failure")
-- evidence: Liste konkreter Beweise aus Fehlermeldungen
-- recommended_action: Konkret nächste Aktion für Reparatur
-- severity: "low" | "medium" | "high" | "critical"
-
-Beispiel:
-{{
-  "status": "failed",
-  "stage": "simulation",
-  "suspected_modules": ["alu", "control_unit"],
-  "failure_type": "incorrect_result",
-  "evidence": ["ADD instruction produced 0x11 instead of 0x0F", "Carry flag not set correctly"],
-  "recommended_action": "Inspect ALU carry handling in combinational process",
-  "severity": "high"
-}}"""
-
-        try:
-            import json
-            import re
-            
-            response = self._llm.generate_code(prompt, temperature=0.1)
-            
-            # JSON aus Response extrahieren
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                diagnosis_data = json.loads(json_match.group(0))
-                
-                return DebugDiagnosis(
-                    status=diagnosis_data.get("status", "failed"),
-                    stage=diagnosis_data.get("stage", stage),
-                    suspected_modules=diagnosis_data.get("suspected_modules", []),
-                    failure_type=diagnosis_data.get("failure_type", "unknown"),
-                    evidence=diagnosis_data.get("evidence", []),
-                    recommended_action=diagnosis_data.get("recommended_action", "Manual investigation required"),
-                    severity=diagnosis_data.get("severity", "medium"),
-                )
-        except Exception as e:
-            logger.warning(f"LLM diagnosis failed: {e}")
-        
-        # Fallback: Einfache regelbasierte Diagnose
         return self._fallback_diagnosis(diagnostics, stage, architecture)
 
     def _fallback_diagnosis(
         self, diagnostics: list[dict], stage: str, architecture: dict
     ) -> DebugDiagnosis:
-        """Einfache regelbasierte Diagnose als Fallback."""
-        
-        modules = [m.get("name", "") for m in architecture.get("modules", [])]
-        
-        # Fehler klassifizieren
+        """Regex-basierte Diagnose als Fallback (nutzt classify_error)."""
+
+        modules = [
+            m.get("name", "") if isinstance(m, dict) else getattr(m, "name", "")
+            for m in architecture.get("modules", [])
+        ]
+
+        evidence: list[str] = []
         failure_type = "unknown"
-        suspected = []
-        evidence = []
         recommended = "Manual investigation required"
         severity = "medium"
-        
+
         for d in diagnostics:
-            msg = d.get("message", "").lower()
-            details_str = str(d.get("details", {})).lower()
-            evidence.append(d.get("message", "")[:200])
-            
-            if "missing" in msg and ("lib" in msg or "system" in msg or "shared object" in msg or "cannot open" in msg):
-                failure_type = "infrastructure"
-                severity = "critical"
-                recommended = "Install missing system dependency or use alternative tool"
-            elif "vivado" in msg and ("license" in msg or "limit" in msg or "tool version" in msg):
-                failure_type = "infrastructure"
-                severity = "critical"
-                recommended = "Check Vivado license or use compatible version"
-            elif "syntax" in msg or "parse" in msg:
-                failure_type = "syntax_error"
-                severity = "high"
-                recommended = "Fix VHDL syntax errors in reported files"
-            elif "elaboration" in msg or "bind" in msg:
-                failure_type = "elaboration_error"
-                severity = "high"
-                recommended = "Check entity/architecture binding and generics"
-            elif "assertion" in msg or "tb_complete" in msg or "mismatch" in msg:
-                failure_type = "logic_error"
-                severity = "high"
-                recommended = "Review testbench expectations and DUT logic"
-            elif "timing" in msg or "setup" in msg or "hold" in msg:
-                failure_type = "timing_violation"
-                severity = "critical"
-                recommended = "Add pipeline stages or reduce clock frequency"
-            elif "synthesis" in msg or "vivado" in msg:
-                failure_type = "synthesis_failure"
-                severity = "high"
-                recommended = "Make code synthesizable (remove wait, dynamic allocation, etc.)"
-            elif "flash" in msg or "program" in msg or "jtag" in msg:
-                failure_type = "flash_failure"
-                severity = "medium"
-                recommended = "Check board connection and JTAG chain"
-        
-        # Verdächtige Module aus Fehlermeldungen extrahieren
-        for module in modules:
-            if any(module.lower() in e.lower() for e in evidence):
-                suspected.append(module)
-        
-        if not suspected and modules:
-            suspected = [modules[0]]  # Erstes Modul als Fallback
-        
+            msg = d.get("message", "")
+            if len(msg.encode("utf-8")) > 200_000:
+                half = 100_000
+                msg = msg[:half] + "\n...[truncated middle of diagnostic]...\n" + msg[-half:]
+            evidence.append(msg)
+
+            ft, rec, sev = classify_error(msg, stage)
+            # Strukturierte Fehlerklassen der Gates (Contract, Coverage,
+            # Timing ...) sind verlässlicher als Regex auf dem Freitext.
+            explicit = d.get("failure_type")
+            if explicit:
+                ft = explicit
+                fallback = classify_error(explicit.replace("_", " "), stage)
+                if ft == fallback[0]:
+                    rec, sev = fallback[1], fallback[2]
+            # Höchste Schwere gewinnt; erster konkreter Treiber gewinnt Typ
+            if ft != "unknown" and failure_type == "unknown":
+                failure_type = ft
+                recommended = rec
+                severity = sev
+            elif ft != "unknown":
+                _SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+                if _SEVERITY_ORDER.get(sev, 0) > _SEVERITY_ORDER.get(severity, 0):
+                    severity = sev
+                    recommended = rec
+
+        # Only modules explicitly matched to known architecture names are listed.
+        suspected = self._extract_modules_from_errors(evidence, modules)
+        for d in diagnostics:
+            for module in d.get("modules", []) or []:
+                if module in modules and module not in suspected:
+                    suspected.insert(0, module)
+
         return DebugDiagnosis(
             status="failed",
             stage=stage,
@@ -232,6 +347,39 @@ Beispiel:
             recommended_action=recommended,
             severity=severity,
         )
+
+    @staticmethod
+    def _extract_modules_from_errors(
+        evidence: list[str], known_modules: list[str]
+    ) -> list[str]:
+        """Extrahiert verdächtige Modulnamen aus Fehlermeldungen.
+
+        Versucht zuerst, ghdl-Ausgabezeilen wie
+            path/to/file.vhd:42:3: error: ...
+        zu parsen und den Dateinamen auf bekannte Module abzubilden.
+        Falls das fehlschlägt, wird nach Modulnamen im Fließtext gesucht.
+        """
+        suspected: list[str] = []
+        # GHDL-/Vivado-Fehlerzeilen: "file:line:col: error: ..."
+        ghdl_file_pat = re.compile(
+            r"(?:^|\s)(\w[\w./-]*\.vhd(?:hl)?)\s*:\d+", re.M
+        )
+        for ev in evidence:
+            for m in ghdl_file_pat.finditer(ev):
+                fname = m.group(1).lower().split("/")[-1].split("\\")[-1]
+                fname = re.sub(r"\.vhd(?:hl)?$", "", fname)
+                for mod in known_modules:
+                    if mod.lower() in fname or fname in mod.lower():
+                        if mod not in suspected:
+                            suspected.append(mod)
+        # Fallback: Modulnamen im Fließtext suchen
+        if not suspected:
+            for ev in evidence:
+                ev_lower = ev.lower()
+                for mod in known_modules:
+                    if mod.lower() in ev_lower and mod not in suspected:
+                        suspected.append(mod)
+        return suspected
 
     async def _analyze_failure(self, task: AgentTask) -> AgentResult:
         """Detaillierte Analyse eines spezifischen Fehlers."""
@@ -265,13 +413,24 @@ Beispiel:
         suspected = diagnosis.get("suspected_modules", [])
         
         repair_actions = {
+            "infrastructure": "Install missing system dependency or check tool installation",
             "syntax_error": "Fix VHDL syntax in affected modules",
+            "type_error": "Fix type mismatches and undeclared identifiers",
             "elaboration_error": "Check generics, port maps, and component declarations",
-            "logic_error": "Review combinational logic and state machine transitions",
-            "timing_violation": "Add pipeline registers or optimize critical path",
-            "synthesis_failure": "Remove non-synthesizable constructs (wait, after, file I/O)",
             "interface_mismatch": "Align port definitions between modules",
-            "flash_failure": "Verify board connection, JTAG cable, and bitstream format",
+            "clock_reset_error": "Check clock and reset signal connections and drive strength",
+            "testbench_error": "Add assertions to testbench and ensure TB_COMPLETE marker is present",
+            "functional_simulation_error": "Fix runtime errors: check array bounds, loop termination, and signal drivers",
+            "synthesis_error": "Remove non-synthesizable constructs (wait, after, file I/O)",
+            "timing_error": "Add pipeline registers or optimize critical path",
+            "resource_error": "Reduce resource usage or target a larger FPGA device",
+            "bitstream_error": "Check design constraints and re-run synthesis/implementation",
+            "hardware_error": "Check board connection, JTAG/SPI cable, and re-flash bitstream",
+            "logic_error": "Review testbench expectations and DUT logic",
+            "constraint_error": "Add missing pin/clock constraints to the board constraint file",
+            "contract_violation": "Align the module entity with its architecture contract",
+            "coverage_gap": "Add or adapt testbenches for uncovered modules",
+            "flash_error": "Check USB cable, drivers and programmer selection",
         }
         
         action = repair_actions.get(failure_type, "Manual investigation required")

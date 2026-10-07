@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from ..models import KnowledgeBundle, ArtifactBundle
+from ..models import ArtifactBundle
 
 
 class ArtifactGenerator(ABC):
@@ -8,7 +8,6 @@ class ArtifactGenerator(ABC):
         self,
         request: str,
         analysis: str,
-        knowledge: KnowledgeBundle,
         domain: str = "vhdl",
     ) -> ArtifactBundle:
         ...

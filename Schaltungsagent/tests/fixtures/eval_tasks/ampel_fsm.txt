@@ -1,0 +1,13 @@
+Erstelle eine hierarchische Ampelsteuerung mit drei Modulen:
+- timer: generischer Timer mit generischer Zeitdauer (in Clock-Zyklen)
+- control: Moore-Automat für Ampel-Logik (Rot -> Rot-Gelb -> Grün -> Gelb)
+- ampel: Top-Level, instanziiert timer und control
+
+Spezifikation:
+- 6 LEDs: 2x Rot, 2x Gelb, 2x Grün (Hauptstraße + Nebenstraße)
+- Phasen: Hauptstraße Grün (30s), Hauptstraße Gelb (4s), Nebenstraße Grün (30s), Nebenstraße Gelb (4s)
+- Systemtakt: 50 MHz
+- Entity-Namen: timer, control, ampel
+- Asynchroner Reset (active high)
+
+Zusatz: UART-Interface für Debug-Ausgabe (optional)

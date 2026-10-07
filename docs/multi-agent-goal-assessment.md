@@ -1,6 +1,6 @@
 # Bewertung des Multi-Agent-Ziels
 
-Datum: 2026-09-13
+Erstbewertung: 2026-09-13 · Aktualisiert: 2026-10-07 (Umsetzung der Kernlücken)
 
 ## Zielmaßstab
 
@@ -18,210 +18,185 @@ Ein erfolgreicher LED-Blinker oder ein einzelner OpenCode-Lauf ist dafür nur ei
 
 ## Kurzurteil
 
-**Architektur und Bausteine: teilweise vorhanden. Produktionsreife für komplexe Designs: noch nicht erreicht.**
+**Stand 2026-10-07: Alle Phasen haben echte Gates, Fehler werden an die zuständige Rolle geroutet, und kein Erfolg wird mehr aus Mock- oder Platzhalterwerten abgeleitet. Nachgewiesen ist das mit Komponenten- und Integrationstests (Stub-Agenten, echtes GHDL, nachgebildete Vivado-Reports). Ein End-to-End-Lauf einer CPU oder eines Decoders auf dem Board steht noch aus.**
+
+| # | Befund (2026-09-13) | Status 2026-10-07 |
+|---|---|---|
+| 1 | Approval nicht persistent / nicht wiederaufnehmbar | **behoben**: Freigabe an Bitstream (Pfad + SHA-256) gebunden; offene Freigabe setzt den Workflow nach Neustart fort |
+| 2 | TaskGraph kein produktiver Scheduler | **behoben** für die Implementierung: persistierter, wiederaufnehmbarer Modul-DAG |
+| 3 | Hardwaretests standardmäßig simuliert, Dummy-CPU-Programm | **behoben**: Mock ⇒ `SKIPPED`, kein Erfolg; projektspezifische Testvektoren |
+| 4 | Statischer Check ohne Prüfung | **behoben** (schon vor diesem Stand) + Contract-Gate |
+| 5 | Verification kein verlässliches Gate | **behoben**: versionierte Ergebnisse, Testplan, Coverage-Gate |
+| 6 | Reparatur immer über HDL/OpenCode | **behoben**: verbindliches Routing pro Fehlerklasse |
+| 7 | Timing/Ressourcen Platzhalter | **behoben**: Reports werden geparst und sind hartes Gate |
+| 8 | Programmer-Konfiguration widersprüchlich | **behoben** (schon vor diesem Stand): Arty S7 → `vivado` |
+| 9 | FPGA-Ziel nicht aus Anforderung | **behoben**: Normalisierung in der Analyse, Rückfrage bei Widerspruch |
+| 10 | Contracts zu schwach | **teilweise**: Richtung, Typ, Bitbreite (mit Generics); keine Protokollsemantik |
+| 11 | Persistenz/Resume unvollständig | **weitgehend behoben**: Checkpoint pro Batch, idempotentes Resume; Events nicht persistiert |
+| 12 | Parallelität nicht im Produktionspfad | **behoben**: unabhängige Module laufen in parallelen Worker-Threads |
 
-Das Repository enthält bereits einen Supervisor, spezialisierte Agenten, einen persistenten `DesignState`, einen TaskGraph, Vertragsprüfungen, GHDL, Vivado/openFPGALoader und Hardware-Test-Abstraktionen. Die vorhandenen Tests belegen vor allem isolierte Fähigkeiten. Der reale Produktionspfad nutzt diese Fähigkeiten jedoch nicht vollständig und enthält mehrere harte Brüche:
+## Befunde und Umsetzung
 
-- Der produktive Supervisor orchestriert die Phasen seriell, nicht als tatsächlich persistierten und ausführbaren Projekt-DAG.
-- Der TaskGraph wird im `SupervisorOrchestrator` nur erzeugt, aber nicht mit den Produktionsaufgaben befüllt oder ausgeführt.
-- Der statische Check ist ein Platzhalter und prüft den Workspace nicht.
-- Approval, FPGA-Programmierung und Hardwaretests sind zwischen Legacy- und Supervisor-Pfad inkonsistent.
-- Der HardwareTestAgent nutzt standardmäßig ein Mock-Interface und kann dadurch einen erfolgreichen Hardwaretest melden, ohne echte Hardware zu prüfen.
-- Timing- und Ressourcenanalyse liefern Platzhalterwerte.
-- FPGA-/Programmer-Konfiguration und Tests widersprechen sich.
-- Es fehlt ein echter End-to-End-Akzeptanztest für ein mehrmoduliges Design wie CPU oder Decoder.
+### 1. Approval und Wiederaufnahme
 
-## Befunde
+**Befund:** Die Freigabe war pro Prozesslauf gespeichert. Zusätzlich galt eine einmal gespeicherte Entscheidung für *jeden* späteren Flash desselben Projekts: Ein neu synthetisierter Bitstream war automatisch freigegeben, eine alte Ablehnung blockierte ihn dauerhaft.
+
+**Umsetzung:** [supervisor_orchestrator.py](../Schaltungsagent/src/orchestrator/supervisor_orchestrator.py)
+- Die Freigabe in `state.json` speichert `bitstream_path` und `bitstream_sha256`. Eine gespeicherte Entscheidung gilt nur, wenn beide übereinstimmen.
+- Kommt eine Freigabe für eine persistierte offene Anfrage, auf die kein Thread mehr wartet (Prozessneustart), startet `resume_project()` den Workflow aus `design_state.yaml` neu. Der Supervisor steht dann in `FPGA_PROGRAMMING`, liest die Freigabe und flasht.
+- Ein fehlender `Path`-Import im Bootstrap-Pfad wurde nebenbei behoben.
 
-### Kritisch
+### 2. TaskGraph als produktiver Scheduler
 
-#### 1. Produktionspfad und Approval-Pfad sind nicht konsistent
+**Befund:** Der Orchestrator legte nur einen leeren `TaskGraph` an. Der Supervisor baute für die Implementierung zwar einen Graphen, führte ihn aber faktisch sequenziell aus und verwarf ihn bei jedem Lauf.
 
-Der API-Server verwendet den [SupervisorOrchestrator](../Schaltungsagent/src/orchestrator/supervisor_orchestrator.py), dessen `approve_task()` und `reject_task()` derzeit Platzhalter sind und immer `False` zurückgeben. Der ältere [AsyncAgentOrchestrator](../Schaltungsagent/src/orchestrator/orchestrator.py) besitzt dagegen eine echte `threading.Event`-basierte Approval-Registry.
+**Umsetzung:** [supervisor.py](../Schaltungsagent/src/agents/supervisor.py) `_run_implementation`
+- Jeder Modul-Task trägt einen **Contract-Fingerprint** (Modul-Contract, beteiligte Interfaces, Clock/Reset) und einen **Run-Key** (Auftrag + Anzahl abgeschlossener Läufe), dazu Abhängigkeiten, Ownership, Status, Versuchszähler und Ergebnis.
+- `task_graph.json` wird nach jedem Batch atomar geschrieben (Checkpoint).
+- Beim nächsten Lauf werden abgeschlossene Tasks mit gleichem Fingerprint und Run-Key übernommen. Neu ausgeführt werden nur Tasks mit geändertem Contract, deren transitiv Abhängige sowie offene oder fehlgeschlagene Tasks (`TASK_INVALIDATED`-Events).
+- Tasks, deren Abhängigkeit fehlgeschlagen ist, werden `BLOCKED` statt trotzdem ausgeführt.
+- Der tote `_task_graph` im Orchestrator ist entfernt. `load_task_graph()` liest jetzt den persistierten Graphen des Supervisors.
 
-Folge: Es gibt zwei Workflow-Implementierungen mit unterschiedlichen Fähigkeiten. Ein komplexes Projekt kann im Supervisor-Pfad bis zur Synthese gelangen, aber die Freigabe-/Flash-Steuerung ist dort nicht gleichwertig implementiert.
+**Grenze:** Analyse, Verifikation, Synthese und Flash sind weiterhin feste Phasen der Zustandsmaschine; der DAG umfasst die Implementierungsaufträge.
 
-**Erforderliche Änderung:** Einen einzigen produktiven Workflow festlegen. Approval muss im Supervisor-Pfad als persistenter Taskzustand implementiert werden, inklusive `approve`, `reject`, Wiederaufnahme nach Prozessneustart und Anzeige der zugehörigen Task-ID. Die Legacy-Implementierung darf danach nur noch als Kompatibilitätsschicht existieren oder entfernt werden.
+### 3. Hardwaretests
 
-#### 2. Der TaskGraph ist kein produktiver Scheduler
+**Befund:** Das Mock-Interface konnte Erfolg melden. Der Code verwendete einen nicht existierenden `AgentStatus.SKIPPED` und lief deshalb in einen Fehler. Das CPU-Programm bestand aus Dummy-Bytes, und unbekannte Testtypen galten als bestanden.
 
-Der [TaskGraph](../Schaltungsagent/src/domain/agents/task_graph.py) unterstützt Abhängigkeiten, Parallel-Batches, File Ownership und Invalidation. Im [SupervisorOrchestrator](../Schaltungsagent/src/orchestrator/supervisor_orchestrator.py) wird jedoch lediglich `self._task_graph = TaskGraph()` angelegt. Die Produktionsaufgaben werden nicht eingetragen, nicht über den Graphen gestartet und nicht als Ergebnisse persistiert.
+**Umsetzung:** [hardware_test.py](../Schaltungsagent/src/agents/hardware_test.py)
+- Ohne echte Schnittstelle ist das Ergebnis `SKIPPED` (`test_mode: MOCK`); es wird kein Test ausgeführt. `AgentStatus.SKIPPED` existiert jetzt.
+- Testvektoren stammen aus dem Plan-Manifest (`hardware_tests`) oder aus `tests/hardware_tests.yaml`. Typen: `echo`, `uart_exchange`, `cpu_program`. Ein erwartetes Ergebnis ist Pflicht, und ungültige Spezifikationen werden abgelehnt.
+- Aus der Architektur abgeleitet wird nur der UART-Loopback: Die UART-Integration fügt dem Top-Level eine Echo-Brücke hinzu.
+- Bei echter Hardware ohne Testvektoren ist das Ergebnis `BLOCKED` mit Rückfrage. Unbekannte Testtypen gelten als nicht bestanden.
+- Der UART-Port wird über `hardware_test.uart_port` konfiguriert. Nur dann folgt auf den Flash die Phase `HARDWARE_TESTING`. Ohne Port endet der Workflow mit dem ausdrücklichen Hinweis, dass die Board-Funktion nicht validiert ist (`hardware_validated: false`).
+- Ein Neustart in `HARDWARE_TESTING` mit echter Hardware wiederholt den Test, statt ihn als abgeschlossen zu werten.
 
-Der Supervisor ruft stattdessen in [supervisor.py](../Schaltungsagent/src/agents/supervisor.py) eine fest codierte Phasenfolge auf. Das ist eine sequenzielle Zustandsmaschine, aber noch keine belastbare Multi-Agent-Projektplanung.
+### 4. Statischer Check
 
-**Erforderliche Änderung:** Aus Analyse und Architektur einen persistierten Projekt-DAG erzeugen. Jeder Agentenauftrag braucht Inputs, Dependencies, Outputs, Ownership, Status, Retry-Zähler und Version. Der Scheduler muss unabhängige Module parallel ausführen können und nach Änderungen nur abhängige Aufgaben invalidieren.
+Der Check prüft jetzt zuerst die Architektur-Contracts (siehe 10) und ruft danach GHDL auf. Contract-Verletzungen erzeugen eine strukturierte Diagnose `contract_violation` mit den betroffenen Modulen.
 
-#### 3. Hardwaretests sind standardmäßig simuliert
+### 5. Verifikation als Gatekeeper
 
-Der [HardwareTestAgent](../Schaltungsagent/src/agents/hardware_test.py) verwendet standardmäßig `MockHardwareTestInterface()`. Die Mock-Tests können daher `fpga_alive`, CPU- und GPIO-Tests bestehen, ohne dass ein FPGA programmiert oder UART/GPIO beobachtet wurde.
+**Umsetzung:** [test_plan.py](../Schaltungsagent/src/domain/agents/test_plan.py), `_record_verification` / `_run_validation`
+- Jedes Simulationsergebnis wird mit Architekturversion, Testplan und Historie in `DesignState.verification` gespeichert.
+- Der **Testplan** ermittelt über die Instanziierungshierarchie, welches Modul von welcher Testbench erreicht wird, und leitet daraus die Abdeckung je Requirement ab (`Requirement.verified`).
+- Die Synthese startet nur, wenn alle folgenden Bedingungen erfüllt sind:
+  - Die Simulation ist bestanden.
+  - Das Simulationsergebnis gehört zur aktuellen Architekturversion.
+  - Der Contract-Check für diese Version ist bestanden.
+  - Die Modulabdeckung erreicht mindestens `gates.min_module_coverage` (Standard 100 %).
+- Der VerificationAgent übernimmt eine neu erzeugte Testbench nur, wenn sie den DUT instanziiert und der Workspace damit weiter kompiliert und simuliert. Sonst bleibt die alte Datei erhalten.
 
-Zusätzlich erzeugt `_generate_cpu_test_program()` nur Dummy-Bytes. Das ist kein CPU-Programm und kann keine 8-Bit-CPU validieren.
+**Beobachtung:** Das Gate fand sofort eine echte Lücke. Im deterministischen Testpfad instanziiert die Mock-Testbench `zaehler_tb` den Zähler gar nicht, und der GHDL-Lauf war trotzdem „PASS“. Der Workflow endet jetzt mit `Coverage gap … zaehler`.
 
-**Erforderliche Änderung:** Hardwaretests müssen klar zwischen `MOCK`, `SIMULATION` und `REAL_HARDWARE` unterscheiden. `COMPLETED` darf für einen Hardwareworkflow nur bei realer Verbindung und projektspezifischem Protokolltest vergeben werden. Für CPU/Decoder müssen Testvektoren, erwartete Ausgaben, UART-Protokoll und Reset-/Clock-Verhalten aus der Architektur abgeleitet werden.
+### 6. Reparatur auf der richtigen Ebene
 
-### Hoch
+**Umsetzung:** [repair_routing.py](../Schaltungsagent/src/domain/agents/repair_routing.py), [debug.py](../Schaltungsagent/src/agents/debug.py), `_handle_failure`
 
-#### 4. Statischer Check prüft den Code aktuell nicht
+| Fehlerklasse | Ziel | Wirkung |
+|---|---|---|
+| `interface_mismatch` bei erfüllten Contracts | ArchitectureAgent | Plan verfeinern, Version +1, nur geänderte Module + Abhängige neu implementieren |
+| `interface_mismatch` bei verletztem Contract, `contract_violation`, Syntax-, Typ-, Elaborations-, Simulations-, Clock/Reset-Fehler | HDLAgent | `fix_hdl` für die betroffenen Module |
+| `testbench_error`, `coverage_gap` | VerificationAgent | Testbench erzeugen und prüfen |
+| `synthesis_error`, `timing_error` | HDLAgent mit Synthesekontext | `fix_hdl` mit Timing-/Ressourcenwerten und Timing-Akzeptanzkriterium |
+| `constraint_error`, `resource_error`, `bitstream_error`, `flash_error`, `hardware_error`, `infrastructure`, `target_ambiguous` | Benutzer | `BLOCKED` mit Begründung, `HUMAN_INTERVENTION_REQUESTED` |
 
-`SupervisorAgent._run_static_check()` erstellt zwar einen `GHDLValidator`, ruft ihn aber nicht auf und gibt anschließend direkt `checks: passed` zurück. Damit kann der Multi-Agent-Pfad von fehlerhaftem oder nicht synthesizierbarem VHDL in die Simulation/Synthese weiterlaufen, ohne dass der vorgesehene Gatekeeper greift.
+- Strukturierte Fehlerklassen der Gates haben Vorrang vor der Regex-Klassifikation.
+- Jede HDL-Reparatur läuft mit einem **Vorher-/Nachher-Contract-Check**. Ein Patch, der neue Contract-Verletzungen einführt, wird abgelehnt.
+- Nach jeder Reparatur beginnt die Verifikation wieder beim statischen Check, nicht erst bei der Simulation.
+- Reparaturversuche werden gezählt (nicht nur Erfolge), damit `max_repairs_per_stage` greift.
+- Behobene Schleifenfehler:
+  - Die Erkennung wiederholter Fehler verglich `type` mit `failure_type` und schlug deshalb nie an.
+  - Nach `IDENTICAL_ERROR` lief die Schleife im Zustand `FAILED` weiter bis zum Iterationslimit.
+  - Aus `VALIDATING` fiel `_safe_transition_to` mangels erlaubtem Übergang nach `SYNTHESIZING` zurück. Ein Validierungsfehler konnte so in die Synthese führen.
 
-**Erforderliche Änderung:** Einen echten `StaticCheckService` bzw. den vorhandenen Validator aufrufen. Der Schritt muss alle Entities, Libraries, VHDL-Standards, Top-Level-Auswahl und synthesizability-relevante Regeln prüfen und strukturierte Diagnosen erzeugen.
+### 7. Timing und Ressourcen
 
-#### 5. Verification-Ergebnisse werden nicht zuverlässig als Gate verwendet
+**Umsetzung:** [fpga.py](../Schaltungsagent/src/agents/fpga.py)
+- `report_timing_summary` wird spaltengenau geparst (WNS, TNS, WHS, THS), Fmax aus Taktperiode und WNS berechnet. Der alte Parser las WHS/THS aus den Endpunkt-Spalten.
+- `report_utilization` wird zeilenweise geparst (Slice/CLB LUTs, Register, BRAM, DSP, Auslastung in %).
+- Fehlende Werte bleiben `None`, es gibt keine Platzhalter mehr.
+- Eine Synthese gilt nur als erfolgreich, wenn alle folgenden Bedingungen erfüllt sind:
+  - Beide Reports sind vorhanden.
+  - Ein Takt-Constraint ist gesetzt.
+  - WNS ≥ 0 und WHS ≥ 0.
+  - Keine Ressource ist über 100 % ausgelastet.
 
-Der Supervisor übergibt die Architektur an den `VerificationAgent`, aber die Zustandsaktualisierung und Fehlerweiterleitung ist nicht durchgehend konsistent. Der `VerificationAgent` führt GHDL aus, während der statische Check keinen echten Check macht. Für komplexe Designs fehlen außerdem verbindliche Testplan- und Coverage-Gates.
+  Sonst gibt es eine Diagnose `timing_error`, `constraint_error`, `resource_error` oder `infrastructure`. Abschaltbar ist das Gate nur über `gates.require_timing_closure`.
+- Timing und Ressourcen stehen jetzt in `DesignState.synthesis`.
 
-**Erforderliche Änderung:** Pro Requirement und Modul einen Testplan erzeugen. Simulationsergebnisse müssen im `DesignState` versioniert werden. Der Supervisor darf nur bei bestandenem Compile, Elaboration, Simulation und akzeptierter Coverage zur Synthese übergehen.
+### 8. FPGA-Konfiguration
 
-#### 6. Debug/Repair repariert nicht immer auf der richtigen Ebene
+Unverändert gültig: Für das Arty S7-50 ist `vivado` der Programmer, Registry und `test_ghdl_synthesis.py` stimmen überein.
 
-Der Reparaturpfad delegiert hauptsächlich an den `HDLAgent` und OpenCode. Bei Architektur- und Interfacefehlern muss aber zuerst die Architektur geändert und anschließend die abhängige Implementierung invalidiert werden. Bei Timing-, Constraint-, Toolchain- oder Hardwarefehlern ist eine HDL-Reparatur oft falsch.
+### 9. FPGA-Ziel aus der Anforderung
 
-**Erforderliche Änderung:** Fehlerklassen und Reparaturziele verbindlich definieren:
+[fpga_target.py](../Schaltungsagent/src/services/fpga_target.py): Die Analysephase erkennt Board-Nennungen (z. B. „GateMate A1“, „CCGM1A1“, „Arty S7-50“, „xc7s50“, „Spartan-7“). Das Ergebnis landet in `DesignState.fpga` (Ziel, Programmer, Part) und wird von Synthese und Flash verwendet. Bei mehreren Boards oder einer explizit gesetzten, aber widersprechenden Angabe endet die Phase mit `BLOCKED` und einer offenen Frage. Ohne Nennung gilt `synthesis.default_fpga`.
 
-- Architektur-/Interfacefehler -> `ArchitectureAgent`
-- Modul-/VHDL-Fehler -> `HDLAgent`
-- Test-/Erwartungsfehler -> `VerificationAgent`/Testplan
-- Synthese-/Timing-/Constraintfehler -> `FPGAAgent` plus Constraint- oder HDL-Reparatur
-- Flash-/USB-/Treiberfehler -> Infrastruktur/Human Intervention
-- Hardwarefunktionstest -> HDL/Integration/HardwareTestAgent abhängig von Diagnose
+### 10. Contracts
 
-Jede Reparatur muss einen Vorher-/Nachher-Contract-Check und eine erneute Verifikation auslösen.
+[contract_check.py](../Schaltungsagent/src/domain/agents/contract_check.py) prüft jetzt:
+- Existenz, Richtung, Basistyp und Bitbreite jedes vertraglich festgelegten Ports, auch bei Breiten mit Generics (`WIDTH-1 downto 0`),
+- den Entity-Namen,
+- den Clock-Port sequentieller Module (Warnung),
+- die Richtungen von Interface-Signalen und das deklarierte Top-Level.
 
-#### 7. Timing- und Ressourcenwerte sind Platzhalter
+Typisierte Ports kommen aus dem erweiterten Manifest-Schema (`modules[].ports` mit `name`/`direction`/`type`, validiert im `PlanValidator`). Sie werden in `ModuleInfo.ports` gespeichert und dem HDLAgent als verbindliches Interface übergeben, statt Typen zu raten.
 
-[FPGAAgent](../Schaltungsagent/src/agents/fpga.py) liefert in `analyze_timing()` und `check_resources()` feste Beispielwerte wie `fmax_mhz: 100.0`, `lut: 1250` und `ff: 2100`. Diese Werte stammen nicht aus Vivado-Reports.
+**Offen:** Latenz, Handshake, Durchsatz, Reset-Polarität und Clock-Domain-Übergänge sind nicht maschinenprüfbar.
 
-Damit kann das System ein komplexes Design fälschlich als timing- und ressourcenkonform melden.
+### 11. Persistenz und Wiederaufnahme
 
-**Erforderliche Änderung:** Vivado-Reports strukturiert parsen und Werte im `DesignState` speichern. Harte Gates einführen: WNS/TNS, Fmax, LUT/FF/BRAM/DSP-Auslastung, DRC und Bitstream-Erzeugung.
+| Artefakt | Inhalt |
+|---|---|
+| `design_state.yaml` | Phase, Architekturversion, Verifikation inkl. Testplan und Historie, Synthesewerte, Diagnosehistorie mit Reparaturziel, Reparaturprotokoll |
+| `task_graph.json` | Tasks mit Status, Fingerprint, Run-Key, Versuchszähler, Ergebnis, Ownership |
+| `state.json` | Freigabe, gebunden an den Bitstream |
 
-#### 8. FPGA-Konfiguration ist widersprüchlich
+Resume ist idempotent: Abgeschlossene Tasks werden übernommen, laufende und fehlgeschlagene werden wiederholt.
 
-[fpgas.yaml](../Schaltungsagent/src/data/fpgas.yaml) konfiguriert das Arty S7 mit `programmer: openfpgaloader`, während [test_ghdl_synthesis.py](../Schaltungsagent/tests/test_ghdl_synthesis.py) `vivado` erwartet. Andere Dokumentation beschreibt Vivado als nachgewiesenen Flashpfad.
+**Offen:** Events werden nicht persistiert. Automatisch fortgesetzt wird nach einem Neustart nur ein auf Freigabe wartender Workflow.
 
-Das führt dazu, dass Tests und Produktionspfad unterschiedliche Programmer wählen. Für komplexe Projekte ist das ein reproduzierbarer Integrationsfehler.
+### 12. Parallelität
 
-**Erforderliche Änderung:** Pro Board einen verbindlichen Toolchain-/Programmer-Vertrag festlegen. Für Arty S7 sollte auf diesem Host der nachgewiesene Vivado-Hardware-Manager der Standard sein; openFPGALoader kann als explizite Alternative bleiben. Registry, Konfiguration, Tests und Dokumentation müssen denselben Wert verwenden.
+Tasks eines Batches laufen in eigenen Worker-Threads mit eigener Event-Loop, weil der HDLAgent den OpenCode-Subprozess blockierend aufruft. `asyncio.gather` allein lief deshalb faktisch sequenziell. Die Anzahl begrenzt `limits.max_parallel_workers` (Standard 2, 1 = sequenziell). Ein Worker-Absturz wird als fehlgeschlagener Task isoliert.
 
-### Mittel
+## Nachweisstand (2026-10-07)
 
-#### 9. FPGA-Ziel wird nicht zuverlässig aus der Benutzeranforderung übernommen
+Neue Akzeptanztests: [test_multi_agent_gates.py](../Schaltungsagent/tests/test_multi_agent_gates.py), **46 Tests, alle bestanden** (5 Wiederholungen ohne Flakiness). Sie prüfen die Abnahmekriterien der Phasen 1–4 direkt:
 
-Der Supervisor verwendet in seinen FPGA-Aufgaben standardmäßig `arty_s7_50`. Eine robuste Extraktion eines Zielboards aus Anforderungen wie „für GateMate A1“ oder „für Arty S7-50“ ist im produktiven Pfad nicht sichtbar abgesichert.
+| Phase | Abnahmekriterium | Test |
+|---|---|---|
+| 1 | Zwei unabhängige Module laufen parallel | `test_independent_modules_run_in_parallel` (Zeitfenster überlappen) |
+| 1 | Architekturänderung invalidiert nur Abhängige | `test_contract_change_invalidates_only_dependent_tasks` |
+| 1 | Resume wiederholt nur offene Tasks | `test_resume_after_crash_reruns_only_open_tasks` |
+| 2 | Falscher Port / falsche Breite / falsche Richtung / falscher Typ erkannt | `test_contract_checker_detects_port_errors` (echte VHDL-Dateien) |
+| 2 | … und an die richtige Rolle geleitet | `test_static_check_blocks_wrong_width_and_routes_to_hdl`, `test_wrong_simulation_result_routes_to_hdl`, `test_interface_mismatch_between_valid_modules_routes_to_architecture` |
+| 2 | Coverage- und Versions-Gate | `test_validation_gate_blocks_uncovered_modules`, `test_validation_gate_rejects_stale_simulation` |
+| 3 | Verletztes Timing / fehlender Constraint nicht erfolgreich | `test_timing_violation_blocks_success`, `test_missing_clock_constraint_blocks_success`, `test_missing_reports_and_overuse_block_success` |
+| 4 | Kein Erfolg aus Mock; CPU-Programm mit erwarteter UART-Ausgabe | `test_mock_hardware_never_reports_success`, `test_cpu_program_vectors_pass_and_fail_on_real_interface` |
+| – | Ziel-FPGA, Freigabe-Bindung, Resume nach Neustart | `test_fpga_target_*`, `test_approval_is_bound_to_bitstream_content`, `test_pending_approval_resumes_workflow_after_restart` |
 
-**Erforderliche Änderung:** FPGA-Ziel früh normalisieren, im `DesignState` speichern und vor Architektur-/Constraint-/Syntheseplanung validieren. Unklare oder widersprüchliche Ziele müssen eine Rückfrage auslösen.
+Gesamte Testsuite (`tests`, `src/tests`, `test`): **365 bestanden, 37 fehlgeschlagen, 7 Fehler, 11 übersprungen**. Vor den Änderungen waren es 316 bestanden, 39 fehlgeschlagen und 7 Fehler. Keine neuen Fehlschläge; zwei API-Tests laufen jetzt wieder (fehlender `Path`-Import im Orchestrator). Die verbleibenden Fehlschläge bestanden schon vorher und gehen auf veraltete Test-APIs zurück. Behoben ist außerdem die frühere Regression in `test_multi_agent_collaboration.py::test_full_multi_agent_workflow`: Das Test-Mock kannte die `plan()`-Schnittstelle des ArchitectureAgent nicht.
 
-#### 10. Architektur- und Implementierungsverträge sind zu schwach
+## Verbleibende Schritte
 
-Der [ContractChecker](../Schaltungsagent/src/domain/agents/contract_check.py) prüft vor allem Portnamen und einige statische Bedingungen. Für CPU oder RS-Decoder reichen Portnamen nicht aus. Es fehlen unter anderem Bitbreiten, signed/unsigned-Semantik, Clock-/Reset-Polarität, Latenzen, Handshake-Protokolle, Durchsatz, Paketgrenzen und Top-Level-Pinverträge.
-
-**Erforderliche Änderung:** Contracts als versionierte, maschinenprüfbare Schnittstellen definieren. Für jede Verbindung müssen Richtung, Breite, Typ, Clock-Domain, Reset, Latenz und Handshake feststehen.
-
-#### 11. Persistenz und Wiederaufnahme sind nicht vollständig multi-agent-fähig
-
-`DesignState` ist vorhanden, aber laufende Agentenaufträge, TaskGraph-Status, File Ownership, Events und Approval-Wartezustände werden nicht als ein zusammenhängender wiederaufnehmbarer Workflow persistiert. Ein Prozessneustart kann dadurch zu verlorenen oder doppelten Aufgaben führen.
-
-**Erforderliche Änderung:** Atomare Checkpoints nach jedem Agentenauftrag. Persistieren: DAG, AgentTask, Inputs/Outputs, Versionshashes, Ownership, Diagnosehistorie, Approvalstatus und externe Artefakte. Resume muss idempotent sein.
-
-#### 12. Parallelität ist getestet, aber nicht im Produktionspfad aktiv
-
-[test_multi_agent_collaboration.py](../test_multi_agent_collaboration.py) testet Task-DAG, Ownership, Parallel-Batches und Handoffs erfolgreich. Das belegt die Bausteine, nicht deren Nutzung im realen Workflow.
-
-**Erforderliche Änderung:** Ein produktiver WorkerPool/Scheduler muss unabhängige Module tatsächlich parallel ausführen, Ressourcenlimits beachten und Konflikte verhindern. Gemeinsame Integrations- und Top-Level-Dateien müssen sequenziell geschützt werden.
-
-## Was bereits vorhanden ist
-
-- Spezialisierte Agenten für Architektur, HDL, Verifikation, Debug, FPGA und Hardwaretests.
-- Persistentes [DesignState-Modell](../Schaltungsagent/src/domain/models/design_state.py).
-- EventBus und WebSocket-Observability.
-- TaskGraph, File Ownership und ContractChecker als brauchbare Grundlagen.
-- GHDL-Validierung und Vivado-Bitstream-Service.
-- Board-Registry und Approval-Konzept.
-- Reparaturbegrenzungen und Erkennung identischer Fehler/fehlenden Fortschritts.
-- Lokale OpenCode-Ausführung als ressourcenschonender Testmodus.
-- Der aktuelle openFPGALoader-Ausgabeparser erkennt das angeschlossene Arty S7 korrekt.
-
-## Nachweisstand
-
-Am 2026-09-13 wurden folgende Prüfungen ausgeführt:
-
-- `test_multi_agent_collaboration.py` plus `test_supervisor_workflow.py`: **17 Tests bestanden**.
-- `test_flash_service.py`: **13 Tests bestanden**.
-- Echte Host-Erkennung: Arty S7 wurde als `xc7s50`, Familie `spartan7`, erkannt.
-- `test_ghdl_synthesis.py`: **1 Test fehlgeschlagen**, weil Registry und Test beim Arty-Programmer `openfpgaloader` versus `vivado` widersprechen.
-
-Die 17 Multi-Agent-Tests sind überwiegend Komponenten-/Mocktests. Es gibt keinen belastbaren Akzeptanztest, der ein mehrmoduliges CPU- oder Decoderdesign vom Requirement bis zur echten Board-Funktion durchläuft.
-
-## Empfohlene Umsetzungsreihenfolge
-
-### Phase 0: Produktionspfad festlegen
-
-1. SupervisorOrchestrator als einzigen Produktionspfad festlegen.
-2. Legacy-Orchestrator aus dem API-Pfad entfernen oder als Adapter kapseln.
-3. Approval im Supervisor-Pfad implementieren und Prozessneustart unterstützen.
-4. FPGA-Programmer für Arty S7 in Registry, Konfiguration, Tests und Dokumentation vereinheitlichen.
-
-**Abnahmekriterium:** Ein kleiner Entwurf kann über API gestartet, freigegeben, geflasht und eindeutig abgeschlossen werden.
-
-### Phase 1: Echter Multi-Agent-DAG
-
-1. ArchitectureAgent erzeugt versionierte Module, Contracts, Dependencies und Testplan.
-2. Supervisor materialisiert daraus `AgentTask`-Objekte im TaskGraph.
-3. Scheduler führt unabhängige Module parallel aus.
-4. File Ownership, Handoffs und Invalidation sind produktiv aktiv.
-5. Jeder Task schreibt einen Checkpoint und ein strukturiertes Ergebnis.
-
-**Abnahmekriterium:** Zwei unabhängige Module laufen parallel; eine Architekturänderung invalidiert nur abhängige Implementierungs-/Testaufgaben.
-
-### Phase 2: Verifikation als Gatekeeper
-
-1. Statischen Check implementieren.
-2. ContractChecker in den Produktionspfad integrieren.
-3. Testplan pro Requirement/Modul erzeugen.
-4. GHDL Compile, Elaboration, Simulation und Coverage als harte Gates behandeln.
-5. Debugdiagnosen mit Fehlerklasse, Evidenz, Modul und Reparaturziel persistieren.
-
-**Abnahmekriterium:** Ein absichtlich falscher Port, eine falsche Bitbreite und ein falsches Simulationsergebnis werden jeweils erkannt und an die richtige Agentenrolle weitergeleitet.
-
-### Phase 3: Synthese und FPGA-Vertrauen
-
-1. Vivado-Reports für Timing, Ressourcen, DRC und Bitstream auswerten.
-2. Constraints als Teil des Architektur-/Board-Vertrags behandeln.
-3. Synthesereparaturen von Simulationsreparaturen trennen.
-4. Toolchain- und Boarddiagnose vollständig in Events/Chat ausgeben.
-
-**Abnahmekriterium:** Ein Design mit absichtlich verletztem Timing oder fehlendem Pin-Constraint wird nicht als erfolgreich abgeschlossen.
-
-### Phase 4: Echte Hardwarevalidierung
-
-1. Mock- und Real-Hardware explizit unterscheiden.
-2. UART-/GPIO-Interface für das konkrete Board konfigurieren.
-3. Hardwaretest-Suiten aus der Architektur und den Requirements ableiten.
-4. CPU- und Decoder-Testvektoren statt Dummy-Bytes verwenden.
-5. Hardwarefehler klassifizieren und gezielt an Debug/HDL/FPGA oder den Benutzer zurückgeben.
-
-**Abnahmekriterium:** Ein 8-Bit-CPU-Smoke-Test führt ein definiertes Programm aus und meldet echte, über UART oder GPIO beobachtete Ergebnisse.
-
-### Phase 5: Ziel-Akzeptanztests
-
-Mindestens folgende reproduzierbare End-to-End-Projekte sollten als CI-/Hardware-Testfälle aufgenommen werden:
-
-- 8-Bit-CPU mit ALU, Registerfile, Steuerwerk, Programmspeicher, UART-Ausgabe und Testprogramm.
-- RS- oder Hamming-Decoder mit Fehlervektoren, Latenz-/Throughput-Vertrag und UART/GPIO-Ergebnis.
-- Ein absichtlich fehlerhaftes Projekt, das durch Debug/Repair erfolgreich repariert wird.
-- Ein absichtlich fehlerhaftes Constraint-/Timing-Projekt, das korrekt blockiert.
-- Resume nach Prozessneustart in Approval, Reparatur und Hardwaretest.
+1. **Ziel-Akzeptanztest auf dem Board (Phase 5).** 8-Bit-CPU und Hamming-Decoder mit Testvektoren im Manifest, `hardware_test.uart_port` gesetzt, realer Lauf bis zur UART-Antwort. Dazu ein absichtlich fehlerhaftes Projekt (Reparatur) und ein Projekt mit Timing-Verletzung (Blockade).
+2. **Planer-Schema im Betrieb prüfen.** Liefert OpenCode verlässlich typisierte `ports` und sinnvolle `hardware_tests`? Ohne sie bleiben Contracts namensbasiert und Hardwaretests auf den UART-Loopback beschränkt.
+3. **Funktionale Coverage.** Assertions je Requirement statt nur struktureller Erreichbarkeit.
+4. **Protokoll-Contracts.** Latenz, Handshake, Reset-Polarität, Clock-Domains.
+5. **Constraint-Agent.** Pin-/Clock-Constraints aus Board-Vertrag erzeugen und reparieren, statt `constraint_error` an den Benutzer zu geben.
+6. **Vorbestehende Testschulden.** Etwa 37 Tests scheitern unabhängig von diesen Änderungen an veralteten APIs (`llm_service=`-Parameter, Zustandsübergänge, entfernte Module wie `Schaltungsagent.evaluation`).
 
 ## Endzustand, der als Ziel gelten sollte
 
 Das Projekt ist am Ziel, wenn für ein komplexes Beispieldesign alle folgenden Aussagen gleichzeitig wahr sind:
 
-- Die Aufgabe wird in nachvollziehbare AgentTasks zerlegt.
-- Mehrere Agenten arbeiten mit klaren Contracts und Ownership-Regeln.
-- Der Zustand kann nach jedem Schritt geladen und fortgesetzt werden.
-- Fehler werden nicht nur wieder an OpenCode weitergereicht, sondern klassifiziert und an die zuständige Rolle delegiert.
-- Kein Erfolg wird aus Mock-, Platzhalter- oder ungeprüften Werten abgeleitet.
-- Simulation, Synthese, Timing, Ressourcen, Bitstream, Flash und Hardwaretest sind echte Gates.
-- Die Benutzeroberfläche zeigt Agent, Task, Phase, Diagnose, Artefakte und Entscheidungsmöglichkeiten.
-- Ein echter CPU-/Decoder-Akzeptanztest läuft reproduzierbar bis zum Board und zurück.
+- Die Aufgabe wird in nachvollziehbare AgentTasks zerlegt. — *Implementierung: ja; übrige Phasen als Zustandsmaschine*
+- Mehrere Agenten arbeiten mit klaren Contracts und Ownership-Regeln. — *ja, Contracts ohne Protokollsemantik*
+- Der Zustand kann nach jedem Schritt geladen und fortgesetzt werden. — *ja (Checkpoint pro Batch/Phase)*
+- Fehler werden klassifiziert und an die zuständige Rolle delegiert. — *ja*
+- Kein Erfolg wird aus Mock-, Platzhalter- oder ungeprüften Werten abgeleitet. — *ja*
+- Simulation, Synthese, Timing, Ressourcen, Bitstream, Flash und Hardwaretest sind echte Gates. — *ja; Hardwaretest nur mit konfiguriertem UART*
+- Die Benutzeroberfläche zeigt Agent, Task, Phase, Diagnose, Artefakte und Entscheidungsmöglichkeiten. — *Events vorhanden (`REPAIR_ASSIGNED`, `TASK_INVALIDATED`, `PARALLEL_BATCH_*`, `CONTRACT_CHECK_*`); Dashboard nicht angepasst*
+- Ein echter CPU-/Decoder-Akzeptanztest läuft reproduzierbar bis zum Board und zurück. — **offen**

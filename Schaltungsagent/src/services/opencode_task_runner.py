@@ -1,0 +1,361 @@
+"""File-based OpenCode handoff that preserves the user's complete prompt."""
+from __future__ import annotations
+
+import hashlib
+import logging
+import re
+import time
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+from src.domain.exceptions import OpenCodeDeliveryError, WorkflowError
+from src.services.opencode_service import describe_opencode_failure, is_provider_failure
+
+logger = logging.getLogger(__name__)
+DEFAULT_MAX_PROMPT_BYTES = 200_000
+
+# AP11: Knowledge mandatory line per stage
+STAGE_SKILLS: dict[str, list[str]] = {
+    "plan": ["vhdl-synthesis-rules", "arty-s7-50-board"],
+    "implement_module": ["vhdl-synthesis-rules", "vhdl-fsm"],
+    "implement_testbench": ["vhdl-testbench", "vhdl-synthesis-rules"],
+    "implement_top": ["vhdl-synthesis-rules", "arty-s7-50-board"],
+    "review_and_fix": ["ghdl-vivado-errors", "vhdl-synthesis-rules", "arty-s7-50-board"],
+}
+
+KNOWLEDGE_LINE_TPL = (
+    "\n\n---\nLies zuerst diese Datei(en) direkt mit dem Read-Tool (NICHT über "
+    "ein Skill-Tool – dessen Namensraum enthält diese projektspezifischen IDs "
+    "nicht und ein Versuch schlägt fehl, kostet Zeit und Kontext): {paths}. "
+    "Bei Widerspruch zwischen einer dieser Dateien und PROMPT.md gilt PROMPT.md; "
+    "trage den Widerspruch in open_questions bzw. reports/review.md ein. "
+    "Schreibe danach in .opencode_tasks/{task_id}.done.md eine Zeile "
+    "`skills: <gelesene ids>`."
+)
+
+
+class PromptIntegrityError(RuntimeError):
+    pass
+
+
+@dataclass
+class OpenCodeDelivery:
+    ok: bool
+    stage: str
+    files: dict[str, str] = field(default_factory=dict)
+    stdout: str = ""
+    stderr: str = ""
+    reason: str = ""
+    prompt_sha256: str = ""
+    # Diagnose für den Fehlerfall
+    returncode: int | None = None
+    hint: str = ""
+    file_status: dict[str, str] = field(default_factory=dict)
+    changed_files: list[str] = field(default_factory=list)
+    task_file: str = ""
+    duration_s: float = 0.0
+    runner: str = ""
+    exception: Exception | None = None
+
+    def error(self, subject: str) -> Exception:
+        """Ausnahme mit Ursache, Hinweis und Kontext für diese Lieferung.
+
+        War schon der OpenCode-Aufruf selbst ein strukturierter Fehler
+        (Docker fehlt, Zeitlimit ...), wird dieser mit Kontext angereichert
+        zurückgegeben, statt ihn zu überdecken.
+        """
+        context = {
+            "Phase": self.stage,
+            "Erwartete Dateien": ", ".join(f"{name} ({state})" for name, state in self.file_status.items()),
+            "Exit-Code": self.returncode,
+            "Laufzeit": f"{self.duration_s:.1f} s" if self.duration_s else "",
+            "Ausführung": self.runner,
+            "Auftragsdatei": self.task_file,
+            "Von OpenCode geänderte Dateien": ", ".join(self.changed_files[:15]) or "keine",
+            "stderr (Ende)": _tail(self.stderr),
+            "stdout (Ende)": _tail(self.stdout, 10),
+        }
+        if isinstance(self.exception, WorkflowError):
+            self.exception.message = f"{subject}: {self.exception.message}"
+            self.exception.context = {**{k: v for k, v in context.items() if v not in (None, "", [])},
+                                      **self.exception.context}
+            return self.exception
+        return OpenCodeDeliveryError(
+            f"{subject}: OpenCode hat {', '.join(self.file_status) or 'das Ergebnis'} nicht gültig geliefert",
+            cause=self.reason or "unbekannt",
+            hint=self.hint,
+            context=context,
+            failure_type="infrastructure" if is_provider_failure(self.reason) else "",
+        )
+
+
+def _tail(text: str, lines: int = 15) -> str:
+    rows = [row for row in (text or "").strip().splitlines() if row.strip()]
+    return "\n".join(rows[-lines:])
+
+
+_IGNORED_SNAPSHOT_PARTS = {
+    # ".opencode_tasks" sind unsere eigenen Auftragsdateien, ".opencode" ist
+    # OpenCodes eigenes Arbeitsverzeichnis: enthaelt .opencode/skills (von uns
+    # provisioniert, bereits vor dem Snapshot stabil) und, sobald OpenCode den
+    # (nativen) Skill-Mechanismus oder sein Plugin-System beruehrt, ein
+    # mehrere Megabyte grosses .opencode/node_modules. Ohne diesen Eintrag
+    # taucht z. B. ".opencode/node_modules/.bin/..." als "von OpenCode
+    # geänderte Datei" in Fehlermeldungen auf und verschleiert die echte
+    # Ursache (siehe Bugreport: "manifest.json fehlt" zeigte nur
+    # node_modules-Dateien statt eines Hinweises auf das eigentliche Problem).
+    ".opencode_tasks", ".opencode",
+    ".git", "build", "__pycache__", "node_modules",
+}
+
+
+def _snapshot(workspace: Path) -> dict[str, float]:
+    """Änderungszeitpunkte aller Projektdateien (ohne Auftrags-/Build-Ordner)."""
+    result = {}
+    if not workspace.is_dir():
+        return result
+    for path in workspace.rglob("*"):
+        rel = path.relative_to(workspace)
+        if rel.parts and rel.parts[0] in _IGNORED_SNAPSHOT_PARTS:
+            continue
+        if path.is_file():
+            try:
+                result[rel.as_posix()] = path.stat().st_mtime
+            except OSError:
+                pass
+    return result
+
+
+def _check_vhdl_file(path: Path, relative_path: str) -> tuple[str, str, str]:
+    """(Status, Ursache, Hinweis) für eine erwartete Datei."""
+    if not path.is_file():
+        return "fehlt", f"{relative_path} wurde nicht geschrieben", ""
+    content = path.read_text(encoding="utf-8", errors="replace")
+    if not content.strip():
+        return "leer", f"{relative_path} ist leer", "Das Modell hat die Datei angelegt, aber keinen Code geschrieben."
+    if path.suffix.lower() not in {".vhd", ".vhdl"}:
+        return "ok", "", ""
+    if "```" in content:
+        return ("Markdown", f"{relative_path} enthält einen Markdown-Codeblock (```) statt reinem VHDL",
+                "Das Modell hat seine Chat-Antwort in die Datei geschrieben; anderes Modell wählen oder erneut versuchen.")
+    expected_entity = path.stem
+    entities = re.findall(r"\bentity\s+(\w+)\s+is\b", content, re.IGNORECASE)
+    if not any(name.lower() == expected_entity.lower() for name in entities):
+        found = ", ".join(entities) or "keine"
+        return ("falsche Entity", f"{relative_path} enthält Entity '{found}' statt '{expected_entity}'",
+                "Entity-Name muss dem Dateinamen bzw. Modulnamen aus der Architektur entsprechen.")
+    if not re.search(r"\barchitecture\s+\w+\s+of\s+", content, re.IGNORECASE):
+        return ("ohne Architecture", f"{relative_path} enthält keine architecture",
+                "Das Modell hat nur die Entity-Deklaration geliefert.")
+    return "ok", "", ""
+
+
+class PromptStore:
+    def __init__(self, max_prompt_bytes: int = DEFAULT_MAX_PROMPT_BYTES):
+        self.max_prompt_bytes = max_prompt_bytes
+
+    @staticmethod
+    def _state_path(workspace: Path) -> Path:
+        return workspace / "design_state.yaml"
+
+    def save(self, workspace: str, request_full: str) -> str:
+        raw = request_full.encode("utf-8")
+        if len(raw) > self.max_prompt_bytes:
+            raise ValueError(
+                f"Prompt is {len(raw)} bytes; limit is {self.max_prompt_bytes} bytes"
+            )
+        root = Path(workspace)
+        root.mkdir(parents=True, exist_ok=True)
+        prompt_path = root / "PROMPT.md"
+        if prompt_path.exists():
+            if prompt_path.read_bytes() != raw:
+                raise PromptIntegrityError("PROMPT.md already contains a different request")
+        else:
+            prompt_path.write_bytes(raw)
+        digest = hashlib.sha256(raw).hexdigest()
+        self._save_digest(root, digest)
+        return digest
+
+    def verify(self, workspace: str) -> str:
+        root = Path(workspace)
+        prompt_path = root / "PROMPT.md"
+        if not prompt_path.is_file():
+            raise PromptIntegrityError("PROMPT.md is missing")
+        raw = prompt_path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        state_path = self._state_path(root)
+        state = self._read_state(state_path)
+        expected = (state.get("metadata") or {}).get("prompt_sha256")
+        if expected and expected != digest:
+            raise PromptIntegrityError("PROMPT.md hash does not match design_state metadata")
+        if not expected:
+            self._save_digest(root, digest)
+        return digest
+
+    def _save_digest(self, root: Path, digest: str) -> None:
+        path = self._state_path(root)
+        state = self._read_state(path)
+        metadata = state.setdefault("metadata", {})
+        metadata["prompt_sha256"] = digest
+        path.write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    @staticmethod
+    def _read_state(path: Path) -> dict:
+        if not path.is_file():
+            return {}
+        try:
+            return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            raise PromptIntegrityError(f"Could not read state metadata from {path}")
+
+
+class OpenCodeTaskRunner:
+    def __init__(
+        self,
+        opencode_service,
+        *,
+        event_publisher=None,
+        max_prompt_bytes: int = DEFAULT_MAX_PROMPT_BYTES,
+    ):
+        self._opencode = opencode_service
+        self._events = event_publisher
+        self._prompts = PromptStore(max_prompt_bytes)
+
+    def run(
+        self,
+        *,
+        workspace: str,
+        request_full: str,
+        stage: str,
+        task_instruction: str,
+        expected_files: list[str],
+        task_id: str = "",
+        timeout_seconds: int | None = None,
+        skills_dir: str = ".opencode/skills",
+    ) -> OpenCodeDelivery:
+        digest = self._prompts.save(workspace, request_full)
+        if self._prompts.verify(workspace) != digest:
+            raise PromptIntegrityError("Prompt integrity check failed before OpenCode call")
+
+        task_token = re.sub(r"[^a-zA-Z0-9_-]", "_", task_id)[:40] or uuid.uuid4().hex[:12]
+
+        # AP11: Append knowledge mandatory line
+        skills = STAGE_SKILLS.get(stage, [])
+        if skills:
+            paths = ", ".join(f"{skills_dir}/{skill_id}/SKILL.md" for skill_id in skills)
+            knowledge_line = KNOWLEDGE_LINE_TPL.format(
+                paths=paths,
+                task_id=task_token,
+            )
+            task_instruction = task_instruction + knowledge_line
+
+        task_dir = Path(workspace) / ".opencode_tasks"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        task_path = task_dir / f"{task_token}_{stage}.md"
+        task_path.write_text(task_instruction, encoding="utf-8")
+        short_instruction = (
+            f"Lies PROMPT.md vollständig sowie .opencode_tasks/{task_path.name} "
+            "vollständig und führe die Aufgabe aus. Schreibe Ergebnisse direkt "
+            "in die dort genannten Dateien."
+        )
+        logger.info(
+            "OPENCODE_CALL stage=%s prompt_length=%d task_id=%s",
+            stage, len(request_full), task_id,
+        )
+        root = Path(workspace)
+        before = _snapshot(root)
+        runner = type(getattr(self._opencode, "delegate", self._opencode)).__name__
+        runner = {"DockerOpenCodeService": "Docker", "SubprocessOpenCodeService": "nativ (Testmodus)"}.get(runner, runner)
+        started = time.monotonic()
+        base = {
+            "stage": stage, "prompt_sha256": digest, "runner": runner,
+            "task_file": task_path.relative_to(root).as_posix(),
+        }
+        try:
+            result = self._opencode.execute(
+                workspace, short_instruction, timeout_seconds=timeout_seconds
+            )
+        except Exception as exc:
+            cause = getattr(exc, "cause", "") or str(exc)
+            self._emit(stage, task_id, digest, len(request_full), False, cause)
+            return OpenCodeDelivery(
+                ok=False, stderr=str(exc), reason=cause, hint=getattr(exc, "hint", ""),
+                exception=exc, duration_s=time.monotonic() - started,
+                file_status={name: "nicht erzeugt" for name in expected_files}, **base,
+            )
+        duration = time.monotonic() - started
+        after = _snapshot(root)
+        changed = sorted(name for name, mtime in after.items() if before.get(name) != mtime)
+
+        files: dict[str, str] = {}
+        file_status: dict[str, str] = {}
+        problems: list[tuple[str, str]] = []
+        for relative_path in expected_files:
+            path = root / relative_path
+            status, cause, hint = _check_vhdl_file(path, relative_path)
+            file_status[relative_path] = status
+            if status == "ok":
+                files[relative_path] = path.read_text(encoding="utf-8")
+            else:
+                problems.append((cause, hint))
+
+        success = bool(result.returncode == 0 and len(files) == len(expected_files))
+        reason, hint = "", ""
+        if not success:
+            process_cause, process_hint = describe_opencode_failure(
+                result.returncode, result.stdout or "", result.stderr or ""
+            )
+            if process_cause:
+                # Prozessfehler (Kontingent, Anmeldung, Exit-Code) erklären fehlende Dateien.
+                reason, hint = process_cause, process_hint
+            elif problems:
+                reason = "; ".join(cause for cause, _ in problems)
+                hint = next((h for _, h in problems if h), "")
+                missing = [name for name, state in file_status.items() if state == "fehlt"]
+                if missing:
+                    others = [name for name in changed if name not in expected_files]
+                    if others:
+                        reason += f" – OpenCode hat stattdessen {', '.join(others[:5])} geändert"
+                        hint = hint or "Ziel-Dateiname weicht ab; Modulnamen in der Architektur und in der Antwort vergleichen."
+                    else:
+                        reason += " – OpenCode endete ohne Fehler, hat aber keine Projektdatei geschrieben"
+                        hint = hint or ("Das Modell hat vermutlich nur geantwortet statt die Datei zu schreiben; "
+                                        "stdout prüfen oder ein anderes Modell wählen.")
+            else:
+                reason = "OpenCode did not write every expected file"
+        self._emit(stage, task_id, digest, len(request_full), success, reason)
+        return OpenCodeDelivery(
+            ok=success,
+            files=files,
+            stdout=result.stdout or "",
+            stderr=result.stderr or "",
+            reason=reason,
+            hint=hint,
+            returncode=result.returncode,
+            file_status=file_status,
+            changed_files=changed,
+            duration_s=duration,
+            **base,
+        )
+
+    def _emit(
+        self, stage: str, task_id: str, digest: str, prompt_length: int,
+        success: bool, reason: str,
+    ) -> None:
+        payload = {
+            "stage": stage,
+            "task_id": task_id,
+            "prompt_sha256": digest,
+            "prompt_length": prompt_length,
+            "success": success,
+            "reason": reason,
+        }
+        logger.info("OPENCODE_RESULT %s", payload)
+        if self._events:
+            try:
+                self._events.publish_event("OPENCODE_CALL", task_id, payload)
+            except Exception:
+                logger.exception("Could not publish OPENCODE_CALL event")

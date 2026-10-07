@@ -1,12 +1,50 @@
 import os
+import re
 import shutil
 import time
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from src.domain.ports import FileSystemService
 from src.domain.exceptions import WorkspaceError
 
 logger = logging.getLogger(__name__)
+
+_PROJECT_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+
+class PathTraversalError(WorkspaceError):
+    pass
+
+
+def _safe_resolve(base: Path, target: Path) -> Path:
+    """Resolve path and verify it stays within base. Raises PathTraversalError on violation."""
+    try:
+        resolved = target.resolve()
+    except (OSError, RuntimeError) as e:
+        raise PathTraversalError(f"Cannot resolve path: {e}") from e
+    try:
+        base_resolved = base.resolve()
+    except (OSError, RuntimeError) as e:
+        raise PathTraversalError(f"Cannot resolve base directory: {e}") from e
+    try:
+        resolved.relative_to(base_resolved)
+    except ValueError:
+        raise PathTraversalError(
+            f"Path traversal detected: {resolved} is outside {base_resolved}"
+        )
+    return resolved
+
+
+def _validate_project_id(task_id: str) -> None:
+    """Validate project ID is a safe name without traversal characters."""
+    if not task_id or not _PROJECT_ID_PATTERN.match(task_id):
+        raise PathTraversalError(
+            f"Invalid project ID: '{task_id}'. Must match {_PROJECT_ID_PATTERN.pattern}"
+        )
+
+
+def _check_null_bytes(path: str) -> None:
+    if '\x00' in path:
+        raise PathTraversalError(f"Null byte detected in path: {path}")
 
 
 class LocalFileSystemService(FileSystemService):
@@ -17,10 +55,13 @@ class LocalFileSystemService(FileSystemService):
         max_workspaces: int = 100,
     ):
         self._base_dir = Path(base_dir).resolve()
+        self._base_dir.mkdir(parents=True, exist_ok=True)
         self._cleanup_ttl = cleanup_ttl_hours * 3600
         self._max_workspaces = max_workspaces
 
     def create_workspace(self, task_id: str, domain: str = "vhdl") -> str:
+        _validate_project_id(task_id)
+        _check_null_bytes(task_id)
         self._enforce_limits()
         workspace = self._base_dir / task_id
         try:
@@ -33,7 +74,8 @@ class LocalFileSystemService(FileSystemService):
             raise WorkspaceError(f"Failed to create workspace {workspace}: {e}") from e
 
     def write_file(self, path: str, content: str) -> str:
-        file_path = Path(path)
+        _check_null_bytes(path)
+        file_path = self._resolve(path)
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
@@ -43,7 +85,8 @@ class LocalFileSystemService(FileSystemService):
             raise WorkspaceError(f"Failed to write file {path}: {e}") from e
 
     def read_file(self, path: str) -> str:
-        file_path = Path(path)
+        _check_null_bytes(path)
+        file_path = self._resolve(path)
         if not file_path.exists():
             raise WorkspaceError(f"File not found: {path}")
         try:
@@ -52,15 +95,21 @@ class LocalFileSystemService(FileSystemService):
             raise WorkspaceError(f"Failed to read file {path}: {e}") from e
 
     def file_exists(self, path: str) -> bool:
-        return Path(path).exists()
+        _check_null_bytes(path)
+        try:
+            return self._resolve(path).exists()
+        except PathTraversalError:
+            return False
 
     def list_files(self, workspace_path: str, pattern: str = "**/*") -> list[str]:
-        base = Path(workspace_path)
+        _check_null_bytes(workspace_path)
+        base = self._resolve(workspace_path)
         if not base.exists():
             return []
         return [str(p.relative_to(base)) for p in base.glob(pattern) if p.is_file()]
 
     def delete_workspace(self, task_id: str) -> None:
+        _validate_project_id(task_id)
         workspace = self._base_dir / task_id
         if workspace.exists():
             try:
@@ -69,8 +118,35 @@ class LocalFileSystemService(FileSystemService):
             except OSError as e:
                 raise WorkspaceError(f"Failed to delete workspace {workspace}: {e}") from e
 
+    def rename_workspace(self, source_id: str, target_id: str) -> str:
+        _validate_project_id(source_id)
+        _validate_project_id(target_id)
+        source = self._resolve_project_path(source_id)
+        target = self._resolve_project_path(target_id)
+        if not source.is_dir():
+            raise WorkspaceError(f"Workspace not found: {source_id}")
+        if target.exists():
+            raise WorkspaceError(f"Workspace already exists: {target_id}")
+        source.rename(target)
+        return str(target)
+
     def workspace_path(self, task_id: str) -> str:
+        _validate_project_id(task_id)
         return str(self._base_dir / task_id)
+
+    def _resolve(self, path: str) -> Path:
+        """Resolve a path relative to _base_dir, verifying no traversal occurs."""
+        target = Path(path)
+        if target.is_absolute():
+            resolved = target.resolve()
+        else:
+            resolved = (self._base_dir / target).resolve()
+        return _safe_resolve(self._base_dir, resolved)
+
+    def _resolve_project_path(self, project_id: str) -> Path:
+        """Resolve a project workspace path with validation."""
+        _validate_project_id(project_id)
+        return _safe_resolve(self._base_dir, self._base_dir / project_id)
 
     def list_workspaces(self) -> list[str]:
         if not self._base_dir.is_dir():

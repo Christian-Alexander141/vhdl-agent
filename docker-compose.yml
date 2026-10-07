@@ -1,24 +1,25 @@
-version: '3.9'
-
+# OpenCode-Agent für den Isolationsmodus "Gemeinsamer Container"
+# (Einstellungen → Agenten-Ausführung → Isolation = shared).
+#
+# Im Standardmodus "Pro Auftrag" wird diese Datei NICHT benötigt: Jeder
+# Agentenauftrag startet dann einen eigenen Container aus opencode.docker_image,
+# in den nur das jeweilige Projektverzeichnis eingebunden ist.
+#
+# Start:  docker compose up -d opencode
 services:
-  hermes:
-    image: hermes-agent:latest
-    container_name: hermes-agent
-    restart: unless-stopped
-    volumes:
-      - ./hermes:/workspace
-      - ./shared:/shared
-      - ./config:/config
-      - ./:/agent_repo:ro
-    working_dir: /workspace
-
   opencode:
     image: ghcr.io/anomalyco/opencode:latest
-    container_name: opencode-agent
+    container_name: opencode-agent          # = opencode.docker_container
     restart: unless-stopped
-    volumes:
-      - ./opencode:/workspace
-      - ./shared:/shared
-      - ./config:/config
-      - ./:/agent_repo:ro
+    entrypoint: ["sleep", "infinity"]       # Aufträge kommen per "docker exec"
     working_dir: /workspace
+    user: "${UID:-1000}:${GID:-1000}"       # Dateien gehören dem Host-Benutzer
+    environment:
+      HOME: /tmp/opencode-home
+    volumes:
+      # Nur der Projektordner (= opencode.docker_workspace); kein Repo, keine Konfiguration.
+      - ./projects:/workspace
+      # Optional: OpenCode-Zugangsdaten schreibgeschützt einbinden.
+      # - ${HOME}/.local/share/opencode:/tmp/opencode-home/.local/share/opencode:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

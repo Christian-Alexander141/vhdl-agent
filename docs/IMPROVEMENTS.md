@@ -7,7 +7,7 @@
 | 1 | **LLM-Integration** — `OllamaLLMService` mit realem Ollama-LLM (Fallback auf `StubLLMService`) | ✅ |
 | 2 | **RAG-Vector-Database** — Qdrant-basierte Vektorsuche mit HuggingFace-Embeddings, Keyword-Matching als Fallback | ✅ |
 | 3 | **Testabdeckung** — 36 Unit-Tests für StateMachine, EventBus, TaskState, KnowledgeBundle, FileSystemService + 6 Integrationstests | ✅ |
-| 4 | **Domain-Registry** — Automatische Erkennung von Domänen in `src/domains/` per `DomainRegistry.discover()` | ✅ |
+| 4 | **Domain-Registry** — Automatische Erkennung von Domänen in `src/domain_plugins/` per `DomainRegistry.discover()` | ✅ |
 | 5 | **Async-Workflow** — `execute_async()` für nicht-blockierende Task-Ausführung im Hintergrund-Thread | ✅ |
 | 6 | **Workspace-Cleanup** — TTL-basierte Cleanup-Strategie (`cleanup_ttl_hours`), Limits (`max_workspaces`) | ✅ |
 | 7 | **Template-Engine** — Migration von `str.format()` zu Jinja2-Templates | ✅ |

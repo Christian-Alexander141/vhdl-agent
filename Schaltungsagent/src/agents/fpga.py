@@ -1,8 +1,8 @@
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any
-
 from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.infrastructure.synthesis.vivado_synthesis import VivadoBitstreamService
 from src.infrastructure.synthesis.vivado_flash import VivadoFlashService
@@ -22,17 +22,15 @@ class FPGAAgent(BaseAgent):
 
     def __init__(
         self,
-        llm_service,
-        rag_service,
         filesystem_service,
         event_publisher=None,
         vivado_binary: str = "vivado",
         vivado_settings: str = "",
+        require_timing_closure: bool = True,
     ):
         super().__init__("FPGAAgent", event_publisher)
-        self._llm = llm_service
-        self._rag = rag_service
         self._fs = filesystem_service
+        self._require_timing_closure = require_timing_closure
         
         # Services initialisieren
         self._bitstream_service = VivadoBitstreamService(
@@ -134,21 +132,57 @@ class FPGAAgent(BaseAgent):
                 }],
             )
         
-        # Erfolg
         bitstream_path = bitstream_result.bitstream_path
-        
+
+        # 3. Report-Gates: Ein Bitstream allein ist kein Erfolg. Timing und
+        # Ressourcen stammen ausschließlich aus den Vivado-Reports.
+        timing = self._parse_timing_report(workspace, bitstream_path)
+        resources = self._parse_utilization_report(workspace, bitstream_path)
+        synthesis_result = {
+            **bitstream_result.to_dict(),
+            "timing": timing,
+            "resources": resources,
+            "fpga_part": getattr(self._fpga_registry.get(target_fpga), "part", ""),
+        }
+        gate_failures = self.evaluate_gates(timing, resources) if self._require_timing_closure else []
+        if gate_failures:
+            message = "; ".join(f["message"] for f in gate_failures)
+            synthesis_result["status"] = "failed"
+            synthesis_result["errors"] = [f["message"] for f in gate_failures]
+            self.emit_event("SYNTHESIS_FINISHED", {
+                "task_id": task.id,
+                "passed": False,
+                "stage": "report_gates",
+                "message": message,
+                "timing": timing,
+                "resources": resources,
+            })
+            return AgentResult(
+                task_id=task.id,
+                status=AgentStatus.FAILED,
+                error_message=f"Synthesis gates failed: {message}",
+                outputs={"synthesis_result": synthesis_result, "bitstream_path": ""},
+                diagnostics=[
+                    {"type": "synthesis_gate", "stage": "synthesis", **failure}
+                    for failure in gate_failures
+                ],
+            )
+
+        synthesis_result["status"] = "passed"
         self.emit_event("SYNTHESIS_FINISHED", {
             "task_id": task.id,
             "passed": True,
             "bitstream_path": bitstream_path,
+            "timing": timing,
+            "resources": resources,
         })
-        
+
         return AgentResult(
             task_id=task.id,
             status=AgentStatus.COMPLETED,
             outputs={
                 "bitstream_path": bitstream_path,
-                "synthesis_result": bitstream_result.to_dict(),
+                "synthesis_result": synthesis_result,
             },
         )
 
@@ -273,38 +307,168 @@ class FPGAAgent(BaseAgent):
                 }],
             )
 
+    def _find_report_dir(self, workspace: str, bitstream_path: str = "") -> Path | None:
+        if bitstream_path:
+            candidate = Path(bitstream_path).parent
+            if list(candidate.glob("*.rpt")):
+                return candidate
+        ws_path = Path(workspace)
+        for candidate in [ws_path / "build" / "bitstream", ws_path / "build"]:
+            if candidate.exists():
+                rpt_files = list(candidate.glob("*.rpt"))
+                if rpt_files:
+                    return candidate
+        return None
+
+    @staticmethod
+    def _to_float(token: str) -> float | None:
+        try:
+            return float(token)
+        except (TypeError, ValueError):
+            return None
+
+    def _parse_timing_report(self, workspace: str, bitstream_path: str = "") -> dict:
+        """Liest WNS/TNS/WHS/THS und Fmax aus Vivados report_timing_summary.
+
+        Fehlende Werte bleiben ``None``; sie werden nie durch Annahmen ersetzt.
+        """
+        result = {
+            "available": False, "constrained": False, "met": False,
+            "wns_ns": None, "tns_ns": None, "whs_ns": None, "ths_ns": None,
+            "clock_period_ns": None, "fmax_mhz": None,
+        }
+        report_dir = self._find_report_dir(workspace, bitstream_path)
+        timing_path = report_dir / "timing.rpt" if report_dir else None
+        if not timing_path or not timing_path.exists():
+            return result
+        content = timing_path.read_text(errors="replace")
+        result["available"] = True
+        lines = content.splitlines()
+
+        for index, line in enumerate(lines):
+            if "WNS(ns)" in line and "WHS(ns)" in line:
+                for value_line in lines[index + 1:index + 4]:
+                    tokens = value_line.split()
+                    if not tokens or set(value_line.strip()) <= {"-", " "}:
+                        continue
+                    if len(tokens) >= 6:
+                        result["wns_ns"] = self._to_float(tokens[0])
+                        result["tns_ns"] = self._to_float(tokens[1])
+                        result["whs_ns"] = self._to_float(tokens[4])
+                        result["ths_ns"] = self._to_float(tokens[5])
+                    break
+                break
+
+        # Erste Zeile der Clock Summary: "<name> {0.000 5.000} <period> <freq>"
+        clock_match = re.search(
+            r"^\s*(\S+)\s+\{[\d.\s]+\}\s+([\d.]+)\s+([\d.]+)\s*$",
+            content,
+            re.MULTILINE,
+        )
+        if clock_match:
+            result["clock_period_ns"] = float(clock_match.group(2))
+
+        no_constraints = "no user specified timing constraints" in content.lower()
+        result["constrained"] = not no_constraints and result["wns_ns"] is not None
+        result["met"] = bool(
+            result["constrained"]
+            and result["wns_ns"] >= 0
+            and (result["whs_ns"] is None or result["whs_ns"] >= 0)
+        )
+        if result["clock_period_ns"] and result["wns_ns"] is not None:
+            critical = result["clock_period_ns"] - result["wns_ns"]
+            if critical > 0:
+                result["fmax_mhz"] = round(1000.0 / critical, 2)
+        return result
+
+    _RESOURCE_ROWS = {
+        "lut": ("slice luts", "clb luts"),
+        "ff": ("slice registers", "clb registers"),
+        "bram": ("block ram tile",),
+        "dsp": ("dsps",),
+    }
+
+    def _parse_utilization_report(self, workspace: str, bitstream_path: str = "") -> dict:
+        """Liest belegte Ressourcen und Auslastung aus report_utilization."""
+        result: dict = {"available": False}
+        for key in self._RESOURCE_ROWS:
+            result[key] = None
+            result[f"{key}_pct"] = None
+        report_dir = self._find_report_dir(workspace, bitstream_path)
+        util_path = report_dir / "utilization.rpt" if report_dir else None
+        if not util_path or not util_path.exists():
+            return result
+        result["available"] = True
+        for line in util_path.read_text(errors="replace").splitlines():
+            if not line.strip().startswith("|"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) < 3:
+                continue
+            name = cells[0].rstrip("*").strip().lower()
+            for key, names in self._RESOURCE_ROWS.items():
+                if name in names and result[key] is None:
+                    used = self._to_float(cells[1])
+                    result[key] = int(used) if used is not None else None
+                    result[f"{key}_pct"] = self._to_float(cells[-1])
+        return result
+
+    @staticmethod
+    def evaluate_gates(timing: dict, resources: dict) -> list[dict]:
+        """Harte Synthese-Gates. Leere Liste = alle Gates bestanden."""
+        failures = []
+        if not timing.get("available"):
+            failures.append({
+                "failure_type": "infrastructure",
+                "message": "Timing report missing: timing closure could not be verified",
+            })
+        elif not timing.get("constrained"):
+            failures.append({
+                "failure_type": "constraint_error",
+                "message": "There are no user specified timing constraints (missing clock constraint)",
+            })
+        elif not timing.get("met"):
+            failures.append({
+                "failure_type": "timing_error",
+                "message": (
+                    f"Timing violation: WNS={timing.get('wns_ns')} ns, "
+                    f"WHS={timing.get('whs_ns')} ns"
+                ),
+            })
+        if not resources.get("available"):
+            failures.append({
+                "failure_type": "infrastructure",
+                "message": "Utilization report missing: resource usage could not be verified",
+            })
+        else:
+            over = [
+                f"{key.upper()} {resources[f'{key}_pct']}%"
+                for key in ("lut", "ff", "bram", "dsp")
+                if (resources.get(f"{key}_pct") or 0) > 100
+            ]
+            if over:
+                failures.append({
+                    "failure_type": "resource_error",
+                    "message": "Resource limit exceeded: " + ", ".join(over),
+                })
+        return failures
+
     async def _analyze_timing(self, task: AgentTask) -> AgentResult:
         """Analysiert Timing-Ergebnisse aus Vivado Reports."""
         workspace = task.inputs.get("workspace", "")
-        
-        # Timing Reports aus Vivado Logs parsen
-        # Für jetzt Platzhalter
+        timing = self._parse_timing_report(workspace)
         return AgentResult(
             task_id=task.id,
             status=AgentStatus.COMPLETED,
-            outputs={
-                "wns_ns": 0.5,
-                "tns_ns": 0.0,
-                "whs_ns": 0.3,
-                "ths_ns": 0.0,
-                "fmax_mhz": 100.0,
-            },
+            outputs=timing,
         )
 
     async def _check_resources(self, task: AgentTask) -> AgentResult:
         """Prüft FPGA-Ressourcen-Verbrauch."""
         workspace = task.inputs.get("workspace", "")
-        
-        # Utilization Reports parsen
+        util = self._parse_utilization_report(workspace)
         return AgentResult(
             task_id=task.id,
             status=AgentStatus.COMPLETED,
-            outputs={
-                "lut": 1250,
-                "ff": 2100,
-                "bram": 4,
-                "dsp": 2,
-                "lut_pct": 15.2,
-                "ff_pct": 12.8,
-            },
+            outputs=util,
         )

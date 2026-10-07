@@ -1,0 +1,9 @@
+PWM-Generator für eine LED (Helligkeitssteuerung).
+Entity: pwm_led
+Ports: clk, rst, duty_cycle (in, 8-bit), pwm_out (out)
+Funktionsweise:
+- 8-Bit Zähler läuft kontinuierlich (0-255)
+- pwm_out = '1' wenn Zähler < duty_cycle, sonst '0'
+- Damit: duty_cycle=0 -> 0%, duty_cycle=255 -> ~100%
+- Taktfrequenz: 50 MHz -> PWM-Frequenz ~195 kHz
+- Asynchroner Reset (active high)

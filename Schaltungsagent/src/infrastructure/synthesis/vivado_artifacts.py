@@ -157,3 +157,138 @@ def cleanup_repo_root(repo_root: Path, log_dir: Path) -> list[Path]:
     Verschiebt alle Vivado-Seiteneffekt-Dateien aus repo_root nach log_dir.
     """
     return move_artifacts_to_logs(repo_root, log_dir, prefix="vivado")
+
+
+def cleanup_workspace_artifacts(workspace: Path) -> int:
+    """Löscht temporäre GHDL- und Vivado-Artefakte aus einem Workspace.
+
+    Entfernt work-obj*.cf aus build/, src/ und Projekt-Root.
+    Verschiebt Vivado-Logs nach build/vivado_logs/.
+
+    Returns:
+        Anzahl der entfernten Dateien.
+    """
+    removed = 0
+
+    # GHDL-Artefakte aus build/ löschen (nicht verschieben, da Build-Verzeichnis)
+    build_dir = workspace / "build"
+    if build_dir.exists():
+        for cf in collect_ghdl_artifacts(build_dir):
+            try:
+                cf.unlink()
+                logger.debug("Removed GHDL artifact: %s", cf)
+                removed += 1
+            except OSError as e:
+                logger.warning("Failed to remove %s: %s", cf, e)
+
+    # GHDL-Artefakte aus src/ löschen (leaked)
+    src_dir = workspace / "src"
+    if src_dir.exists():
+        for cf in collect_ghdl_artifacts(src_dir):
+            try:
+                cf.unlink()
+                logger.debug("Removed leaked GHDL artifact from src/: %s", cf)
+                removed += 1
+            except OSError as e:
+                logger.warning("Failed to remove %s: %s", cf, e)
+
+    # GHDL-Artefakte aus Projekt-Root (leaked)
+    for cf in collect_ghdl_artifacts(workspace):
+        try:
+            cf.unlink()
+            logger.debug("Removed leaked GHDL artifact from workspace root: %s", cf)
+            removed += 1
+        except OSError as e:
+            logger.warning("Failed to remove %s: %s", cf, e)
+
+    # Vivado-Artefakte aus Projekt-Root in build/vivado_logs verschieben
+    vivado_artifacts = collect_vivado_artifacts(workspace)
+    if vivado_artifacts:
+        log_dir = build_dir / "vivado_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        for artifact in vivado_artifacts:
+            target = log_dir / artifact.name
+            try:
+                if artifact.is_dir():
+                    if target.exists():
+                        shutil.rmtree(target)
+                    shutil.move(str(artifact), str(target))
+                else:
+                    if target.exists():
+                        target.unlink()
+                    shutil.move(str(artifact), str(target))
+                logger.debug("Moved Vivado artifact to %s: %s", log_dir, artifact)
+                removed += 1
+            except OSError as e:
+                logger.warning("Failed to move %s: %s", artifact, e)
+
+    return removed
+
+
+def cleanup_repo_root_comprehensive(repo_root: Path) -> int:
+    """Räumt alle temporären Artefakte aus dem Repo-Root auf.
+
+    Löscht work-obj*.cf und verschiebt Vivado-Artefakte.
+    Wird nach Workflow-Ende aufgerufen.
+
+    Returns:
+        Anzahl der entfernten/verschobenen Dateien.
+    """
+    removed = 0
+
+    # GHDL-Artefakte aus Repo-Root löschen
+    for cf in collect_ghdl_artifacts(repo_root):
+        try:
+            cf.unlink()
+            logger.debug("Removed GHDL artifact from repo root: %s", cf)
+            removed += 1
+        except OSError as e:
+            logger.warning("Failed to remove %s: %s", cf, e)
+
+    # GHDL-Artefakte aus Schaltungsagent-Verzeichnis (leaked)
+    sa_dir = repo_root / "Schaltungsagent"
+    if sa_dir.exists():
+        for cf in collect_ghdl_artifacts(sa_dir):
+            try:
+                cf.unlink()
+                logger.debug("Removed GHDL artifact from Schaltungsagent/: %s", cf)
+                removed += 1
+            except OSError as e:
+                logger.warning("Failed to remove %s: %s", cf, e)
+
+    # Vivado-Artefakte aus Repo-Root verschieben
+    vivado_artifacts = collect_vivado_artifacts(repo_root)
+    if vivado_artifacts:
+        log_dir = repo_root / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        for artifact in vivado_artifacts:
+            target = log_dir / artifact.name
+            try:
+                if artifact.is_dir():
+                    if target.exists():
+                        shutil.rmtree(target)
+                    shutil.move(str(artifact), str(target))
+                else:
+                    if target.exists():
+                        target.unlink()
+                    shutil.move(str(artifact), str(target))
+                logger.debug("Moved Vivado artifact from repo root: %s", artifact)
+                removed += 1
+            except OSError as e:
+                logger.warning("Failed to move %s: %s", artifact, e)
+
+    # GHDL-Artefakte aus allen Projekt-Roots (leaked)
+    projects_dir = repo_root / "projects"
+    if projects_dir.exists():
+        for project_dir in projects_dir.iterdir():
+            if not project_dir.is_dir() or project_dir.name.startswith("_"):
+                continue
+            for cf in collect_ghdl_artifacts(project_dir):
+                try:
+                    cf.unlink()
+                    logger.debug("Removed leaked GHDL artifact from project: %s", cf)
+                    removed += 1
+                except OSError as e:
+                    logger.warning("Failed to remove %s: %s", cf, e)
+
+    return removed

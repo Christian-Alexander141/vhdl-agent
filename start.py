@@ -20,10 +20,7 @@ CORE_MODULES = [
     "httpx",
     "ollama",
     "langchain_core",
-    "langgraph",
-    "qdrant_client",
 ]
-
 
 def test_mode_enabled():
     return (
@@ -31,26 +28,8 @@ def test_mode_enabled():
         or "--test-mode" in sys.argv
     )
 
-
 def has_command(name):
     return shutil.which(name) is not None
-
-
-def has_compose():
-    if has_command("docker-compose"):
-        return True
-    if not has_command("docker"):
-        return False
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return result.returncode == 0
-    except OSError:
-        return False
-
 
 def has_venv():
     if not os.path.isfile(VENV_PYTHON):
@@ -72,12 +51,11 @@ def missing_components():
     for cmd in required_commands:
         if not has_command(cmd):
             missing.append(cmd)
-    if not test_mode_enabled() and not has_compose():
-        missing.append("docker compose")
+    # docker compose wird nur für den Isolationsmodus "shared" gebraucht
+    # (docker compose up -d opencode); "per_task" benötigt nur docker.
     if not has_venv():
         missing.append("Python venv (Abhängigkeiten)")
     return missing
-
 
 def ask_start_installer():
     while True:
@@ -88,11 +66,9 @@ def ask_start_installer():
             return False
         print("Bitte 'y' oder 'n' eingeben.")
 
-
 def run_installer():
     print("\n[INFO] Starte Installer...")
     subprocess.call([sys.executable, INSTALLER])
-
 
 def check_components():
     missing = missing_components()
@@ -113,7 +89,6 @@ def check_components():
                 print(f"  - {item}")
     else:
         print("\nInstallation übersprungen. Das Programm funktioniert möglicherweise nicht korrekt.")
-
 
 def main():
     if "--test-mode" in sys.argv:

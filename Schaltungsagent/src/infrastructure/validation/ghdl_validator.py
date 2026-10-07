@@ -8,6 +8,7 @@ from typing import Any
 
 from src.domain.ports.validation_service import ValidationService, ValidationResult
 from src.domain_plugins.vhdl.test_definitions import VHDLTestDefinitions
+from src.infrastructure.synthesis.vivado_artifacts import collect_ghdl_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ class GHDLValidator(ValidationService):
             details = self._attach_artifacts(
                 {"testbench": tb_entities[0][1]}, src_dir, tests_dir,
             )
+            self._cleanup_ghdl_artifacts(build_dir)
             return self._fail(
                 "Testbench contains no assertions; a GHDL exit code 0 alone "
                 "does not prove correct behavior",
@@ -209,6 +211,7 @@ class GHDLValidator(ValidationService):
                 details=details,
             )
 
+        self._cleanup_ghdl_artifacts(build_dir)
         return ValidationResult(
             passed=True,
             message="All VHDL files analyzed, elaborated and simulated "
@@ -229,7 +232,9 @@ class GHDLValidator(ValidationService):
         try:
             result = subprocess.run(
                 self._test_def.analyze_command(str(path)),
-                capture_output=True, text=True, timeout=self._timeout_seconds,
+                capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=self._timeout_seconds,
             )
             if result.returncode != 0:
                 return ValidationResult(
@@ -402,6 +407,8 @@ class GHDLValidator(ValidationService):
                 cwd=str(cwd),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self._timeout_seconds,
             )
             return {
@@ -438,3 +445,12 @@ class GHDLValidator(ValidationService):
         if details:
             result_details.update(details)
         return ValidationResult(passed=False, message=message, details=result_details)
+
+    def _cleanup_ghdl_artifacts(self, build_dir: Path) -> None:
+        """Entfernt work-obj*.cf aus dem build-Verzeichnis nach der Validierung."""
+        for cf in collect_ghdl_artifacts(build_dir):
+            try:
+                cf.unlink()
+                logger.debug("Removed GHDL artifact after validation: %s", cf)
+            except OSError as e:
+                logger.warning("Failed to remove GHDL artifact %s: %s", cf, e)

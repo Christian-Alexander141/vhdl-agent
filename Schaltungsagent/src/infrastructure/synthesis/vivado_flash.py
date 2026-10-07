@@ -15,12 +15,24 @@ logger = logging.getLogger(__name__)
 class VivadoFlashService(FlashService):
     """Flash-Service mittels Vivado Hardware Manager (JTAG).
 
-    Verwendet Vivado im Batch-Modus, um über den Hardware Manager
-    den Bitstream via JTAG auf das FPGA zu programmieren.
+    Programmiert den Bitstream ZWEIFACH:
+      1. Flüchtig in die FPGA-Konfiguration (SRAM) -> sofort wirksam
+      2. Persistent in den Onboard-QSPI-Config-Flash -> überlebt Power-Cycle
 
-    Kein openFPGALoader benötigt — Vivado stellt den kompletten
-    Programmierworkflow selbst bereit.
+    Ohne Schritt 2 lädt das Gerät nach dem Power-Cycle weiter den alten
+    Bitstream aus dem SPI-Flash (häufige Fehlerquelle: "Flash erfolgreich,
+    Board zeigt aber das alte Design").
     """
+
+    # Digilent Arty S7: S25FL128S (bzw. S25FL127S), 128 Mbit QSPI.
+    # NUR dieser Part ist fuer Spartan-7 in create_hw_cfgmem zulaessig
+    # (UG908); GUI-Alias s25fl128s-3.3v-qspi-x4-single schlaegt hier fehl:
+    #   "not supported for device spartan7"
+    CFGMEM_PART = "s25fl128sxxxxxx0-spi-x1_x2_x4"
+    CFGMEM_FALLBACK = "*s25fl128sxxxxxx0*spi*x1*x2*x4*"
+
+    SRAM_MARKER = "Programming completed successfully"
+    CFGMEM_MARKER = "SPI flash programming completed successfully"
 
     def __init__(
         self,
@@ -76,6 +88,7 @@ class VivadoFlashService(FlashService):
         board: str = "",
         expected_part: str = "",
         workspace: str = "",
+        persistent: bool = True,
     ) -> FlashResult:
         """Programmiert den Bitstream auf das FPGA via Vivado JTAG.
 
@@ -84,6 +97,8 @@ class VivadoFlashService(FlashService):
             board: Board-Name (optional, wird ignoriert, Auswahl über expected_part)
             expected_part: Erwarteter FPGA-Part-Name (z.B. "xc7s50csga324-1" oder "xc7s50")
             workspace: Optionaler Workspace-Pfad für saubere Log-Ablage
+            persistent: Zusätzlich den Onboard-QSPI-Config-Flash programmieren,
+                damit der Bitstream einen Power-Cycle überlebt (Default: True).
 
         Returns:
             FlashResult mit Erfolgsstatus, Board-Informationen und Details.
@@ -165,8 +180,12 @@ class VivadoFlashService(FlashService):
         log_file = log_dir / "flash.log"
         jou_file = log_dir / "flash.jou"
 
-        tcl_script = self._generate_program_script(str(bitstream_file.absolute()), selected_device)
-        result = self._run_vivado(tcl_script, cwd=cwd_dir, log_file=log_file, jou_file=jou_file)
+        tcl_script = self._generate_program_script(
+            str(bitstream_file.absolute()), selected_device, persistent=persistent
+        )
+        # QSPI-Erase/-Programmierung der 128-Mbit-Flash dauert länger als SRAM-JTAG
+        timeout = max(self._timeout_seconds, 600) if persistent else self._timeout_seconds
+        result = self._run_vivado(tcl_script, cwd=cwd_dir, log_file=log_file, jou_file=jou_file, timeout=timeout)
 
         # Vivado-Artefakte aufräumen (falls welche im CWD gelandet sind)
         if ws_path:
@@ -198,39 +217,67 @@ class VivadoFlashService(FlashService):
                 board_count=board_count,
             )
 
-        # Erfolg prüfen
+        # Erfolg prüfen: SRAM (sofort) und optional QSPI (persistent)
         stdout = result.get("stdout", "")
-        if "Programming completed successfully" in stdout:
-            logger.info("Vivado JTAG programming successful for %s", bitstream_path)
+        sram_ok = self.SRAM_MARKER in stdout
+        cfgmem_ok = self.CFGMEM_MARKER in stdout
+
+        base_details = {
+            "bitstream_path": bitstream_path,
+            "expected_part": expected_part,
+            "selected_device": selected_device,
+            "selected_part": selected_part,
+            "persistent": persistent,
+            "sram_programmed": sram_ok,
+            "cfgmem_programmed": cfgmem_ok,
+            "stdout": stdout,
+            "stderr": result.get("stderr", ""),
+            "detected_devices": boards,
+            "log_file": str(log_file),
+            "jou_file": str(jou_file),
+        }
+
+        if sram_ok and (cfgmem_ok or not persistent):
+            if persistent:
+                msg = (
+                    f"Bitstream persistent auf {selected_part} ({selected_device}) "
+                    f"programmiert: SRAM + QSPI-Config-Flash ({self.CFGMEM_PART})"
+                )
+            else:
+                msg = (
+                    f"Bitstream flüchtig (nur SRAM) auf {selected_part} "
+                    f"({selected_device}) programmiert - geht bei Power-Cycle verloren"
+                )
+            logger.info(msg)
+            base_details["cfgmem_part"] = self.CFGMEM_PART if persistent else ""
             return FlashResult(
                 passed=True,
-                message=f"Bitstream erfolgreich via Vivado JTAG auf {selected_part} ({selected_device}) programmiert",
-                details={
-                    "bitstream_path": bitstream_path,
-                    "expected_part": expected_part,
-                    "selected_device": selected_device,
-                    "selected_part": selected_part,
-                    "stdout": stdout,
-                    "detected_devices": boards,
-                    "log_file": str(log_file),
-                    "jou_file": str(jou_file),
-                },
+                message=msg,
+                details=base_details,
+                board_detected=True,
+                board_count=board_count,
+            )
+
+        if sram_ok and persistent and not cfgmem_ok:
+            return FlashResult(
+                passed=False,
+                message=(
+                    "SRAM-Programmierung ok, aber QSPI-Config-Flash FEHLGESCHLAGEN - "
+                    "Bitstream überlebt keinen Power-Cycle (Board zeigt nach "
+                    "Neustart weiter das alte Design)"
+                ),
+                details=base_details,
                 board_detected=True,
                 board_count=board_count,
             )
 
         return FlashResult(
             passed=False,
-            message="Vivado JTAG programming completed but success not confirmed",
-            details={
-                "bitstream_path": bitstream_path,
-                "expected_part": expected_part,
-                "selected_device": selected_device,
-                "selected_part": selected_part,
-                "stdout": stdout,
-                "stderr": result.get("stderr", ""),
-                "detected_devices": boards,
-            },
+            message=(
+                "Vivado JTAG programming completed but success not confirmed "
+                f"(sram_ok={sram_ok}, cfgmem_ok={cfgmem_ok})"
+            ),
+            details=base_details,
             board_detected=True,
             board_count=board_count,
         )
@@ -252,8 +299,71 @@ disconnect_hw_server
 exit
 """
 
-    def _generate_program_script(self, bitstream_path: str, device: str) -> str:
+    def _generate_program_script(
+        self, bitstream_path: str, device: str, persistent: bool = True
+    ) -> str:
+        cfgmem_block = ""
+        if persistent:
+            bit_dir = str(Path(bitstream_path).parent)
+            mcs_path = str(Path(bitstream_path).with_suffix(".mcs"))
+            cfgmem_block = f"""
+# --- Schritt 2: Persistent in den Onboard-QSPI-Config-Flash ---
+# Ueberlebt Power-Cycle; ohne diesen Schritt laedt das FPGA beim
+# Neustart den ALTEN Bitstream aus dem SPI-Flash.
+# program_hw_cfgmem akzeptiert nur .mcs/.bin -> zuerst MCS erzeugen.
+set mcs_file "{mcs_path}"
+puts "Generating MCS: $mcs_file"
+write_cfgmem -force -format mcs -interface SPIx4 -size 16 \\
+    -loadbit "up 0x00000000 {bitstream_path}" $mcs_file
+
+set cfgmem_parts [get_cfgmem_parts -quiet {self.CFGMEM_PART}]
+if {{[llength $cfgmem_parts] == 0}} {{
+    set cfgmem_parts [get_cfgmem_parts -quiet {self.CFGMEM_FALLBACK}]
+}}
+if {{[llength $cfgmem_parts] == 0}} {{
+    puts "ERROR: QSPI cfgmem part {self.CFGMEM_PART} not found"
+    close_hw_target
+    disconnect_hw_server
+    exit 1
+}}
+
+puts "Programming QSPI config flash (persistent): {self.CFGMEM_PART}"
+set cfgmem [create_hw_cfgmem -hw_device $target_device [lindex $cfgmem_parts 0]]
+set_property PROGRAM.ADDRESS_RANGE {{use_file}} $cfgmem
+set_property PROGRAM.FILES [list $mcs_file] $cfgmem
+set_property PROGRAM.UNUSED_PIN_TERMINATION {{pull-none}} $cfgmem
+set_property PROGRAM.BLANK_CHECK 0 $cfgmem
+set_property PROGRAM.ERASE 1 $cfgmem
+set_property PROGRAM.CFG_PROGRAM 1 $cfgmem
+set_property PROGRAM.VERIFY 1 $cfgmem
+set_property PROGRAM.CHECKSUM 0 $cfgmem
+
+# OHNE diesen Bridge-Bitstream schlaegt program_hw_cfgmem mit
+# "Failure to set flash parameters" (Labtools 27-3347) fehl.
+# Der GUI laedt den indirekten XICOM-SPI-Bridge automatisch.
+set bridge_bitfile ""
+catch {{set bridge_bitfile [get_property PROGRAM.HW_CFGMEM_BITFILE $target_device]}}
+if {{$bridge_bitfile ne ""}} {{
+    puts "Loading SPI bridge bitstream: $bridge_bitfile"
+    create_hw_bitstream -hw_device $target_device $bridge_bitfile
+    program_hw_devices $target_device
+    refresh_hw_device -update_hw_probes false $target_device
+}} else {{
+    puts "WARNING: no PROGRAM.HW_CFGMEM_BITFILE - trying program_hw_cfgmem anyway"
+}}
+
+program_hw_cfgmem $cfgmem
+
+# Danach den eigentlichen Nutzbitstream wieder laden (sofort wirksam)
+set_property PROGRAM.FILE "{bitstream_path}" $target_device
+program_hw_devices $target_device
+refresh_hw_device -update_hw_probes false $target_device
+puts "SPI flash programming completed successfully!"
+"""
+
         return f"""# Auto-generated: program FPGA via Vivado JTAG
+# Schritt 1: fluechtig (SRAM, sofort wirksam)
+# Schritt 2: persistent (QSPI-Config-Flash, wenn persistent=1)
 open_hw_manager
 connect_hw_server -allow_non_jtag
 open_hw_target
@@ -274,7 +384,7 @@ puts "Programming device: $target_device"
 set_property PROGRAM.FILE "{bitstream_path}" $target_device
 program_hw_devices $target_device
 puts "Programming completed successfully!"
-
+{cfgmem_block}
 close_hw_target
 disconnect_hw_server
 exit
@@ -286,6 +396,7 @@ exit
         cwd: Path | None = None,
         log_file: Path | None = None,
         jou_file: Path | None = None,
+        timeout: int | None = None,
     ) -> dict:
         """Führt ein Tcl-Skript im Vivado Batch-Modus aus.
 
@@ -298,7 +409,9 @@ exit
             cwd: Arbeitsverzeichnis für Vivado (verhindert Artefakte im Repo-Root)
             log_file: Pfad für Vivado-Logdatei (-log Flag)
             jou_file: Pfad für Vivado-Journal (-journal Flag)
+            timeout: Optionaler Timeout in Sekunden (überschreibt Default)
         """
+        effective_timeout = timeout if timeout is not None else self._timeout_seconds
         # Tcl-Skript in temporäre Datei schreiben
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".tcl", delete=False, prefix="vivado_flash_"
@@ -360,7 +473,7 @@ exit
                 cwd=str(cwd) if cwd else None,
                 capture_output=True,
                 text=True,
-                timeout=self._timeout_seconds,
+                timeout=effective_timeout,
             )
             return {
                 "returncode": result.returncode,
@@ -377,7 +490,7 @@ exit
             return {
                 "returncode": -1,
                 "stdout": "",
-                "stderr": f"Vivado timed out after {self._timeout_seconds}s",
+                "stderr": f"Vivado timed out after {effective_timeout}s",
             }
         finally:
             # Temporäre Tcl-Datei aufräumen

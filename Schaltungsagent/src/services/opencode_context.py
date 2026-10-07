@@ -17,15 +17,13 @@ class OpenCodeContextBuilder:
     Gathers:
     - Project structure
     - Architecture information
-    - RAG knowledge
     - Previous test results
     - Acceptance criteria
     - Expected artifacts
     """
     
-    def __init__(self, filesystem_service, rag_service=None):
+    def __init__(self, filesystem_service):
         self._fs = filesystem_service
-        self._rag = rag_service
     
     def build_context(
         self,
@@ -34,7 +32,6 @@ class OpenCodeContextBuilder:
         design_state: dict | None = None,
         architecture: dict | None = None,
         previous_results: list[dict] | None = None,
-        rag_knowledge: Any = None,
     ) -> str:
         """Build comprehensive context for OpenCode.
         
@@ -44,7 +41,6 @@ class OpenCodeContextBuilder:
             design_state: DesignState data (optional)
             architecture: Architecture data (optional)
             previous_results: Previous test/verification results (optional)
-            rag_knowledge: RAG knowledge bundle (optional)
         
         Returns:
             Formatted context string
@@ -74,10 +70,6 @@ class OpenCodeContextBuilder:
         
         # Constraints
         sections.append(self._build_constraints_section(workspace, design_state))
-        
-        # RAG knowledge
-        if rag_knowledge:
-            sections.append(self._build_rag_section(rag_knowledge))
         
         # Previous failures
         if previous_results:
@@ -232,35 +224,6 @@ description: {description}"""
 
 CONSTRAINT FILES:
 {chr(10).join(f'- {f}' for f in constraints_files) if constraints_files else 'No constraint files'}"""
-    
-    def _build_rag_section(self, rag_knowledge: Any) -> str:
-        """Build RAG knowledge section."""
-        sections = []
-        
-        # Coding rules
-        coding_rules = getattr(rag_knowledge, 'coding_rules', []) or []
-        if coding_rules:
-            rules_text = "\n".join([f"- {rule.description}" for rule in coding_rules[:10]])
-            sections.append(f"CODING RULES:\n{rules_text}")
-        
-        # Reference designs
-        ref_designs = getattr(rag_knowledge, 'reference_designs', []) or []
-        if ref_designs:
-            refs_text = "\n".join([f"- {ref.name}: {ref.description}" for ref in ref_designs[:5]])
-            sections.append(f"REFERENCE DESIGNS:\n{refs_text}")
-        
-        # Templates
-        template = getattr(rag_knowledge, 'matched_template', None)
-        if template:
-            sections.append(f"MATCHED TEMPLATE: {template}")
-        
-        if not sections:
-            return ""
-        
-        return f"""RAG KNOWLEDGE
-=============
-
-{chr(10).join(sections)}"""
     
     def _build_previous_failures_section(self, previous_results: list[dict]) -> str:
         """Build previous failures section."""

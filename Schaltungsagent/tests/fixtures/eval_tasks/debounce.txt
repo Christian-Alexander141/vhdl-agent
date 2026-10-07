@@ -1,0 +1,8 @@
+Entprellung eines mechanischen Tasters (Button).
+Entity: debounce
+Ports: clk, rst, button_in (in), button_out (out)
+Funktionsweise:
+- 20 ms Entprellzeit bei 50 MHz Takt (1_000_000 Zyklen)
+- Zweistufiger Synchronisierer + Counter
+- Ausgabe wechselt nur nach stabiler Eingabe über Entprellzeit
+- Asynchroner Reset (active high)

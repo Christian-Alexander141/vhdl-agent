@@ -55,9 +55,7 @@ class DomainRegistry:
             attr = getattr(mod, attr_name)
             if not inspect.isclass(attr):
                 continue
-            if "RAGData" in attr_name:
-                info["rag_data"] = attr
-            elif "Templates" in attr_name:
+            if "Templates" in attr_name:
                 info["templates"] = attr
             elif "Prompts" in attr_name:
                 info["prompts"] = attr
@@ -85,13 +83,6 @@ class DomainRegistry:
     @classmethod
     def has_domain(cls, name: str) -> bool:
         return name in cls._domains
-
-    @classmethod
-    def get_rag_data(cls, domain: str):
-        info = cls._domains.get(domain)
-        if info and "rag_data" in info:
-            return info["rag_data"]
-        return None
 
     @classmethod
     def get_templates(cls, domain: str):
@@ -159,7 +150,6 @@ class DomainRegistry:
     def get_all_domain_info(cls, domain: str) -> dict[str, Any]:
         info: dict[str, Any] = {
             "name": domain,
-            "rag_data": cls.get_rag_data(domain),
             "templates": cls.get_templates(domain),
             "prompts": cls.get_prompts(domain),
             "test_definitions": cls.get_test_definitions(domain),

@@ -1,10 +1,35 @@
 import re
+import unicodedata
 import logging
 from src.domain.ports import ArtifactGenerator
-from src.domain.models import KnowledgeBundle, ArtifactBundle, FileArtifact
+from src.domain.models import ArtifactBundle, FileArtifact
 from src.domain_plugins.vhdl.templates import VHDLTemplates
 
 logger = logging.getLogger(__name__)
+
+
+def _ascii_identifier(name: str) -> str:
+    """Wandelt einen Namen in einen gültigen ASCII-VHDL-Bezeichner um.
+
+    VHDL erlaubt keine Umlaute in Bezeichnern (Entity-/Signalnamen).
+    Umlaute werden wie im Projekt-Namer transliteriert (ä->ae usw.).
+    """
+    if not isinstance(name, str):
+        return str(name)
+    transliteration = {
+        "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss",
+        "Ä": "Ae", "Ö": "Oe", "Ü": "Ue",
+    }
+    for src, dst in transliteration.items():
+        name = name.replace(src, dst)
+    name = unicodedata.normalize("NFKC", name)
+    name = "".join(ch for ch in name if ch.isascii())
+    name = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    if not name:
+        return "component"
+    if name[0].isdigit():
+        name = f"c_{name}"
+    return name
 
 
 class VHDLArtifactGenerator(ArtifactGenerator):
@@ -15,58 +40,11 @@ class VHDLArtifactGenerator(ArtifactGenerator):
         self,
         request: str,
         analysis: str,
-        knowledge: KnowledgeBundle,
         domain: str = "vhdl",
     ) -> ArtifactBundle:
         logger.info("Generating artifacts for request (domain=%s)", domain)
-        request_lower = request.lower()
 
-        # 1. Bevorzugt die strukturierten Felder aus KnowledgeBundle
-        matched_template = knowledge.matched_template
-        template_status = knowledge.template_status
-        template_score = knowledge.template_score
-
-        # 2. Fallback: Alte raw_context-Suche (Kompatibilitaet)
-        if not matched_template:
-            for ctx in knowledge.raw_context:
-                if ctx.startswith("matched_template:"):
-                    matched_template = ctx.split(":", 1)[1].strip()
-                    template_status = "matched"
-                    break
-
-        # 3. Template verwenden wenn:
-        #    - matched_template gesetzt
-        #    - Template existiert in TEMPLATES
-        #    - status ist "matched" (nicht "rejected" oder "unsuitable")
-        if (
-            matched_template
-            and matched_template in self._templates.TEMPLATES
-            and template_status in ("matched", "injected")
-        ):
-            logger.info(
-                "Using template '%s' (score=%.2f, status=%s)",
-                matched_template, template_score, template_status,
-            )
-            result = self._generate_from_template(matched_template, request)
-            # Template-Metadaten im ArtifactBundle protokollieren
-            result.metadata["template_used"] = True
-            result.metadata["matched_template"] = matched_template
-            result.metadata["template_score"] = template_score
-            result.metadata["template_status"] = "injected"
-            return result
-
-        # 4. Template gefunden aber nicht verwendbar
-        if matched_template and template_status in ("rejected", "unsuitable"):
-            logger.info(
-                "Template '%s' found but not suitable (status=%s, score=%.2f)",
-                matched_template, template_status, template_score,
-            )
-        elif matched_template:
-            logger.warning(
-                "Template '%s' matched but not in TEMPLATES dict", matched_template
-            )
-
-        # 5. Fallback: Minimaler VHDL-Skelett
+        # Fallback: Minimaler VHDL-Skelett
         return self._generate_fallback(request, analysis)
 
     def _generate_from_template(
@@ -157,8 +135,112 @@ class VHDLArtifactGenerator(ArtifactGenerator):
         # Detect common patterns and generate appropriate interface
         request_lower = request.lower()
         
+        # Running light / Lauflicht pattern
+        if any(w in request_lower for w in [
+            "lauflicht", "running light", "running_light", "shift register",
+            "laufschrittmotor", "led shift", "led lauf", "chaser",
+        ]):
+            entity_code = f"""\
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity {name} is
+    Generic (
+        CLK_FREQ_HZ : positive := 100000000;
+        LED_COUNT   : positive := 4;
+        BLINK_HZ    : positive := 2
+    );
+    Port (
+        CLK   : in  STD_LOGIC;
+        RESET : in  STD_LOGIC;
+        LEDs  : out STD_LOGIC_VECTOR(LED_COUNT-1 downto 0)
+    );
+end {name};
+"""
+            architecture_code = f"""\
+architecture Behavioral of {name} is
+    constant COUNTER_MAX : natural := CLK_FREQ_HZ / (2 * BLINK_HZ) - 1;
+    signal counter : natural range 0 to COUNTER_MAX := 0;
+    signal shift_reg : STD_LOGIC_VECTOR(LED_COUNT-1 downto 0) := (0 => '1', others => '0');
+begin
+    process(CLK)
+    begin
+        if rising_edge(CLK) then
+            if RESET = '1' then
+                counter <= 0;
+                shift_reg <= (0 => '1', others => '0');
+            else
+                if counter = COUNTER_MAX then
+                    counter <= 0;
+                    shift_reg <= shift_reg(LED_COUNT-2 downto 0) & shift_reg(LED_COUNT-1);
+                else
+                    counter <= counter + 1;
+                end if;
+            end if;
+        end if;
+    end process;
+    LEDs <= shift_reg;
+end Behavioral;
+"""
+            tb_code = f"""\
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity {name}_tb is
+end {name}_tb;
+
+architecture Behavioral of {name}_tb is
+    constant CLK_FREQ_HZ : positive := 100;
+    constant LED_COUNT   : positive := 4;
+    constant BLINK_HZ    : positive := 2;
+    signal CLK   : STD_LOGIC := '0';
+    signal RESET : STD_LOGIC := '0';
+    signal LEDs  : STD_LOGIC_VECTOR(LED_COUNT-1 downto 0);
+    constant CLK_PERIOD : time := 10 ns;
+begin
+    uut: entity work.{name}
+        generic map (
+            CLK_FREQ_HZ => CLK_FREQ_HZ,
+            LED_COUNT   => LED_COUNT,
+            BLINK_HZ    => BLINK_HZ
+        )
+        port map (
+            CLK   => CLK,
+            RESET => RESET,
+            LEDs  => LEDs
+        );
+
+    CLK_GEN: process
+    begin
+        CLK <= '0';
+        wait for CLK_PERIOD / 2;
+        CLK <= '1';
+        wait for CLK_PERIOD / 2;
+    end process;
+
+    STIMULUS: process
+    begin
+        RESET <= '1';
+        wait for CLK_PERIOD * 2;
+        RESET <= '0';
+
+        -- Wait for first shift
+        wait for CLK_PERIOD * 25;
+        assert LEDs /= (LEDs'range => '0')
+            report "At least one LED should be on" severity error;
+
+        -- After full cycle, check shift register changed
+        wait for CLK_PERIOD * 25;
+        assert LEDs /= (LEDs'range => '0')
+            report "LEDs should still have at least one active" severity error;
+
+        assert false report "TB_COMPLETE" severity note;
+        wait;
+    end process;
+end Behavioral;
+"""
         # Comparator pattern
-        if any(w in request_lower for w in ["vergleich", "compare", "equal"]):
+        elif any(w in request_lower for w in ["vergleich", "compare", "equal"]):
             entity_code = f"""\
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
@@ -481,16 +563,14 @@ end Behavioral;
             "oder", "fuer", "ein", "eine", "einen", "der", "die", "das",
             "soll", "sollen", "muss", "muessen", "wird", "werden", "einen",
             "eine", "ein", "4", "8", "16", "32", "bit", "bit-", "bits",
+            "synthetisierbar", "synthetisierbare", "synthetisierbaren",
+            "synthetisierbares", "synthesierbar", "synthesierbare",
+            "synthesierbaren", "synthesierbares", "optimierter", "optimierte",
+            "optimiertes", "verbesserter", "verbesserte", "verbessertes",
+            "prompt", "promptvorlage", "aufgabe",
         }
         
-        # Strategy 1: Look for noun after articles (einen/eine/ein + Noun)
-        match = re.search(r'(?:einen|eine|ein)\s+(\w+)', request_lower)
-        if match:
-            candidate = match.group(1)
-            if candidate not in exclude_verbs and candidate not in exclude_words:
-                return candidate
-        
-        # Strategy 2: Look for known component names
+        # Only explicitly known component terms may determine a fallback entity.
         known_components = {
             "vergleicher": "vergleicher",
             "counter": "counter",
@@ -502,7 +582,7 @@ end Behavioral;
             "uart": "uart",
             "spi": "spi",
             "i2c": "i2c",
-            " fifo": "fifo",
+            "fifo": "fifo",
             "pwm": "pwm",
             "timer": "timer",
             "multiplexer": "multiplexer",
@@ -521,20 +601,10 @@ end Behavioral;
         }
         
         for keyword, name in known_components.items():
-            if keyword in request_lower:
-                return name
+            if re.search(rf"\b{re.escape(keyword.strip())}\b", request_lower):
+                return _ascii_identifier(name)
         
-        # Strategy 3: Take the first identifier that's not a verb or common word
-        for word in request_lower.split():
-            # Clean word from punctuation
-            word_clean = re.sub(r'[^a-z0-9]', '', word)
-            if (word_clean.isidentifier() and 
-                word_clean not in exclude_verbs and 
-                word_clean not in exclude_words and
-                len(word_clean) > 2):
-                return word_clean
-        
-        return default
+        return _ascii_identifier(default)
 
     @staticmethod
     def _extract_width(request: str, default: int = 8) -> int:

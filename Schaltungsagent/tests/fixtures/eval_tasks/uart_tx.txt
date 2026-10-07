@@ -1,0 +1,9 @@
+UART-Sender (Transmitter) für 8N1 Protokoll.
+Entity: uart_tx
+Ports: clk, rst, tx_data (in, 8-bit), tx_valid (in), tx_ready (out), uart_tx (out)
+Parameter: CLK_FREQ_HZ = 50_000_000, BAUD_RATE = 115_200
+Funktionsweise:
+- Startbit (0), 8 Datenbits, Stopbit (1)
+- tx_ready wird HIGH wenn Sender neues Byte akzeptieren kann
+- Bei tx_valid wird tx_data in Schieberegister geladen und gesendet
+- Asynchroner Reset (active high)

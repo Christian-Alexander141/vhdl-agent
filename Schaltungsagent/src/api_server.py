@@ -3,9 +3,12 @@ import asyncio
 import logging
 import threading
 import os
+import time
 import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
+
+import yaml
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -15,17 +18,28 @@ from pydantic import BaseModel
 from src.config import load_config, load_fpga_registry
 from src.domain.event_bus import EventBus
 from src.domain.models import Event, EventType
-from src.api.rag_router import router as rag_router
 from src.domain.domain_registry import DomainRegistry
-from src.services.llm_service import OllamaLLMService
-from src.services.rag_service import VHDLRAGService
+from src.services.llm_service import create_llm_clients
+from src.services.name_resolver import NameResolver
+from src.services.chat_router import ChatRouter
 from src.services.artifact_generator import VHDLArtifactGenerator
 from src.services.filesystem_service import LocalFileSystemService
-from src.services.opencode_service import create_opencode_service
+from src.services.opencode_service import (
+    ReconfigurableOpenCodeService,
+    group_models_by_provider,
+)
+from src.domain.exceptions import WorkflowError
+from src.services.settings_store import (
+    SettingsValidationError,
+    apply_settings_update,
+    editable_settings,
+    persist_settings_update,
+    restart_required,
+)
 from src.services.eda_tools import detect_eda_tools, open_project_in_tool
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
 from src.infrastructure.synthesis import VivadoBitstreamService, VivadoFlashService
-from src.orchestrator import AgentOrchestrator
+from src.orchestrator.supervisor_orchestrator import SupervisorOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -42,34 +56,15 @@ ws_loop: asyncio.AbstractEventLoop | None = None
 
 DomainRegistry.discover(settings.domains.search_paths)
 
-llm_provider = settings.llm.provider
-if llm_provider == "ollama":
-    llm = OllamaLLMService(
-        model=settings.llm.model,
-        base_url=settings.llm.base_url,
-        temperature=settings.llm.temperature,
-        max_tokens=settings.llm.max_tokens,
-    )
-else:
-    from src.services.llm_service import StubLLMService
-    llm = StubLLMService()
+chat_assistant, naming_client = create_llm_clients(settings, event_bus)
 
-rag = VHDLRAGService(
-    qdrant_path=settings.rag.vector_store_path,
-    embedding_model=settings.rag.embedding_model,
-    data_dir=settings.rag.data_dir,
-    memory_dir=settings.rag.memory_dir,
-    chunk_size=settings.rag.chunk_size,
-    chunk_overlap=settings.rag.chunk_overlap,
-    top_k=settings.rag.max_results,
-)
 artifact_gen = VHDLArtifactGenerator()
 fs = LocalFileSystemService(
     base_dir=settings.resolve_path(settings.workspace.base_dir),
     cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
     max_workspaces=settings.workspace.max_workspaces,
 )
-opencode = create_opencode_service(settings)
+opencode = ReconfigurableOpenCodeService(settings)
 
 validator = GHDLValidator(
     ghdl_binary=settings.ghdl.binary,
@@ -112,9 +107,7 @@ flash_services = {
     "openfpgaloader": openfpgaloader_flash,
 }
 
-orchestrator = AgentOrchestrator(
-    llm_service=llm,
-    rag_service=rag,
+orchestrator = SupervisorOrchestrator(
     artifact_generator=artifact_gen,
     filesystem_service=fs,
     opencode_service=opencode,
@@ -125,9 +118,108 @@ orchestrator = AgentOrchestrator(
     flash_services=flash_services,
     fpga_registry=fpga_registry,
     max_repair_iterations=settings.opencode.max_repair_iterations,
+    cleanup_on_failure=settings.workspace.cleanup_on_failure,
+    cleanup_temp_files=settings.workspace.cleanup_temp_files,
+    require_approval=True,
+    name_resolver=NameResolver(naming_client),
+    plan_timeout_seconds=settings.opencode.plan_timeout_seconds,
+    max_prompt_bytes=settings.limits.max_prompt_bytes,
+    settings=settings,
 )
 
 active_tasks: dict[str, dict] = {}
+chat_router = ChatRouter()
+
+
+def _project_chat_context(project_id: str) -> dict:
+    workspace = Path(fs.workspace_path(project_id))
+    state_path = workspace / "design_state.yaml"
+    state = {}
+    if state_path.is_file():
+        try:
+            state = yaml.safe_load(state_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            logger.warning("Could not load chat context for %s", project_id)
+    return {
+        "project_id": project_id,
+        "status": state.get("current_stage", "unknown"),
+        "state": state,
+        "generated_files": (state.get("implementation") or {}).get("generated_files", []),
+        "manifest": (state.get("metadata") or {}).get("plan_manifest", {}),
+    }
+
+
+async def route_chat_message(
+    user_request: str,
+    domain: str = "vhdl",
+    current_project: str | None = None,
+    *,
+    upload_dir: str | None = None,
+    has_attachments: bool = False,
+    callback=None,
+) -> dict:
+    route = chat_router.route(
+        user_request,
+        current_project,
+        has_attachments=has_attachments,
+    )
+    if route.kind == "question":
+        answer = chat_assistant.answer_question(
+            user_request,
+            _project_chat_context(route.project_id or ""),
+        )
+        return {"type": "question", "project_id": route.project_id, "answer": answer}
+    if route.kind == "clarify":
+        return {"type": "clarification", "project_id": route.project_id, "answer": route.message}
+    return await orchestrator.handle_chat_async(
+        user_request,
+        domain=domain,
+        current_project=route.project_id if route.kind == "change" else None,
+        upload_dir=upload_dir,
+        callback=callback,
+    )
+
+
+def normalize_open_code_model(value: str | None) -> str:
+    """Trimmt Leerraum um einen Modellbezeichner, ändert ihn sonst nicht.
+
+    Modell-IDs von Providern sind oft case-sensitiv (z. B. Markennamen wie
+    "Nemotron") oder enthalten bewusst Unterstriche. Früher wurde hier alles
+    nach dem "/" force-lowercase gemacht und "_"/Leerzeichen zu "-"
+    umgeschrieben - das konnte eine gültige ID in eine nicht mehr beim
+    Provider auffindbare umwandeln, ohne dass das im Dashboard auffiel
+    (der gespeicherte, bereits verstümmelte Wert wurde einfach zurückgezeigt).
+    """
+    if value is None:
+        return ""
+    cleaned = str(value).strip()
+    if not cleaned:
+        return ""
+    if "/" in cleaned:
+        provider, model = cleaned.split("/", 1)
+        return f"{provider.strip()}/{model.strip()}"
+    return cleaned
+
+
+def update_runtime_settings(payload: dict) -> dict:
+    """Wendet Dashboard-Einstellungen an und speichert nur geänderte Felder."""
+
+    opencode_cfg = payload.get("opencode") or {}
+    for key in ("model", "fallback_model"):
+        if key in opencode_cfg:
+            opencode_cfg[key] = normalize_open_code_model(opencode_cfg[key]) or getattr(settings.opencode, key)
+
+    changes = apply_settings_update(settings, payload)
+    persist_settings_update(Path(settings._config_dir) / "config.yaml", changes)
+
+    if any(section == "opencode" for section, _, _ in changes):
+        # Ein gemeinsames Objekt für Planer, Orchestrator und alle Agenten:
+        # nur den internen Runner tauschen, damit die Änderung überall greift.
+        opencode.reconfigure(settings)
+    return {
+        "changed": [f"{s}.{n}" for s, n, _ in changes],
+        "restart_required": restart_required(changes),
+    }
 
 
 def broadcast_sync(event: Event) -> None:
@@ -181,8 +273,6 @@ app = FastAPI(
 if dashboard_dir.exists():
     app.mount("/static", StaticFiles(directory=str(dashboard_dir)), name="dashboard")
 
-app.include_router(rag_router)
-
 
 @app.get("/")
 async def get_dashboard():
@@ -190,6 +280,58 @@ async def get_dashboard():
     if index_path.exists():
         return HTMLResponse(index_path.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>Dashboard not found</h1>")
+
+
+@app.get("/api/settings")
+async def get_settings():
+    data = editable_settings(settings)
+    data["_meta"]["test_mode_forced_by_environment"] = os.environ.get(
+        "VHDL_AGENT_TEST_MODE", ""
+    ).lower() in {"1", "true", "yes", "on"}
+    data["_meta"]["opencode_runner"] = type(opencode.delegate).__name__
+    return JSONResponse(data)
+
+
+# "opencode models" dauert kalt 10-20s; Ergebnis kurz cachen, damit das
+# Dashboard nicht bei jedem Oeffnen der Einstellungen erneut wartet.
+_models_cache: dict[str, dict] = {}
+_MODELS_CACHE_TTL_SECONDS = 600
+
+
+@app.get("/api/opencode/models")
+async def list_opencode_models(provider: str = "", refresh: bool = False):
+    cache_key = provider or "*"
+    cached = _models_cache.get(cache_key)
+    now = time.monotonic()
+    if cached and not refresh and (now - cached["fetched_at"]) < _MODELS_CACHE_TTL_SECONDS:
+        return JSONResponse({**cached["payload"], "cached": True})
+    try:
+        models = await asyncio.to_thread(opencode.list_models, provider)
+    except WorkflowError as exc:
+        logger.warning("Listing OpenCode models failed: %s", exc)
+        return JSONResponse({"error": str(exc), "hint": exc.hint}, status_code=502)
+    except Exception as exc:
+        logger.exception("Listing OpenCode models failed")
+        return JSONResponse({"error": str(exc)}, status_code=502)
+    payload = {
+        "models": models,
+        "by_provider": group_models_by_provider(models),
+        "runner": type(opencode.delegate).__name__,
+    }
+    _models_cache[cache_key] = {"payload": payload, "fetched_at": now}
+    return JSONResponse({**payload, "cached": False})
+
+
+@app.post("/api/settings")
+async def save_settings(payload: dict):
+    try:
+        result = update_runtime_settings(payload)
+    except SettingsValidationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Failed to update settings")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return JSONResponse({"status": "ok", **result, "opencode": {"model": settings.opencode.model}})
 
 
 @app.get("/api/tasks")
@@ -249,7 +391,7 @@ async def chat_message(req: ChatRequest):
             active_tasks[result["task_id"]] = result
 
     try:
-        result = orchestrator.handle_chat_async(
+        result = await route_chat_message(
             req.user_request,
             domain=req.domain,
             current_project=req.current_project,
@@ -325,11 +467,12 @@ async def chat_message_upload(
             active_tasks[result["task_id"]] = result
 
     try:
-        result = orchestrator.handle_chat_async(
+        result = await route_chat_message(
             user_request,
             domain=domain,
             current_project=current_project,
             upload_dir=upload_dir,
+            has_attachments=bool(files),
             callback=on_complete,
         )
     except Exception as e:
@@ -380,7 +523,7 @@ async def websocket_endpoint(ws: WebSocket):
                     domain = msg.get("domain", settings.domains.default)
                     current_project = msg.get("current_project")
                     try:
-                        result = orchestrator.handle_chat_async(
+                        result = await route_chat_message(
                             request,
                             domain=domain,
                             current_project=current_project,
@@ -451,7 +594,22 @@ async def list_projects():
                     "workspace": state.get("workspace", ""),
                     "generated_files": state.get("generated_files", []),
                     "error_message": state.get("error_message", ""),
+                    "approval": state.get("approval", None),
                 })
+            design_state_file = entry / "design_state.yaml"
+            if design_state_file.exists():
+                try:
+                    import yaml
+                    design_state = yaml.safe_load(
+                        design_state_file.read_text(encoding="utf-8")
+                    ) or {}
+                    current_stage = design_state.get("current_stage")
+                    if isinstance(current_stage, dict):
+                        current_stage = current_stage.get("value")
+                    if current_stage:
+                        info["status"] = current_stage
+                except Exception:
+                    logger.warning("Could not read design state for %s", entry.name)
             projects.append(info)
     projects.sort(key=lambda p: p.get("created_at", ""), reverse=True)
     return JSONResponse({"projects": projects})
@@ -470,6 +628,20 @@ async def get_project(project: str):
             state = json.loads(state_file.read_text(encoding="utf-8"))
         except Exception as e:
             state = {"error": str(e)}
+    design_state_file = project_dir / "design_state.yaml"
+    if design_state_file.exists():
+        try:
+            import yaml
+            design_state = yaml.safe_load(
+                design_state_file.read_text(encoding="utf-8")
+            ) or {}
+            current_stage = design_state.get("current_stage")
+            if isinstance(current_stage, dict):
+                current_stage = current_stage.get("value")
+            if current_stage:
+                state["status"] = current_stage
+        except Exception:
+            logger.warning("Could not read design state for %s", project)
     files = []
     for p in project_dir.rglob("*"):
         if p.is_file() and p.name != "state.json":

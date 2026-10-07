@@ -56,7 +56,9 @@ dist/
 # Project-specific temporary directories
 projects/
 **/projects/
-**/tests/
+# Kein **/tests/: das hat Schaltungsagent/tests/ und src/tests/ komplett
+# aus der Versionierung genommen. Testbenches generierter Projekte liegen
+# unter projects/ und sind dort bereits ausgeschlossen.
 
 # Dateien (PDF documents)
 **/Dateien/

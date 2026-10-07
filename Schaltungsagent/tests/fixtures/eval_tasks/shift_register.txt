@@ -1,0 +1,9 @@
+Schieberegister mit parallelem Laden und serieller Ausgabe.
+Entity: shift_reg
+Ports: clk, rst, load (in), data_in (in, 8-bit), shift_en (in), data_out (out)
+Funktionsweise:
+- Bei load='1': data_in wird parallel in Register geladen
+- Bei shift_en='1': Register schiebt um 1 Bit nach rechts (MSB first)
+- data_out ist das LSB (serielle Ausgabe)
+- Asynchroner Reset (active high), Reset-Wert = 0
+- Taktfrequenz: 50 MHz

@@ -7,7 +7,7 @@ class VHDLBuildDefinition:
     file_extensions: list[str] = field(default_factory=lambda: [".vhd", ".vhdl"])
     analyze_flags: list[str] = field(default_factory=lambda: ["-a"])
     elaborate_flags: list[str] = field(default_factory=lambda: ["-e"])
-    run_flags: list[str] = field(default_factory=lambda: ["-r", "--stop-time=1us"])
+    run_flags: list[str] = field(default_factory=lambda: ["-r", "--stop-time=1ms"])
     library: str = "work"
 
 

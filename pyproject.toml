@@ -9,7 +9,7 @@ description = "KI-gestützte Agentenplattform für VHDL-Workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-keywords = ["vhdl", "agent", "llm", "rag", "fastapi", "docker"]
+keywords = ["vhdl", "agent", "llm", "fastapi", "docker"]
 authors = [
   { name = "Schaltungsagent", email = "noreply@example.com" }
 ]
@@ -26,19 +26,17 @@ dependencies = [
   "aiofiles>=23.0.0",
   "langchain-core>=0.3.0",
   "langchain-ollama>=1.0.0",
-  "langchain-huggingface>=1.0.0",
-  "huggingface-hub>=0.23.0",
-  "langgraph>=0.4.0",
-  "langchain-qdrant>=1.0.0",
-  "qdrant-client>=1.9.0",
-  "langchain-text-splitters>=1.0.0",
-  "sentence-transformers>=2.2.0",
-  "pypdf>=5.0.0",
   "jinja2>=3.1.0"
 ]
 
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+]
+
 [project.scripts]
-schaltungsagent = "src.main:main"
+schaltungsagent = "start:main"
 
 [tool.setuptools]
 package-dir = { "" = "Schaltungsagent" }

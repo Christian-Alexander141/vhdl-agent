@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Any
 from enum import Enum
 
-
 class AgentStatus(str, Enum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
@@ -12,7 +11,7 @@ class AgentStatus(str, Enum):
     FAILED = "FAILED"
     BLOCKED = "BLOCKED"
     REPAIR_REQUIRED = "REPAIR_REQUIRED"
-
+    SKIPPED = "SKIPPED"
 
 class TaskStatus(str, Enum):
     CREATED = "CREATED"

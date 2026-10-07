@@ -8,14 +8,14 @@ from src.config import load_config, load_fpga_registry
 from src.domain.event_bus import EventBus
 from src.domain.models import EventType, Event, TaskState
 from src.domain.domain_registry import DomainRegistry
-from src.services.llm_service import OllamaLLMService
-from src.services.rag_service import VHDLRAGService
+from src.services.llm_service import create_llm_clients
+from src.services.name_resolver import NameResolver
 from src.services.artifact_generator import VHDLArtifactGenerator
 from src.services.filesystem_service import LocalFileSystemService
-from src.services.opencode_service import create_opencode_service
+from src.services.opencode_service import ReconfigurableOpenCodeService
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
 from src.infrastructure.synthesis import VivadoBitstreamService, VivadoFlashService
-from src.orchestrator import AgentOrchestrator, SupervisorOrchestrator
+from src.orchestrator import SupervisorOrchestrator
 
 
 def setup_logging(settings) -> None:
@@ -26,55 +26,19 @@ def setup_logging(settings) -> None:
     )
 
 
-def create_llm_service(settings):
-    provider = settings.llm.provider
-    if provider == "ollama":
-        return OllamaLLMService(
-            model=settings.llm.model,
-            base_url=settings.llm.base_url,
-            temperature=settings.llm.temperature,
-            max_tokens=settings.llm.max_tokens,
-        )
-    from src.services.llm_service import StubLLMService
-    return StubLLMService()
-
-
-def create_rag_service(settings):
-    if settings.rag.enabled and settings.rag.vector_store == "qdrant":
-        return VHDLRAGService(
-            qdrant_path=settings.rag.vector_store_path,
-            embedding_model=settings.rag.embedding_model,
-            data_dir=settings.rag.data_dir,
-            memory_dir=settings.rag.memory_dir,
-            chunk_size=settings.rag.chunk_size,
-            chunk_overlap=settings.rag.chunk_overlap,
-            top_k=settings.rag.max_results,
-        )
-    return VHDLRAGService(
-        qdrant_path=settings.rag.vector_store_path,
-        embedding_model=settings.rag.embedding_model,
-        data_dir=settings.rag.data_dir,
-        memory_dir=settings.rag.memory_dir,
-        chunk_size=settings.rag.chunk_size,
-        chunk_overlap=settings.rag.chunk_overlap,
-        top_k=settings.rag.max_results,
-    )
-
-
 def create_orchestrator(settings) -> SupervisorOrchestrator:
     """Create the SupervisorOrchestrator for the multi-agent workflow."""
     DomainRegistry.discover(settings.domains.search_paths)
 
     event_bus = EventBus()
-    llm = create_llm_service(settings)
-    rag = create_rag_service(settings)
+    _, naming_client = create_llm_clients(settings, event_bus)
     artifact_gen = VHDLArtifactGenerator()
     fs = LocalFileSystemService(
         base_dir=settings.resolve_path(settings.workspace.base_dir),
         cleanup_ttl_hours=settings.workspace.cleanup_ttl_hours,
         max_workspaces=settings.workspace.max_workspaces,
     )
-    opencode = create_opencode_service(settings)
+    opencode = ReconfigurableOpenCodeService(settings)
 
     validator = GHDLValidator(
         ghdl_binary=settings.ghdl.binary,
@@ -121,8 +85,6 @@ def create_orchestrator(settings) -> SupervisorOrchestrator:
     
     # Create SupervisorOrchestrator (new production path)
     orchestrator = SupervisorOrchestrator(
-        llm_service=llm,
-        rag_service=rag,
         artifact_generator=artifact_gen,
         filesystem_service=fs,
         opencode_service=opencode,
@@ -133,6 +95,10 @@ def create_orchestrator(settings) -> SupervisorOrchestrator:
         flash_services=flash_services,
         fpga_registry=fpga_registry,
         max_repair_iterations=settings.opencode.max_repair_iterations,
+        name_resolver=NameResolver(naming_client),
+        plan_timeout_seconds=settings.opencode.plan_timeout_seconds,
+        max_prompt_bytes=settings.limits.max_prompt_bytes,
+        settings=settings,
     )
     return orchestrator
 
@@ -205,39 +171,6 @@ def cmd_serve(args) -> None:
     )
 
 
-def cmd_rag_interactive(args) -> None:
-    from src.services.rag_pipeline import RAGChatPipeline, load_api_key
-
-    pipeline = RAGChatPipeline(
-        model=settings.llm.model,
-        base_url=settings.llm.base_url,
-        qdrant_path=settings.rag.vector_store_path,
-        memory_dir=settings.rag.memory_dir,
-        api_key=load_api_key(),
-    )
-
-    chat_id = None
-    print("RAG Chat (type 'exit' to quit, '/new' to reset session)")
-    while True:
-        try:
-            user_input = input("> ")
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-        if not user_input:
-            continue
-        if user_input.strip().lower() == "exit":
-            break
-        if user_input.strip().lower() == "/new":
-            chat_id = None
-            print("New session started.")
-            continue
-
-        response = pipeline.query(user_input, chat_id=chat_id)
-        print(response)
-        print()
-
-
 def main():
     settings = load_config()
     setup_logging(settings)
@@ -281,8 +214,6 @@ def main():
     serve_parser.add_argument("--reload", action="store_true", default=False,
                               help="Enable auto-reload")
 
-    subparsers.add_parser("rag", help="Start interactive RAG chat session")
-
     args = parser.parse_args()
 
     if args.test_mode:
@@ -310,8 +241,6 @@ def main():
         print(f"Discovered domains: {', '.join(domains) if domains else 'none'}")
     elif args.command == "serve":
         cmd_serve(args)
-    elif args.command == "rag":
-        cmd_rag_interactive(args)
     else:
         parser.print_help()
         sys.exit(1)

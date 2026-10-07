@@ -27,11 +27,6 @@ const chatTaskEl = document.getElementById('chat-task');
 const fileListEl = document.getElementById('file-list');
 const logListEl = document.getElementById('log-list');
 const testOutputEl = document.getElementById('test-output');
-const ragFileInput = document.getElementById('rag-file-input');
-const ragUploadBtn = document.getElementById('rag-upload-btn');
-const ragIndexBtn = document.getElementById('rag-index-btn');
-const ragStatusEl = document.getElementById('rag-status');
-const ragFileListEl = document.getElementById('rag-file-list');
 const projectListEl = document.getElementById('project-list');
 const projectDetailEl = document.getElementById('project-detail');
 const projectBackBtn = document.getElementById('project-back-btn');
@@ -50,7 +45,6 @@ function switchView(view) {
   document.querySelectorAll('.nav-item').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
   });
-  if (view === 'rag') loadRagFiles();
   if (view === 'projects') loadProjects();
 }
 
@@ -72,8 +66,15 @@ function connect() {
   socket.onopen = () => {
     setOnline();
     clearTimeout(reconnectTimer);
-    addSystemMessage('Connected to server');
-    fetchTaskList();
+    addSystemMessage('Mit dem Server verbunden');
+    // Kein Auto-Laden eines alten Projekts hier: Ein (Re-)Connect darf nie
+    // von selbst ein Projekt aktiv setzen. Sonst würde eine frische Nachricht
+    // direkt nach einem Seiten-Reload als Änderung an einem alten, zufällig
+    // zuletzt abgeschlossenen Projekt geroutet statt ein neues zu starten –
+    // z. B. triggert "baue ..." in ChatRouter.CHANGE_HINTS eine Änderung,
+    // sobald current_project gesetzt ist. Alte Projekte sind nur über
+    // "Neues Projekt" (keins aktiv) oder Projekte → "In Chat laden"
+    // (explizit gewählt) erreichbar.
   };
 
   socket.onmessage = (event) => {
@@ -91,7 +92,7 @@ function connect() {
 
   socket.onclose = () => {
     setOffline();
-    addSystemMessage('Connection lost — retrying...');
+    addSystemMessage('Verbindung verloren – neuer Versuch in 3 s');
     scheduleReconnect();
   };
 }
@@ -102,20 +103,18 @@ function scheduleReconnect() {
 }
 
 function setOnline() {
-  connectionDot.className = 'dot online';
-  connectionText.innerHTML = '<span class="dot online"></span> Connected';
+  connectionText.innerHTML = '<span class="dot online"></span><span>Verbunden</span>';
 }
 
 function setOffline() {
-  connectionDot.className = 'dot offline';
-  connectionText.innerHTML = '<span class="dot offline"></span> Disconnected';
+  connectionText.innerHTML = '<span class="dot offline"></span><span>Getrennt</span>';
 }
 
 function sendWS(data) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(data));
   } else {
-    addSystemMessage('Cannot send — not connected');
+    addSystemMessage('Senden nicht möglich – keine Verbindung');
   }
 }
 
@@ -130,9 +129,9 @@ function handleServerMessage(msg) {
       currentTaskId = msg.task_id || payload.task_id;
       taskIdEl.textContent = currentTaskId || '—';
       chatTaskEl.textContent = currentTaskId || '—';
-      setBadge('active', 'Active');
-      addSystemMessage(`Task created: ${currentTaskId}`);
-      updateWorkflow(eventType);
+      setBadge('active', 'Aktiv');
+      if (currentTaskId) addSystemMessage(`Task erstellt: ${currentTaskId}`);
+      updateWorkflow('CREATED');
       break;
 
     case 'STATE_CHANGED':
@@ -143,8 +142,6 @@ function handleServerMessage(msg) {
 
     case 'ANALYSIS_STARTED':
     case 'ANALYSIS_FINISHED':
-    case 'RAG_STARTED':
-    case 'RAG_FINISHED':
     case 'ARTIFACT_GENERATION_STARTED':
     case 'ARTIFACT_GENERATION_FINISHED':
     case 'FILES_CREATED':
@@ -177,12 +174,48 @@ function handleServerMessage(msg) {
     case 'REPAIR_FAILED':
     case 'NO_PROGRESS':
     case 'IDENTICAL_ERROR':
-      addLogEntry('info', eventType + (message ? ': ' + message : ''));
+    case 'STAGE_STARTED':
+    case 'STAGE_FINISHED':
+    case 'AUTONOMOUS_LOOP_STARTED':
+    case 'AUTONOMOUS_LIMIT_REACHED':
+    case 'CONTRACT_CHECK_FAILED':
+    case 'HUMAN_INTERVENTION_REQUESTED':
+    case 'HARDWARE_TEST_STARTED':
+    case 'HARDWARE_TEST_PASSED':
+    case 'HARDWARE_TEST_FAILED': {
+      const tone = eventTone(eventType);
+      const logText = payload.stage ? `${humanizeEvent(eventType)}: ${stageLabel(payload.stage)}` : humanizeEvent(eventType) + (message ? ': ' + message : '');
+      addLogEntry(logLevel(tone), logText);
       if (eventType === 'AGENT_FINISHED' && (payload.stdout || payload.stderr)) {
-        addAgentMessageWithLabel(agent, formatAgentOutput(payload));
+        addAgentMessageWithLabel(agent, formatAgentOutput(payload), tone);
+      } else if (eventType === 'STAGE_STARTED' && payload.stage) {
+        const stage = payload.stage.toUpperCase();
+        updateWorkflow(stage);
+        taskStatusEl.textContent = stageLabel(stage);
+        setBadgeFromStatus(stage);
+        addSystemMessage(`Phase: ${stageLabel(stage)}`);
+      } else if (eventType === 'STAGE_FINISHED') {
+        // Nur im Ereignisprotokoll – hält den Chat lesbar.
       } else {
-        addAgentMessageWithLabel(agent, message || formatEventPayload(eventType, payload));
+        addAgentMessageWithLabel(agent, message || formatEventPayload(eventType, payload), tone);
       }
+      break;
+    }
+
+    // Reine Ablauf-Events: nur im Ereignisprotokoll
+    case 'TASK_GRAPH_CREATED':
+    case 'PARALLEL_BATCH_STARTED':
+    case 'PARALLEL_BATCH_COMPLETED':
+    case 'TASK_INVALIDATED':
+    case 'TASK_BLOCKED':
+    case 'CONTRACT_CHECK_STARTED':
+    case 'CONTRACT_CHECK_PASSED':
+    case 'MODULE_IMPLEMENTED':
+      addLogEntry(logLevel(eventTone(eventType)), formatEventPayload(eventType, payload).replace(/\n/g, ' · '));
+      break;
+
+    case 'AGENT_HEARTBEAT':
+      addLogEntry('info', message || 'Der Agent arbeitet weiter.');
       break;
 
     case 'OPENCODE_STARTED':
@@ -197,20 +230,20 @@ function handleServerMessage(msg) {
 
     case 'OPENCODE_FAILED':
       addLogEntry('error', `${agent}: OpenCode fehlgeschlagen`);
-      addAgentMessageWithLabel(agent, formatAgentOutput(payload, 'OpenCode fehlgeschlagen'));
+      addAgentMessageWithLabel(agent, formatAgentOutput(payload, 'OpenCode fehlgeschlagen'), 'error');
       break;
 
     case 'TEST_FAILED':
     case 'REPAIR_STARTED':
-      addLogEntry('event', eventType + (message ? ': ' + message : ''));
-      addAgentMessageWithLabel(agent, `Event: ${eventType} — ${message || ''}`);
+      addLogEntry('event', humanizeEvent(eventType) + (message ? ': ' + message : ''));
+      addAgentMessageWithLabel(agent, formatEventPayload(eventType, payload), eventType === 'TEST_FAILED' ? 'error' : 'warning');
       if (payload.stderr) {
         testOutputEl.textContent += `\n[ERROR] ${payload.stderr.substring(0, 500)}`;
       }
       break;
 
     case 'REPAIR_FINISHED':
-      addLogEntry('event', eventType + (message ? ': ' + message : ''));
+      addLogEntry('event', humanizeEvent(eventType) + (message ? ': ' + message : ''));
       break;
 
     case 'APPROVAL_REQUESTED':
@@ -218,37 +251,37 @@ function handleServerMessage(msg) {
       break;
 
     case 'APPROVAL_GRANTED':
-      addLogEntry('info', 'User approved bitstream for flashing');
-      addAgentMessage('User approved. Starting flash...');
+      addLogEntry('done', 'Bitstream freigegeben');
+      addAgentMessage('Freigabe erteilt – FPGA wird geflasht …', 'success');
       break;
 
     case 'APPROVAL_REJECTED':
-      addLogEntry('warning', 'User rejected bitstream: ' + (payload.feedback || 'No feedback'));
-      addAgentMessage('User rejected: ' + (payload.feedback || 'No feedback provided'));
+      addLogEntry('warning', 'Bitstream abgelehnt: ' + (payload.feedback || 'kein Feedback'));
+      addAgentMessage('Freigabe abgelehnt: ' + (payload.feedback || 'kein Feedback'), 'warning');
       break;
 
     case 'TASK_COMPLETED':
       updateWorkflow('COMPLETED');
-      taskStatusEl.textContent = 'COMPLETED';
-      setBadge('active', 'Completed');
-      addLogEntry('done', 'Task completed successfully');
-      addAgentMessage('Task completed successfully');
+      taskStatusEl.textContent = stageLabel('COMPLETED');
+      setBadge('success', 'Abgeschlossen');
+      addLogEntry('done', 'Task erfolgreich abgeschlossen');
+      addAgentMessage(payload.outputs?.message || 'Task erfolgreich abgeschlossen', 'success');
       if (payload.files) updateFiles(payload);
       if (payload.workspace) taskWorkspaceEl.textContent = payload.workspace;
       break;
 
     case 'TASK_FAILED':
       updateWorkflow('FAILED');
-      taskStatusEl.textContent = 'FAILED';
-      setBadge('error', 'Failed');
-      addLogEntry('error', payload.error || 'Task failed');
-      addAgentMessage(`Task failed: ${payload.error || ''}`);
+      taskStatusEl.textContent = stageLabel('FAILED');
+      setBadge('error', 'Fehlgeschlagen');
+      addLogEntry('error', payload.error || 'Task fehlgeschlagen');
+      addAgentMessage(`Task fehlgeschlagen${payload.error ? ':\n' + payload.error : ''}`, 'error');
       break;
 
     case 'CHAT_RESPONSE':
       if (payload.type === 'error') {
-        addAgentMessage(payload.answer || payload.error || 'Fehler');
-        setBadge('error', 'Failed');
+        addAgentMessage(payload.answer || payload.error || 'Fehler', 'error');
+        setBadge('error', 'Fehlgeschlagen');
       } else if (payload.type === 'question' || payload.answer) {
         if (payload.project_id) {
           currentTaskId = payload.project_id;
@@ -256,7 +289,7 @@ function handleServerMessage(msg) {
           chatTaskEl.textContent = payload.project_id;
         }
         addAgentMessage(payload.answer || '');
-        setBadge('', 'Idle');
+        setBadge('', 'Bereit');
       } else if (payload.status === 'QUEUED') {
         if (payload.type === 'resume') {
           addSystemMessage(`Fortsetzung des Projekts: ${payload.task_id || payload.project_id || ''}`);
@@ -266,9 +299,10 @@ function handleServerMessage(msg) {
         if (payload.task_id) {
           currentTaskId = payload.task_id;
           taskIdEl.textContent = payload.task_id;
-          taskStatusEl.textContent = 'QUEUED';
+          taskStatusEl.textContent = stageLabel('QUEUED');
           chatTaskEl.textContent = payload.task_id;
-          setBadge('active', 'Queued');
+          setBadge('active', 'In Warteschlange');
+          updateWorkflow('CREATED');
         }
       } else {
         if (payload.type === 'resume') {
@@ -298,16 +332,15 @@ function handleApprovalRequested(payload) {
   const flashError = payload.flash_error || '';
   
   updateWorkflow('AWAITING_APPROVAL');
-  taskStatusEl.textContent = 'AWAITING_APPROVAL';
-  setBadge('warning', 'Awaiting Approval');
-  
+  taskStatusEl.textContent = stageLabel('AWAITING_APPROVAL');
+  setBadge('warning', 'Freigabe erforderlich');
+
   let msg = `Bitstream bereit zum Flashen: ${bitstreamPath}`;
   if (flashError) {
-    msg += `\n\n⚠️ Vorheriger Flash-Versuch fehlgeschlagen: ${flashError}`;
+    msg += `\n\nVorheriger Flash-Versuch fehlgeschlagen: ${flashError}`;
     msg += `\nBitte Board-Verbindung prüfen und erneut versuchen.`;
   }
   addLogEntry('warning', msg);
-  addAgentMessage(msg);
   
   // Freigabe-UI anzeigen (Button im Chat-Bereich)
   showApprovalButtons(payload);
@@ -316,52 +349,48 @@ function handleApprovalRequested(payload) {
 function showApprovalButtons(payload) {
   const bitstreamPath = payload.bitstream_path || '';
   const vhdlCode = payload.vhdl_code || '';
-  
-  // Entferne evtl. vorhandene Freigabe-Buttons
+  const flashError = payload.flash_error || '';
+
   const existing = document.getElementById('approval-buttons');
   if (existing) existing.remove();
-  
-  const btnContainer = document.createElement('div');
-  btnContainer.id = 'approval-buttons';
-  btnContainer.style.cssText = 'margin-top: 10px; padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;';
-  
-  const info = document.createElement('div');
-  info.style.cssText = 'margin-bottom: 10px; font-size: 0.9em;';
-  info.innerHTML = `<strong>Bitstream:</strong> ${escapeHtml(bitstreamPath)}`;
-  btnContainer.appendChild(info);
-  
-  if (vhdlCode) {
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'btn-small';
-    toggle.textContent = 'VHDL-Code anzeigen';
-    toggle.onclick = () => showVhdlModal(vhdlCode);
-    btnContainer.appendChild(toggle);
-  }
-  
-  const btnRow = document.createElement('div');
-  btnRow.style.cssText = 'display: flex; gap: 10px; margin-top: 10px;';
-  
+
+  const card = document.createElement('div');
+  card.id = 'approval-buttons';
+  card.className = 'approval-card';
+  card.innerHTML = `
+    <h4>Freigabe zum Flashen erforderlich</h4>
+    <div class="approval-path">${escapeHtml(bitstreamPath)}</div>
+    ${flashError ? `<p class="hint" style="margin:8px 0 0">Vorheriger Flash-Versuch fehlgeschlagen: ${escapeHtml(flashError)}</p>` : ''}
+    <div class="approval-actions"></div>`;
+  const actions = card.querySelector('.approval-actions');
+
   const approveBtn = document.createElement('button');
   approveBtn.type = 'button';
-  approveBtn.className = 'btn';
-  approveBtn.style.background = '#28a745';
-  approveBtn.textContent = '✓ Freigeben & Flashen';
+  approveBtn.className = 'btn btn-success';
+  approveBtn.textContent = '✓ Freigeben & flashen';
   approveBtn.onclick = () => sendApproval(true, '');
-  btnRow.appendChild(approveBtn);
-  
+  actions.appendChild(approveBtn);
+
   const rejectBtn = document.createElement('button');
   rejectBtn.type = 'button';
   rejectBtn.className = 'btn danger';
-  rejectBtn.textContent = '✕ Ablehnen (Reparatur)';
+  rejectBtn.textContent = '✕ Ablehnen';
   rejectBtn.onclick = () => {
-    const feedback = prompt('Feedback für Reparatur (optional):');
+    const feedback = prompt('Feedback für die Reparatur (optional):');
     if (feedback !== null) sendApproval(false, feedback);
   };
-  btnRow.appendChild(rejectBtn);
-  
-  btnContainer.appendChild(btnRow);
-  messagesEl.appendChild(btnContainer);
+  actions.appendChild(rejectBtn);
+
+  if (vhdlCode) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'btn';
+    toggle.textContent = 'VHDL-Code anzeigen';
+    toggle.onclick = () => showVhdlModal(vhdlCode);
+    actions.appendChild(toggle);
+  }
+
+  messagesEl.appendChild(card);
   scrollChat();
 }
 
@@ -388,45 +417,25 @@ function sendApproval(approve, feedback) {
   });
 }
 
-function showVhdlModal(code) {
-  // Einfaches Modal für VHDL-Code
-  const modal = document.createElement('div');
-  modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; display: flex; align-items: center; justify-content: center;';
-  modal.innerHTML = `
-    <div style="background: #1e1e1e; color: #d4d4d4; width: 80%; height: 80%; border-radius: 8px; padding: 20px; overflow: auto; font-family: monospace; font-size: 13px; position: relative;">
-      <div style="position: absolute; top: 10px; right: 15px; cursor: pointer; font-size: 24px;">&times;</div>
-      <pre style="white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(code)}</pre>
-    </div>
-  `;
-  modal.querySelector('div').onclick = (e) => e.stopPropagation();
-  modal.onclick = () => modal.remove();
-  document.body.appendChild(modal);
-}
-
-async function fetchTaskList() {
-  try {
-    const res = await fetch(`${API_BASE}/api/tasks`);
-    if (!res.ok) return;
-    const tasks = await res.json();
-    const completed = tasks.completed || [];
-    if (completed.length > 0) {
-      const latest = completed[completed.length - 1];
-      currentTaskId = latest.task_id;
-      taskIdEl.textContent = latest.task_id;
-      chatTaskEl.textContent = latest.task_id;
-      taskStatusEl.textContent = latest.status;
-      setBadgeFromStatus(latest.status);
-      updateWorkflow(latest.status);
-      if (latest.generated_files?.length) {
-        renderFiles(latest.generated_files);
-      }
-    }
-  } catch (e) {
-  }
+function showVhdlModal(code, title = 'VHDL-Code') {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head"><span>${escapeHtml(title)}</span><button class="modal-close" type="button" aria-label="Schließen">&times;</button></div>
+      <pre>${escapeHtml(code)}</pre>
+    </div>`;
+  const close = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  backdrop.querySelector('.modal').onclick = (e) => e.stopPropagation();
+  backdrop.querySelector('.modal-close').onclick = close;
+  backdrop.onclick = close;
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(backdrop);
 }
 
 async function sendTask(request, files) {
-  setBadge('active', 'Processing');
+  setBadge('active', 'Wird verarbeitet');
   sendBtn.disabled = true;
 
   try {
@@ -455,7 +464,7 @@ async function sendTask(request, files) {
     const result = await res.json();
     if (result.error) {
       addAgentMessage(`Fehler: ${result.error}`);
-      setBadge('error', 'Failed');
+      setBadge('error', 'Fehlgeschlagen');
       return;
     }
     if (result.type === 'question' || result.answer) {
@@ -465,7 +474,7 @@ async function sendTask(request, files) {
         chatTaskEl.textContent = result.project_id;
       }
       addAgentMessage(result.answer || result.message || '');
-      setBadge('', 'Idle');
+      setBadge('', 'Bereit');
       return;
     }
     if (result.status === 'QUEUED') {
@@ -482,34 +491,87 @@ async function sendTask(request, files) {
       chatTaskEl.textContent = result.task_id;
     }
   } catch (e) {
-    if (files && files.length) {
-      addAgentMessage(`Fehler beim Hochladen: ${e}`);
-      setBadge('error', 'Failed');
-    } else {
-      sendWS({ action: 'chat', request, current_project: currentTaskId || null });
-      addSystemMessage('Sent task via WebSocket');
-    }
+    addAgentMessage(files && files.length ? `Fehler beim Hochladen: ${e}` : `Anfrage fehlgeschlagen: ${e}`);
+    setBadge('error', 'Fehlgeschlagen');
   } finally {
     sendBtn.disabled = false;
   }
 }
 
+const STAGE_LABELS = {
+  CREATED: 'Auftrag', QUEUED: 'In Warteschlange', ANALYZING: 'Analyse',
+  ARCHITECTING: 'Architektur', UART_INTEGRATION: 'UART-Integration',
+  IMPLEMENTING: 'Implementierung', STATIC_CHECK: 'Statischer Check',
+  SIMULATING: 'Simulation', VALIDATING: 'Validierung', DEBUGGING: 'Diagnose',
+  REPAIRING: 'Reparatur', SYNTHESIZING: 'Synthese', AWAITING_APPROVAL: 'Freigabe',
+  FPGA_PROGRAMMING: 'FPGA flashen', HARDWARE_TESTING: 'Hardwaretest',
+  COMPLETED: 'Abgeschlossen', FAILED: 'Fehlgeschlagen', BLOCKED: 'Blockiert',
+  INFRASTRUCTURE_FAILURE: 'Infrastrukturfehler', AUTONOMOUS_LIMIT_REACHED: 'Limit erreicht',
+};
+
+function normalizeStage(status) {
+  return String(status || '').toUpperCase()
+    .replace(/^DESIGNSTAGE\./, '').replace(/^WORKFLOWSTATE\./, '');
+}
+
+function stageLabel(status) {
+  const s = normalizeStage(status);
+  return STAGE_LABELS[s] || s || '—';
+}
+
 function updateWorkflow(activeStatus) {
+  const workflowAliases = {
+    QUEUED: 'CREATED',
+    RUNNING: 'CREATED',
+    RECEIVED: 'CREATED',
+    VERIFYING: 'SIMULATING',
+    SIMULATION_PASSED: 'VALIDATING',
+    FLASHING: 'FPGA_PROGRAMMING',
+    FLASHED: 'FPGA_PROGRAMMING',
+    SUCCESS: 'COMPLETED',
+    INFRASTRUCTURE_FAILURE: 'FAILED',
+    AUTONOMOUS_LIMIT_REACHED: 'FAILED',
+    UNRECOVERABLE_ERROR: 'FAILED',
+  };
+  activeStatus = normalizeStage(activeStatus || 'CREATED');
+  activeStatus = workflowAliases[activeStatus] || activeStatus;
+  const steps = Array.from(workflowSteps);
+  const knownSteps = new Set(steps.map((step) => step.dataset.step));
+  if (!knownSteps.has(activeStatus)) activeStatus = 'CREATED';
+
+  const failed = activeStatus === 'FAILED';
+  const doneAll = activeStatus === 'COMPLETED';
   let found = false;
-  workflowSteps.forEach((step) => {
+  steps.forEach((step) => {
     const s = step.dataset.step;
-    if (s === activeStatus) {
-      step.className = 'step active';
+    if (s === 'FAILED') {
+      step.className = failed ? 'step step-fail failed' : 'step step-fail';
+      return;
+    }
+    const base = step.classList.contains('step-optional') ? 'step step-optional' : 'step';
+    if (!failed && s === activeStatus) {
+      step.className = `${base} active`;
       found = true;
-    } else if (!found && s !== 'FAILED') {
-      step.className = 'step done';
+    } else if (!found && !failed && !step.classList.contains('step-optional')) {
+      step.className = `${base} done`;
     } else {
-      step.className = 'step';
-      if (activeStatus === 'FAILED' && s === 'FAILED') {
-        step.className = 'step failed';
-      }
+      step.className = base;
     }
   });
+
+  // Fortschritt über die Pflichtschritte
+  const mandatory = steps.filter((st) => !st.classList.contains('step-optional') && st.dataset.step !== 'FAILED');
+  const idx = mandatory.findIndex((st) => st.dataset.step === activeStatus);
+  const pct = doneAll ? 100 : idx < 0 ? 0 : Math.round((idx / (mandatory.length - 1)) * 100);
+  const bar = document.getElementById('workflow-progress-bar');
+  const text = document.getElementById('workflow-progress-text');
+  const col = document.getElementById('workflow-col');
+  if (bar && !failed) bar.style.width = `${pct}%`;
+  if (text) text.textContent = failed ? 'Fehler' : `${pct} %`;
+  if (col) {
+    col.classList.toggle('is-failed', failed);
+    col.classList.toggle('is-done', doneAll);
+  }
 }
 
 function setBadge(cls, text) {
@@ -518,34 +580,109 @@ function setBadge(cls, text) {
 }
 
 function setBadgeFromStatus(status) {
-  if (status === 'COMPLETED') setBadge('active', 'Completed');
-  else if (status === 'FLASHED') setBadge('active', 'Flashed');
-  else if (status === 'AWAITING_APPROVAL') setBadge('warning', 'Awaiting Approval');
-  else if (status === 'FLASHING') setBadge('active', 'Flashing');
-  else if (status === 'SYNTHESIZING') setBadge('active', 'Synthesizing');
-  else if (['ANALYZING','RAG_SEARCH','GENERATING_ARTIFACTS','WORKSPACE_READY','RUNNING_AGENT','TESTING','REPAIRING','VALIDATING'].includes(status))
-    setBadge('active', status);
-  else setBadge('', 'Idle');
+  const s = normalizeStage(status);
+  if (s === 'COMPLETED' || s === 'SUCCESS') setBadge('success', 'Abgeschlossen');
+  else if (['FAILED', 'INFRASTRUCTURE_FAILURE', 'AUTONOMOUS_LIMIT_REACHED'].includes(s)) setBadge('error', stageLabel(s));
+  else if (['DEBUGGING', 'REPAIRING', 'AWAITING_APPROVAL', 'BLOCKED'].includes(s)) setBadge('warning', stageLabel(s));
+  else if (STAGE_LABELS[s]) setBadge('active', stageLabel(s));
+  else setBadge('', 'Bereit');
+}
+
+// ── Nachrichten ──
+const AGENT_COLORS = {
+  SupervisorAgent: '#6b7cff', Supervisor: '#6b7cff', ArchitectureAgent: '#9b6bff',
+  HDLAgent: '#2f9be0', VerificationAgent: '#20a87a', DebugAgent: '#e08a2f',
+  FPGAAgent: '#d9534f', HardwareTestAgent: '#c2569b', 'AI Engineer': '#4c8dff',
+};
+
+function agentInitials(name) {
+  const clean = String(name || 'AI').replace(/Agent$/, '');
+  const caps = clean.match(/[A-Z]/g);
+  return (caps && caps.length >= 2 ? caps.slice(0, 2).join('') : clean.slice(0, 2)).toUpperCase();
+}
+
+function renderMessageText(text) {
+  // Mehrzeilige technische Ausgaben (Logs, Code) als Codeblock darstellen.
+  const str = String(text ?? '');
+  const parts = str.split(/\n\n/);
+  return parts.map((part) => {
+    const lines = part.split('\n');
+    const technical = lines.length > 3 || /^(Ausgabe|Fehlerausgabe|Fehler|Diagnose):/.test(part);
+    if (technical && lines.length > 1) {
+      return `${escapeHtml(lines[0])}<pre>${escapeHtml(lines.slice(1).join('\n'))}</pre>`;
+    }
+    return escapeHtml(part);
+  }).join('\n\n');
+}
+
+function buildMessage(cls, label, text, avatarColor, tone) {
+  const el = document.createElement('div');
+  el.className = `message ${cls}${tone ? ' tone-' + tone : ''}`;
+  el.innerHTML = `
+    <div class="msg-avatar" style="--avatar:${avatarColor}">${escapeHtml(agentInitials(label))}</div>
+    <div class="msg-body">
+      <div class="msg-meta"><span class="msg-label">${escapeHtml(label)}</span><span class="timestamp">${now()}</span></div>
+      <div class="msg-text">${cls === 'user' ? escapeHtml(text) : renderMessageText(text)}</div>
+    </div>`;
+  messagesEl.appendChild(el);
+  scrollChat();
 }
 
 function addUserMessage(text) {
-  const el = document.createElement('div');
-  el.className = 'message user';
-  el.innerHTML = `<div class="msg-label">User</div><div class="msg-text">${escapeHtml(text)}</div><span class="timestamp">${now()}</span>`;
-  messagesEl.appendChild(el);
-  scrollChat();
+  buildMessage('user', 'Du', text, 'var(--bg-hover)');
 }
 
-function addAgentMessage(text) {
-  addAgentMessageWithLabel('AI Engineer', text);
+function addAgentMessage(text, tone = '') {
+  addAgentMessageWithLabel('AI Engineer', text, tone);
 }
 
-function addAgentMessageWithLabel(agent, text) {
-  const el = document.createElement('div');
-  el.className = 'message agent';
-  el.innerHTML = `<div class="msg-label">${escapeHtml(agent)}</div><div class="msg-text">${escapeHtml(text)}</div><span class="timestamp">${now()}</span>`;
-  messagesEl.appendChild(el);
-  scrollChat();
+function addAgentMessageWithLabel(agent, text, tone = '') {
+  buildMessage('agent', agent, text, AGENT_COLORS[agent] || '#5f6b7a', tone);
+}
+
+function eventTone(eventType) {
+  if (/FAILED|ERROR|IDENTICAL|LIMIT|BLOCKED/.test(eventType)) return 'error';
+  if (/PASSED|COMPLETED|FINISHED_OK|GRANTED/.test(eventType)) return 'success';
+  if (/REPAIR|DEBUG|NO_PROGRESS|INVALIDATED|HUMAN_INTERVENTION|WARNING/.test(eventType)) return 'warning';
+  return '';
+}
+
+function logLevel(tone) {
+  return { error: 'error', success: 'done', warning: 'warning' }[tone] || 'info';
+}
+
+const EVENT_TITLES = {
+  ANALYSIS_STARTED: 'Analyse gestartet', ANALYSIS_FINISHED: 'Analyse abgeschlossen',
+  ARCHITECTURE_CREATED: 'Architektur erstellt', ARCHITECTURE_FAILED: 'Architektur fehlgeschlagen',
+  IMPLEMENTATION_STARTED: 'Implementierung gestartet', IMPLEMENTATION_COMPLETED: 'Implementierung abgeschlossen',
+  IMPLEMENTATION_FAILED: 'Implementierung fehlgeschlagen', MODULE_IMPLEMENTED: 'Modul implementiert',
+  STATIC_CHECK_STARTED: 'Statischer Check gestartet', STATIC_CHECK_PASSED: 'Statischer Check bestanden',
+  STATIC_CHECK_FAILED: 'Statischer Check fehlgeschlagen',
+  CONTRACT_CHECK_STARTED: 'Contract-Check gestartet', CONTRACT_CHECK_PASSED: 'Contract-Check bestanden',
+  CONTRACT_CHECK_FAILED: 'Contract-Check fehlgeschlagen',
+  SIMULATION_STARTED: 'Simulation gestartet', SIMULATION_PASSED: 'Simulation bestanden', SIMULATION_FAILED: 'Simulation fehlgeschlagen',
+  VALIDATION_STARTED: 'Validierung gestartet', VALIDATION_FINISHED: 'Validierung abgeschlossen',
+  DEBUG_STARTED: 'Diagnose gestartet', DEBUG_COMPLETED: 'Diagnose abgeschlossen',
+  REPAIR_ASSIGNED: 'Reparatur zugewiesen', REPAIR_STARTED: 'Reparatur gestartet',
+  REPAIR_COMPLETED: 'Reparatur abgeschlossen', REPAIR_FAILED: 'Reparatur fehlgeschlagen', REPAIR_FINISHED: 'Reparatur beendet',
+  NO_PROGRESS: 'Kein Fortschritt', IDENTICAL_ERROR: 'Gleicher Fehler wiederholt',
+  SYNTHESIS_STARTED: 'Synthese gestartet', SYNTHESIS_FINISHED: 'Synthese beendet',
+  FLASH_STARTED: 'Flash gestartet', FLASH_FINISHED: 'Flash beendet',
+  HARDWARE_TEST_STARTED: 'Hardwaretest gestartet', HARDWARE_TEST_PASSED: 'Hardwaretest bestanden',
+  HARDWARE_TEST_FAILED: 'Hardwaretest fehlgeschlagen',
+  HUMAN_INTERVENTION_REQUESTED: 'Eingriff erforderlich',
+  TASK_GRAPH_CREATED: 'Task-Graph erstellt', PARALLEL_BATCH_STARTED: 'Parallel-Batch gestartet',
+  PARALLEL_BATCH_COMPLETED: 'Parallel-Batch beendet', TASK_INVALIDATED: 'Task invalidiert', TASK_BLOCKED: 'Task blockiert',
+  STAGE_STARTED: 'Phase gestartet', STAGE_FINISHED: 'Phase beendet',
+  AUTONOMOUS_LOOP_STARTED: 'Workflow gestartet', AUTONOMOUS_LIMIT_REACHED: 'Iterationslimit erreicht',
+  TEST_STARTED: 'Test gestartet', TEST_PASSED: 'Test bestanden', TEST_FAILED: 'Test fehlgeschlagen',
+  FILES_CREATED: 'Dateien erzeugt', WORKSPACE_READY: 'Workspace bereit',
+  AGENT_STARTED: 'Agent gestartet', AGENT_FINISHED: 'Agent beendet',
+};
+
+function humanizeEvent(eventType) {
+  return EVENT_TITLES[eventType] || String(eventType || '').toLowerCase().replace(/_/g, ' ')
+    .replace(/^./, (c) => c.toUpperCase());
 }
 
 function formatAgentOutput(payload, prefix = '') {
@@ -557,20 +694,45 @@ function formatAgentOutput(payload, prefix = '') {
   return parts.join('\n\n') || prefix || 'Keine Ausgabe';
 }
 
+const REPAIR_TARGETS = {
+  architecture: 'ArchitectureAgent', hdl: 'HDLAgent', verification: 'VerificationAgent',
+  fpga: 'HDLAgent (Synthesekontext)', human: 'Benutzer',
+};
+
+function asList(value) {
+  if (Array.isArray(value)) return value.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ');
+  return String(value);
+}
+
 function formatEventPayload(eventType, payload) {
   const details = [];
+  if (payload.repair_target) details.push(`Reparatur durch: ${REPAIR_TARGETS[payload.repair_target] || payload.repair_target}`);
+  if (payload.failure_type) details.push(`Fehlerklasse: ${payload.failure_type}`);
   if (payload.module) details.push(`Modul: ${payload.module}`);
-  if (payload.stage) details.push(`Phase: ${payload.stage}`);
-  if (payload.failures?.length) details.push(`Fehler: ${payload.failures.join('\n')}`);
+  if (payload.modules?.length) details.push(`Module: ${asList(payload.modules)}`);
+  if (payload.failed_module?.length) details.push(`Module: ${asList(payload.failed_module)}`);
+  if (payload.changed_modules?.length) details.push(`Geänderte Module: ${asList(payload.changed_modules)}`);
+  if (payload.stage) details.push(`Phase: ${stageLabel(payload.stage)}`);
+  if (payload.failed_stage) details.push(`Fehlgeschlagene Phase: ${stageLabel(payload.failed_stage)}`);
+  if (payload.batch?.length) details.push(`Parallel: ${asList(payload.batch)}`);
+  if (payload.task) details.push(`Task: ${payload.task}`);
+  if (payload.reason) details.push(`Grund: ${payload.reason}`);
+  if (payload.task_count !== undefined) details.push(`${payload.task_count} Tasks, ${(payload.reused_tasks || []).length} übernommen`);
+  if (payload.test_mode) details.push(`Modus: ${payload.test_mode}`);
+  if (payload.violations?.length) {
+    details.push(`Verletzungen:\n${payload.violations.slice(0, 8).map((v) => `${v.module}: ${v.check} – erwartet ${v.expected}, ist ${v.actual}`).join('\n')}`);
+  }
+  if (payload.failures?.length) details.push(`Fehler:\n${payload.failures.map((f) => (typeof f === 'string' ? f : f.name || JSON.stringify(f))).join('\n')}`);
   if (payload.error) details.push(`Fehler: ${payload.error}`);
-  if (payload.diagnosis) details.push(`Diagnose: ${JSON.stringify(payload.diagnosis, null, 2)}`);
-  return details.length ? `${eventType}\n${details.join('\n')}` : `Event: ${eventType}`;
+  if (payload.diagnosis) details.push(`Diagnose:\n${JSON.stringify(payload.diagnosis, null, 2)}`);
+  const title = humanizeEvent(eventType);
+  return details.length ? `${title}\n${details.join('\n')}` : title;
 }
 
 function addSystemMessage(text) {
   const el = document.createElement('div');
   el.className = 'message system';
-  el.textContent = `— ${text} —`;
+  el.textContent = text;
   messagesEl.appendChild(el);
   scrollChat();
 }
@@ -579,12 +741,26 @@ function scrollChat() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+const LOG_LABELS = { info: 'Info', done: 'OK', error: 'Fehler', event: 'Event', warning: 'Warnung' };
+const MAX_LOG_ENTRIES = 400;
+
 function addLogEntry(type, message) {
+  const level = LOG_LABELS[type] ? type : 'info';
   const el = document.createElement('div');
   el.className = 'log-entry';
-  el.innerHTML = `<span class="log-time">${now()}</span> [<span class="log-type ${type === 'error' ? 'error' : type === 'done' ? 'done' : type === 'event' ? 'event' : 'info'}">${type}</span>] ${escapeHtml(message)}`;
+  el.innerHTML = `<span class="log-time">${now()}</span><span class="log-type ${level}">${LOG_LABELS[level]}</span><span class="log-msg">${escapeHtml(message)}</span>`;
   logListEl.appendChild(el);
+  while (logListEl.children.length > MAX_LOG_ENTRIES) logListEl.firstChild.remove();
   logListEl.scrollTop = logListEl.scrollHeight;
+}
+
+document.getElementById('log-clear-btn')?.addEventListener('click', () => { logListEl.innerHTML = ''; });
+
+function fileKind(path) {
+  if (/_tb\.vhdl?$|^tests\//.test(path)) return 'tb';
+  if (/\.xdc$|\.ccf$|^constraints\//.test(path)) return 'xdc';
+  if (/\.vhdl?$/.test(path)) return 'src';
+  return 'other';
 }
 
 function renderFiles(files) {
@@ -592,7 +768,8 @@ function renderFiles(files) {
   files.forEach((f) => {
     const li = document.createElement('li');
     li.textContent = f;
-    li.title = 'Click to view (future)';
+    li.dataset.kind = fileKind(f);
+    li.title = f;
     fileListEl.appendChild(li);
   });
 }
@@ -624,6 +801,7 @@ function handleSend() {
     : '';
   addUserMessage(text + fileNote);
   chatInput.value = '';
+  chatInput.style.height = 'auto';
 
   selectedFiles = [];
   renderFileChips();
@@ -632,6 +810,10 @@ function handleSend() {
 }
 
 sendBtn.addEventListener('click', handleSend);
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = `${Math.min(chatInput.scrollHeight, 200)}px`;
+});
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -674,76 +856,6 @@ function renderFileChips() {
     fileChipsEl.appendChild(chip);
   });
 }
-
-// ── RAG View ──
-function setRagStatus(message, type) {
-  ragStatusEl.textContent = message;
-  ragStatusEl.className = `rag-status ${type || ''}`;
-}
-
-async function loadRagFiles() {
-  try {
-    const res = await fetch(`${API_BASE}/api/rag/files`);
-    const data = await res.json();
-    renderRagFiles(data.files || []);
-  } catch (e) {
-    ragFileListEl.innerHTML = '<li class="empty">Dateiliste nicht verfügbar</li>';
-  }
-}
-
-function renderRagFiles(files) {
-  ragFileListEl.innerHTML = '';
-  if (!files.length) {
-    ragFileListEl.innerHTML = '<li class="empty">Noch keine Dateien hinterlegt</li>';
-    return;
-  }
-  files.forEach((f) => {
-    const li = document.createElement('li');
-    li.textContent = `${f.name} (${formatBytes(f.size)})`;
-    li.title = `Geändert: ${f.modified || '?'}`;
-    ragFileListEl.appendChild(li);
-  });
-}
-
-async function uploadRagFiles() {
-  if (!ragFileInput.files.length) {
-    setRagStatus('Bitte zuerst Dateien auswählen', 'error');
-    return;
-  }
-  const fd = new FormData();
-  for (const file of ragFileInput.files) fd.append('files', file);
-  ragUploadBtn.disabled = true;
-  setRagStatus('Lade Dateien hoch...', 'info');
-  try {
-    const res = await fetch(`${API_BASE}/api/rag/upload`, { method: 'POST', body: fd });
-    const data = await res.json();
-    const names = (data.savedFiles || []).join(', ');
-    setRagStatus(`Hochgeladen: ${names}`, 'done');
-    ragFileInput.value = '';
-    loadRagFiles();
-  } catch (e) {
-    setRagStatus('Upload fehlgeschlagen', 'error');
-  } finally {
-    ragUploadBtn.disabled = false;
-  }
-}
-
-async function indexRagData() {
-  ragIndexBtn.disabled = true;
-  setRagStatus('Indexiere Wissen...', 'info');
-  try {
-    const res = await fetch(`${API_BASE}/api/rag/index`, { method: 'POST' });
-    const data = await res.json();
-    setRagStatus(`Indexiert: ${data.indexed_chunks} Chunks aus ${data.data_dir}`, 'done');
-  } catch (e) {
-    setRagStatus('Indexierung fehlgeschlagen', 'error');
-  } finally {
-    ragIndexBtn.disabled = false;
-  }
-}
-
-ragUploadBtn.addEventListener('click', uploadRagFiles);
-ragIndexBtn.addEventListener('click', indexRagData);
 
 // ── Projekte View ──
 async function loadEdaTools() {
@@ -790,7 +902,7 @@ async function loadProjects() {
 
 function renderProjects(projects) {
   projectListEl.innerHTML = '';
-  if (!projects.length) {
+  if (!Array.isArray(projects) || !projects.length) {
     projectListEl.innerHTML = '<li class="empty">Noch keine Projekte vorhanden</li>';
     return;
   }
@@ -807,7 +919,7 @@ function renderProjects(projects) {
     li.innerHTML = `
       <div class="project-head">
         <span class="project-name">${escapeHtml(p.name)}</span>
-        <span class="project-status ${statusClass(status)}">${escapeHtml(status)}</span>
+        <span class="project-status ${statusClass(status)}">${escapeHtml(stageLabel(status))}</span>
       </div>
       <div class="project-request">${escapeHtml(p.request || '')}</div>
       <div class="project-meta">${formatDate(p.created_at)} · ${filesCount} Datei(en)</div>
@@ -920,10 +1032,9 @@ async function showProjectDetails(name) {
 
 async function showProjectFile(name, path) {
   try {
-    projectDetailContentEl.textContent = 'Lade Datei...';
     const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(path)}`);
     const data = await res.json();
-    projectDetailContentEl.textContent = data.content || 'Datei nicht gefunden';
+    showVhdlModal(data.content || 'Datei nicht gefunden', path);
   } catch (e) {
     projectDetailContentEl.textContent = 'Fehler beim Laden der Datei';
   }
@@ -941,12 +1052,12 @@ function startNewProject() {
   taskStatusEl.textContent = '—';
   taskWorkspaceEl.textContent = '—';
   chatTaskEl.textContent = '—';
-  setBadge('', 'Idle');
+  setBadge('', 'Bereit');
   updateWorkflow('CREATED');
   messagesEl.innerHTML = '';
   fileListEl.innerHTML = '<li class="empty">Noch keine Dateien generiert</li>';
   logListEl.innerHTML = '';
-  testOutputEl.textContent = 'Warte auf Testergebnisse...';
+  testOutputEl.textContent = 'Warte auf Testergebnisse …';
   addSystemMessage('Neues leeres Projekt gestartet — beschreibe deine Aufgabe');
   switchView('ai-engineer');
 }
@@ -973,133 +1084,238 @@ function formatDate(iso) {
 }
 
 connect();
-addAgentMessage('Hello! I\'m your AI Engineering Agent. Describe a task and I\'ll generate the design, run tests, and deliver the results.');
+addAgentMessage('Hallo! Beschreibe eine Schaltung und das Ziel-Board. Die Agenten planen die Architektur, implementieren und simulieren die Module, synthetisieren das Design und flashen es nach deiner Freigabe.');
 
 // ── Settings View ──
+// Alle Felder mit data-setting="abschnitt.feld" kommen vom Server
+// (GET /api/settings) und werden dort gespeichert. Nur Theme und Akzentfarbe
+// liegen im Browser.
+let serverSettings = {};
+
+function settingFields() {
+  return Array.from(document.querySelectorAll('[data-setting]'));
+}
+
+function readField(el) {
+  if (el.type === 'checkbox') return el.checked;
+  if (el.dataset.type === 'bool') return el.value === 'true';
+  if (el.type === 'number') return el.value === '' ? null : Number(el.value);
+  return el.value;
+}
+
+function writeField(el, value) {
+  if (value === undefined || value === null) return;
+  if (el.type === 'checkbox') el.checked = !!value;
+  else el.value = typeof value === 'boolean' ? String(value) : value;
+}
+
+function serverValue(path) {
+  const [section, field] = path.split('.');
+  return serverSettings[section]?.[field];
+}
+
+function markDirty() {
+  settingFields().forEach((el) => {
+    const dirty = JSON.stringify(readField(el)) !== JSON.stringify(serverValue(el.dataset.setting));
+    el.classList.toggle('dirty', dirty);
+  });
+  updateExecutionView();
+}
+
+function updateExecutionView() {
+  const native = document.getElementById('set-exec-mode')?.value === 'true';
+  const shared = document.getElementById('set-isolation')?.value === 'shared';
+  document.getElementById('native-warning')?.classList.toggle('hidden', !native);
+  document.querySelectorAll('.docker-only').forEach((el) => el.classList.toggle('is-hidden', native));
+  document.querySelectorAll('.native-only').forEach((el) => el.classList.toggle('is-hidden', !native));
+  if (!native) {
+    document.querySelectorAll('.per-task-only').forEach((el) => el.classList.toggle('is-hidden', shared));
+    document.querySelectorAll('.shared-only').forEach((el) => el.classList.toggle('is-hidden', !shared));
+  }
+}
+
+function showSettingsStatus(text, cls, sticky = false) {
+  const statusEl = document.getElementById('settings-status');
+  if (!statusEl) return;
+  statusEl.textContent = text;
+  statusEl.className = `status-pill ${cls}`;
+  statusEl.style.display = 'inline-flex';
+  clearTimeout(showSettingsStatus._t);
+  if (!sticky) showSettingsStatus._t = setTimeout(() => { statusEl.style.display = 'none'; }, 3500);
+}
+
+async function loadSettings() {
+  try {
+    const response = await fetch(`${API_BASE}/api/settings`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    serverSettings = await response.json();
+  } catch (error) {
+    showSettingsStatus(`Einstellungen konnten nicht geladen werden: ${error.message}`, 'error', true);
+    return;
+  }
+  settingFields().forEach((el) => writeField(el, serverValue(el.dataset.setting)));
+  const meta = serverSettings._meta || {};
+  const pill = document.getElementById('runner-pill');
+  if (pill) {
+    const docker = meta.opencode_runner === 'DockerOpenCodeService';
+    pill.textContent = docker ? 'aktiv: Docker' : 'aktiv: nativ';
+    pill.className = `runner-pill ${docker ? 'docker' : 'native'}`;
+  }
+  document.getElementById('env-test-mode')?.classList.toggle('hidden', !meta.test_mode_forced_by_environment);
+  markDirty();
+}
+
+async function saveSettings() {
+  const payload = {};
+  settingFields().forEach((el) => {
+    const value = readField(el);
+    if (JSON.stringify(value) === JSON.stringify(serverValue(el.dataset.setting))) return;
+    const [section, field] = el.dataset.setting.split('.');
+    (payload[section] ||= {})[field] = value;
+  });
+  if (!Object.keys(payload).length) {
+    showSettingsStatus('Keine Änderungen', 'info');
+    return;
+  }
+  try {
+    const response = await fetch(`${API_BASE}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok || result.error) throw new Error(result.error || `HTTP ${response.status}`);
+    await loadSettings();
+    if (result.restart_required?.length) {
+      showSettingsStatus(`Gespeichert – Neustart nötig für: ${result.restart_required.join(', ')}`, 'warning', true);
+    } else {
+      showSettingsStatus('Gespeichert und sofort aktiv', 'done');
+    }
+  } catch (error) {
+    showSettingsStatus(`Speichern fehlgeschlagen: ${error.message}`, 'error', true);
+  }
+}
+
+// ── OpenCode-Modell-Picker ──
+// Fuellt die <select data-pairs="..."> -Dropdowns aus /api/opencode/models
+// und schreibt die Auswahl in das zugehoerige Text-Feld, statt die
+// bestehende Speicherlogik (data-setting) anzufassen.
+function populateModelPickers(data) {
+  const providers = Object.keys(data.by_provider || {}).sort();
+  document.querySelectorAll('.model-picker').forEach((select) => {
+    const pairedInput = document.getElementById(select.dataset.pairs);
+    const current = pairedInput ? pairedInput.value : '';
+    select.innerHTML = '<option value="">— aus Liste wählen —</option>';
+    let currentInList = false;
+    providers.forEach((provider) => {
+      const group = document.createElement('optgroup');
+      group.label = provider || 'andere';
+      (data.by_provider[provider] || []).forEach((modelId) => {
+        const option = document.createElement('option');
+        option.value = modelId;
+        option.textContent = modelId;
+        if (modelId === current) {
+          option.selected = true;
+          currentInList = true;
+        }
+        group.appendChild(option);
+      });
+      select.appendChild(group);
+    });
+    if (current && !currentInList) {
+      const custom = document.createElement('option');
+      custom.value = current;
+      custom.textContent = `${current} (aktuell, nicht in der Liste)`;
+      custom.selected = true;
+      select.insertBefore(custom, select.children[1] || null);
+    }
+    select.disabled = false;
+    select.onchange = () => {
+      if (!select.value || !pairedInput) return;
+      pairedInput.value = select.value;
+      // Loest die bereits vorhandenen data-setting-Listener aus (markDirty etc.).
+      pairedInput.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+  });
+}
+
+async function loadOpenCodeModels() {
+  const btn = document.getElementById('oc-models-load-btn');
+  const status = document.getElementById('oc-models-status');
+  if (!btn) return;
+  btn.disabled = true;
+  if (status) status.textContent = 'Lade Modelle … (kann bei kaltem Cache bis zu 20 s dauern)';
+  try {
+    const response = await fetch(`${API_BASE}/api/opencode/models`);
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.hint ? `${data.error} (${data.hint})` : data.error || `HTTP ${response.status}`);
+    }
+    populateModelPickers(data);
+    const runnerLabel = data.runner === 'DockerOpenCodeService' ? 'Docker' : 'nativ';
+    if (status) {
+      status.textContent = `${data.models.length} Modelle geladen (${runnerLabel}${data.cached ? ', aus Zwischenspeicher' : ''})`;
+    }
+  } catch (error) {
+    if (status) status.textContent = `Modelle konnten nicht geladen werden: ${error.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function initSettings() {
-  // Color swatch selection
+  document.getElementById('oc-models-load-btn')?.addEventListener('click', loadOpenCodeModels);
+
   document.querySelectorAll('.swatch').forEach((swatch) => {
     swatch.addEventListener('click', () => {
-      document.querySelectorAll('.swatch').forEach((s) => s.classList.remove('active'));
+      document.querySelectorAll('.swatch').forEach((sw) => sw.classList.remove('active'));
       swatch.classList.add('active');
       const accent = swatch.dataset.accent;
       if (accent) {
         document.documentElement.style.setProperty('--accent', accent);
-        // Compute hover and soft variants
-        document.documentElement.style.setProperty('--accent-hover', accent + 'dd');
-        document.documentElement.style.setProperty('--accent-soft', accent + '1a');
-        document.documentElement.style.setProperty('--accent-border', accent + '59');
+        persistUiSetting('accent', accent);
       }
     });
   });
 
-  // Save button
-  const saveBtn = document.getElementById('settings-save-btn');
-  const statusEl = document.getElementById('settings-status');
-  if (saveBtn) {
-    saveBtn.addEventListener('click', () => {
-      const settings = {
-        llm: {
-          provider: document.getElementById('settings-llm-provider')?.value || 'ollama',
-          model: document.getElementById('settings-llm-model')?.value || '',
-          base_url: document.getElementById('settings-llm-base-url')?.value || '',
-          temperature: parseFloat(document.getElementById('settings-llm-temperature')?.value || '0.1'),
-          max_tokens: parseInt(document.getElementById('settings-llm-max-tokens')?.value || '4096'),
-        },
-        theme: document.getElementById('settings-theme')?.value || 'dark',
-        synthesis: {
-          default_fpga: document.getElementById('settings-default-fpga')?.value || 'arty_s7_50',
-        },
-        opencode: {
-          max_repair_iterations: parseInt(document.getElementById('settings-max-repairs')?.value || '5'),
-        },
-        vivado: {
-          binary: document.getElementById('settings-vivado-binary')?.value || '',
-          settings_script: document.getElementById('settings-vivado-settings')?.value || '',
-        },
-        ghdl: {
-          binary: document.getElementById('settings-ghdl-binary')?.value || 'ghdl',
-        },
-      };
-      localStorage.setItem('ai-engineer-settings', JSON.stringify(settings));
-      if (statusEl) {
-        statusEl.textContent = 'Einstellungen gespeichert';
-        statusEl.className = 'rag-status done';
-        statusEl.style.display = 'inline-flex';
-        setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
-      }
+  const themeSelect = document.getElementById('settings-theme');
+  if (themeSelect) {
+    themeSelect.addEventListener('change', () => {
+      applyTheme(themeSelect.value);
+      persistUiSetting('theme', themeSelect.value);
     });
   }
-
-  // Reset button
-  const resetBtn = document.getElementById('settings-reset-btn');
-  if (resetBtn) {
-    resetBtn.addEventListener('click', () => {
-      localStorage.removeItem('ai-engineer-settings');
-      // Reset accent color
-      document.documentElement.style.removeProperty('--accent');
-      document.documentElement.style.removeProperty('--accent-hover');
-      document.documentElement.style.removeProperty('--accent-soft');
-      document.documentElement.style.removeProperty('--accent-border');
-      // Reset swatch selection
-      document.querySelectorAll('.swatch').forEach((s) => s.classList.remove('active'));
-      const defaultSwatch = document.querySelector('.swatch[data-accent="#3f8ef0"]');
-      if (defaultSwatch) defaultSwatch.classList.add('active');
-      // Reset form fields
-      const defaults = {
-        'settings-llm-provider': 'ollama',
-        'settings-llm-model': 'gpt-oss:120b-cloud',
-        'settings-llm-base-url': 'http://localhost:11434',
-        'settings-llm-temperature': '0.1',
-        'settings-llm-max-tokens': '4096',
-        'settings-theme': 'dark',
-        'settings-max-repairs': '5',
-        'settings-default-fpga': 'arty_s7_50',
-        'settings-vivado-binary': '/home/alex/Xilinx/2026.1/Vivado/bin/vivado',
-        'settings-vivado-settings': '/home/alex/Xilinx/2026.1/Vivado/settings64.sh',
-        'settings-ghdl-binary': 'ghdl',
-      };
-      Object.entries(defaults).forEach(([id, val]) => {
-        const el = document.getElementById(id);
-        if (el) el.value = val;
-      });
-      if (statusEl) {
-        statusEl.textContent = 'Einstellungen zurückgesetzt';
-        statusEl.className = 'rag-status info';
-        statusEl.style.display = 'inline-flex';
-        setTimeout(() => { statusEl.style.display = 'none'; }, 2500);
-      }
-    });
+  try {
+    const ui = JSON.parse(localStorage.getItem('ai-engineer-settings') || '{}');
+    if (ui.theme && themeSelect) { themeSelect.value = ui.theme; applyTheme(ui.theme); }
+    if (ui.accent) document.querySelectorAll('.swatch').forEach((sw) => sw.classList.toggle('active', sw.dataset.accent === ui.accent));
+  } catch (e) {
+    // localStorage nicht verfügbar
   }
 
-  // Load saved settings
+  settingFields().forEach((el) => {
+    el.addEventListener('input', markDirty);
+    el.addEventListener('change', markDirty);
+  });
+  document.getElementById('settings-save-btn')?.addEventListener('click', saveSettings);
+  document.getElementById('settings-reset-btn')?.addEventListener('click', () => {
+    loadSettings().then(() => showSettingsStatus('Änderungen verworfen', 'info'));
+  });
   loadSettings();
 }
 
-function loadSettings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('ai-engineer-settings') || '{}');
-    if (saved.llm) {
-      if (saved.llm.provider) setVal('settings-llm-provider', saved.llm.provider);
-      if (saved.llm.model) setVal('settings-llm-model', saved.llm.model);
-      if (saved.llm.base_url) setVal('settings-llm-base-url', saved.llm.base_url);
-      if (saved.llm.temperature !== undefined) setVal('settings-llm-temperature', saved.llm.temperature);
-      if (saved.llm.max_tokens !== undefined) setVal('settings-llm-max-tokens', saved.llm.max_tokens);
-    }
-    if (saved.theme) setVal('settings-theme', saved.theme);
-    if (saved.synthesis?.default_fpga) setVal('settings-default-fpga', saved.synthesis.default_fpga);
-    if (saved.opencode?.max_repair_iterations) setVal('settings-max-repairs', saved.opencode.max_repair_iterations);
-    if (saved.vivado?.binary) setVal('settings-vivado-binary', saved.vivado.binary);
-    if (saved.vivado?.settings_script) setVal('settings-vivado-settings', saved.vivado.settings_script);
-    if (saved.ghdl?.binary) setVal('settings-ghdl-binary', saved.ghdl.binary);
-  } catch (e) {
-    // Ignore parse errors
-  }
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = ['dark', 'light', 'blueprint'].includes(theme) ? theme : 'dark';
 }
 
-function setVal(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.value = value;
+function persistUiSetting(key, value) {
+  try {
+    const saved = JSON.parse(localStorage.getItem('ai-engineer-settings') || '{}');
+    saved[key] = value;
+    localStorage.setItem('ai-engineer-settings', JSON.stringify(saved));
+  } catch (e) {
+    // localStorage nicht verfügbar – Einstellung gilt nur für diese Sitzung.
+  }
 }
 
 initSettings();

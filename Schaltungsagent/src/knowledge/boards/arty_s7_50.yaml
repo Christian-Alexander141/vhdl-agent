@@ -1,0 +1,153 @@
+# Arty S7-50 Board Facts
+# Quelle: Arty_S7-50_RAG_Wissenspaket.pdf, Abschnitt 9 (kompakter Faktenblock als YAML)
+# Abschnitt 8 (RAG-Regeln) und Abschnitt 2-6 (Hardware-Fakten)
+
+board_id: "arty_s7_50"
+vendor: "Digilent"
+fpga:
+  part: "xc7s50csga324-1"
+  family: "spartan7"
+
+clocks:
+  # General purpose system clock (12 MHz, LVCMOS33, pin F14)
+  - name: "sys_clk_12mhz"
+    pin: "F14"
+    frequency_hz: 12000000
+    iostandard: "LVCMOS33"
+    description: "On-board 12 MHz oscillator – general purpose system clock"
+  # DDR3/MIG reference clock (100 MHz differential, SSTL135, pins R2/T2)
+  # Not a general-purpose user clock; do not use as 'clk' without MMCM/clocking wizard
+  - name: "ddr3_clk_100mhz_p"
+    pin: "R2"
+    frequency_hz: 100000000
+    iostandard: "SSTL135"
+    description: "DDR3 memory reference clock (positive) – NOT a general user clock"
+  - name: "ddr3_clk_100mhz_n"
+    pin: "T2"
+    frequency_hz: 100000000
+    iostandard: "SSTL135"
+    description: "DDR3 memory reference clock (negative)"
+
+leds:
+  - name: "led0"
+    pin: "E18"
+    iostandard: "LVCMOS33"
+  - name: "led1"
+    pin: "F13"
+    iostandard: "LVCMOS33"
+  - name: "led2"
+    pin: "E13"
+    iostandard: "LVCMOS33"
+  - name: "led3"
+    pin: "H15"
+    iostandard: "LVCMOS33"
+  # Pins below are NOT user LEDs (they are Pmod JA pins)
+  # N14 = JA1, G13 = JA2, F15 = JA3, E15 = JA4
+
+buttons:
+  - name: "btn0"
+    pin: "G15"
+    iostandard: "LVCMOS33"
+    description: "Active HIGH when pressed"
+  - name: "btn1"
+    pin: "H13"
+    iostandard: "LVCMOS33"
+    description: "Active HIGH when pressed"
+  - name: "btn2"
+    pin: "J16"
+    iostandard: "LVCMOS33"
+    description: "Active HIGH when pressed"
+  - name: "btn3"
+    pin: "J15"
+    iostandard: "LVCMOS33"
+    description: "Active HIGH when pressed"
+
+switches:
+  - name: "sw0"
+    pin: "H14"
+    iostandard: "LVCMOS33"
+  - name: "sw1"
+    pin: "G14"
+    iostandard: "LVCMOS33"
+  - name: "sw2"
+    pin: "K18"
+    iostandard: "LVCMOS33"
+  - name: "sw3"
+    pin: "K17"
+    iostandard: "LVCMOS33"
+
+pmods:
+  - name: "ja"
+    header: "JA"
+    pins:
+      - "N14"  # JA1
+      - "G13"  # JA2
+      - "F15"  # JA3
+      - "E15"  # JA4
+      - "K16"  # JA7
+      - "J13"  # JA8
+      - "H16"  # JA9
+      - "H13"  # JA10
+  - name: "jb"
+    header: "JB"
+    pins:
+      - "T10"
+      - "T11"
+      - "U12"
+      - "V12"
+      - "T9"
+      - "U9"
+      - "V9"
+      - "V10"
+
+usb_uart:
+  - name: "uart_rx"
+    pin: "R12"
+    iostandard: "LVCMOS33"
+    direction: "in"
+  - name: "uart_tx"
+    pin: "V12"
+    iostandard: "LVCMOS33"
+    direction: "out"
+
+# Rules from the knowledge package (Abschnitt 8 "RAG-Regeln")
+rag_rules:
+  - "Do not choose a top entity by first-file order"
+  - "Do not generate a real board build without XDC constraints"
+  - "Do not suppress NSTD-1 or UCIO-1 as a workaround"
+  - "System clock is 12 MHz at F14 (LVCMOS33); 100 MHz at R2/T2 is SSTL135 for DDR3 only"
+  - "Only four user LEDs: E18, F13, E13, H15"
+  - "BTN0-3 are active HIGH (G15, H13, J16, J15)"
+  - "UART pins: RX=R12, TX=V12 (LVCMOS33)"
+  - "Pmod JA pins N14/G13/F15/E15 are NOT LEDs"
+
+# Pin assignment rules used by vivado_synthesis.py generator (section 1.4.D in plan)
+# These are the mapping rules for port names -> pins when no user XDC exists
+pin_assignment_rules:
+  - port_patterns: ["CLK", "CLK_100MHZ", "SYS_CLK", "CLOCK"]
+    direction: "in"
+    width: 1
+    pin: "R2"
+    iostandard: "LVCMOS33"
+    note: "Generator uses R2 with LVCMOS33; board fact says R2 is SSTL135 DDR3 clock – see BOARD_FACT_WARNING"
+  - port_patterns: ["RESET", "RST", "RESET_N", "RST_N"]
+    direction: "in"
+    width: 1
+    pin: "G15"
+    iostandard: "LVCMOS33"
+    note: "BTN0; *_N variants imply inverted polarity"
+  - port_patterns: ["ENABLE", "EN"]
+    direction: "in"
+    width: 1
+    pin: "H14"
+    iostandard: "LVCMOS33"
+    note: "SW0"
+  - port_patterns: ["LOAD", "LD"]
+    direction: "in"
+    width: 1
+    pin: "J16"
+    iostandard: "LVCMOS33"
+    note: "BTN2"
+  - port_patterns: ["*"]
+    direction: "out"
+    note: "Alphabetical assignment to LED pins (E18, F13, E13, H15), max 8 bits"

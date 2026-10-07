@@ -715,6 +715,238 @@ set_property -dict { PACKAGE_PIN H15  IOSTANDARD LVCMOS33 } [get_ports {LED[3]}]
 """)
 
 
+UART_VHDL_T = Template("""\
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity uart is
+    -- TODO: adapt clock/reset polarity, baud rate, board pins, and design wiring.
+    generic (
+        CLOCK_FREQ_HZ : positive := 100_000_000;
+        BAUD_RATE     : positive := 115_200
+    );
+    port (
+        clk      : in  std_logic;
+        rst      : in  std_logic;
+        uart_rx  : in  std_logic;
+        uart_tx  : out std_logic;
+        rx_data  : out std_logic_vector(7 downto 0);
+        rx_valid : out std_logic;
+        tx_data  : in  std_logic_vector(7 downto 0);
+        tx_valid : in  std_logic;
+        tx_ready : out std_logic
+    );
+end entity uart;
+
+architecture rtl of uart is
+    constant CLKS_PER_BIT : positive := CLOCK_FREQ_HZ / BAUD_RATE;
+    constant HALF_BIT : positive := (CLKS_PER_BIT + 1) / 2;
+    type rx_state_t is (RX_IDLE, RX_START, RX_RECEIVE, RX_STOP);
+    type tx_state_t is (TX_IDLE, TX_START, TX_TRANSMIT, TX_STOP);
+    signal rx_state : rx_state_t := RX_IDLE;
+    signal tx_state : tx_state_t := TX_IDLE;
+    signal rx_counter : natural range 0 to CLKS_PER_BIT - 1 := 0;
+    signal tx_counter : natural range 0 to CLKS_PER_BIT - 1 := 0;
+    signal rx_bit_index : natural range 0 to 7 := 0;
+    signal tx_bit_index : natural range 0 to 7 := 0;
+    signal rx_shift : std_logic_vector(7 downto 0) := (others => '0');
+    signal tx_shift : std_logic_vector(7 downto 0) := (others => '0');
+    signal rx_data_reg : std_logic_vector(7 downto 0) := (others => '0');
+    signal rx_valid_reg : std_logic := '0';
+    signal tx_line : std_logic := '1';
+begin
+    rx_data <= rx_data_reg;
+    rx_valid <= rx_valid_reg;
+    uart_tx <= tx_line;
+    tx_ready <= '1' when tx_state = TX_IDLE else '0';
+
+    process(clk, rst)
+    begin
+        if rst = '1' then
+            rx_state <= RX_IDLE;
+            rx_counter <= 0;
+            rx_bit_index <= 0;
+            rx_shift <= (others => '0');
+            rx_data_reg <= (others => '0');
+            rx_valid_reg <= '0';
+        elsif rising_edge(clk) then
+            rx_valid_reg <= '0';
+            case rx_state is
+                when RX_IDLE =>
+                    if uart_rx = '0' then
+                        rx_counter <= 0;
+                        rx_state <= RX_START;
+                    end if;
+                when RX_START =>
+                    if rx_counter = HALF_BIT - 1 then
+                        rx_counter <= 0;
+                        if uart_rx = '0' then
+                            rx_bit_index <= 0;
+                            rx_state <= RX_RECEIVE;
+                        else
+                            rx_state <= RX_IDLE;
+                        end if;
+                    else
+                        rx_counter <= rx_counter + 1;
+                    end if;
+                when RX_RECEIVE =>
+                    if rx_counter = CLKS_PER_BIT - 1 then
+                        rx_counter <= 0;
+                        rx_shift(rx_bit_index) <= uart_rx;
+                        if rx_bit_index = 7 then
+                            rx_state <= RX_STOP;
+                        else
+                            rx_bit_index <= rx_bit_index + 1;
+                        end if;
+                    else
+                        rx_counter <= rx_counter + 1;
+                    end if;
+                when RX_STOP =>
+                    if rx_counter = CLKS_PER_BIT - 1 then
+                        rx_counter <= 0;
+                        if uart_rx = '1' then
+                            rx_data_reg <= rx_shift;
+                            rx_valid_reg <= '1';
+                        end if;
+                        rx_state <= RX_IDLE;
+                    else
+                        rx_counter <= rx_counter + 1;
+                    end if;
+            end case;
+        end if;
+    end process;
+
+    process(clk, rst)
+    begin
+        if rst = '1' then
+            tx_state <= TX_IDLE;
+            tx_counter <= 0;
+            tx_bit_index <= 0;
+            tx_shift <= (others => '0');
+            tx_line <= '1';
+        elsif rising_edge(clk) then
+            case tx_state is
+                when TX_IDLE =>
+                    tx_line <= '1';
+                    tx_counter <= 0;
+                    if tx_valid = '1' then
+                        tx_shift <= tx_data;
+                        tx_line <= '0';
+                        tx_state <= TX_START;
+                    end if;
+                when TX_START =>
+                    if tx_counter = CLKS_PER_BIT - 1 then
+                        tx_counter <= 0;
+                        tx_line <= tx_shift(0);
+                        tx_shift <= '0' & tx_shift(7 downto 1);
+                        tx_bit_index <= 0;
+                        tx_state <= TX_TRANSMIT;
+                    else
+                        tx_counter <= tx_counter + 1;
+                    end if;
+                when TX_TRANSMIT =>
+                    if tx_counter = CLKS_PER_BIT - 1 then
+                        tx_counter <= 0;
+                        if tx_bit_index = 7 then
+                            tx_line <= '1';
+                            tx_state <= TX_STOP;
+                        else
+                            tx_line <= tx_shift(0);
+                            tx_shift <= '0' & tx_shift(7 downto 1);
+                            tx_bit_index <= tx_bit_index + 1;
+                        end if;
+                    else
+                        tx_counter <= tx_counter + 1;
+                    end if;
+                when TX_STOP =>
+                    if tx_counter = CLKS_PER_BIT - 1 then
+                        tx_counter <= 0;
+                        tx_state <= TX_IDLE;
+                    else
+                        tx_counter <= tx_counter + 1;
+                    end if;
+            end case;
+        end if;
+    end process;
+end architecture rtl;
+""")
+
+UART_TB_T = Template("""\
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity uart_tb is
+end entity uart_tb;
+
+architecture test of uart_tb is
+    constant CLK_PERIOD : time := 10 ns;
+    constant RX_BYTE : std_logic_vector(7 downto 0) := x"A5";
+    constant TX_BYTE : std_logic_vector(7 downto 0) := x"3C";
+    signal clk : std_logic := '0';
+    signal rst : std_logic := '1';
+    signal uart_rx : std_logic := '1';
+    signal uart_tx : std_logic;
+    signal rx_data : std_logic_vector(7 downto 0);
+    signal rx_valid : std_logic;
+    signal tx_data : std_logic_vector(7 downto 0) := (others => '0');
+    signal tx_valid : std_logic := '0';
+    signal tx_ready : std_logic;
+begin
+    clk <= not clk after CLK_PERIOD / 2;
+
+    dut: entity work.uart
+        generic map (CLOCK_FREQ_HZ => 1000, BAUD_RATE => 100)
+        port map (
+            clk => clk, rst => rst, uart_rx => uart_rx, uart_tx => uart_tx,
+            rx_data => rx_data, rx_valid => rx_valid, tx_data => tx_data,
+            tx_valid => tx_valid, tx_ready => tx_ready
+        );
+
+    stimulus: process
+    begin
+        wait for 25 ns;
+        assert tx_ready = '1' and uart_tx = '1' and rx_valid = '0'
+            report "UART reset/idle state mismatch" severity error;
+        rst <= '0';
+        wait until falling_edge(clk);
+        uart_rx <= '0';
+        wait for 100 ns;
+        for bit_index in 0 to 7 loop
+            uart_rx <= RX_BYTE(bit_index);
+            wait for 100 ns;
+        end loop;
+        uart_rx <= '1';
+        wait for 60 ns;
+        assert rx_valid = '1' report "rx_valid not asserted" severity error;
+        assert rx_data = RX_BYTE report "received byte mismatch" severity error;
+
+        wait until falling_edge(clk);
+        assert tx_ready = '1' report "tx_ready not asserted while idle" severity error;
+        tx_data <= TX_BYTE;
+        tx_valid <= '1';
+        wait until rising_edge(clk);
+        wait until falling_edge(clk);
+        tx_valid <= '0';
+        assert tx_ready = '0' report "tx_valid was not accepted" severity error;
+
+        wait until falling_edge(clk);
+        wait for 150 ns;
+        for bit_index in 0 to 7 loop
+            assert uart_tx = TX_BYTE(bit_index)
+                report "transmitted data bit mismatch" severity error;
+            wait for 100 ns;
+        end loop;
+        assert uart_tx = '1' report "transmitted stop bit is not high" severity error;
+        wait for 60 ns;
+        assert tx_ready = '1' report "tx_ready not restored" severity error;
+        assert false report "TB_COMPLETE" severity note;
+        wait;
+    end process;
+end architecture test;
+""")
+
+
 class VHDLTemplates:
     TEMPLATES = {
         "counter": {
@@ -734,6 +966,10 @@ class VHDLTemplates:
             "tb_architecture": ARTY_RUNNING_LIGHT_TB_ARCH_T,
             "testbench": ARTY_RUNNING_LIGHT_TB_T,
             "xdc": ARTY_S7_50_XDC_T,
+        },
+        "uart": {
+            "vhdl": UART_VHDL_T,
+            "testbench": UART_TB_T,
         },
     }
 

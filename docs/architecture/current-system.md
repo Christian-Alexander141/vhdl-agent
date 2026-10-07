@@ -6,15 +6,14 @@ Das bestehende `vhdl-agent` System ist eine **Hexagonal Architecture** (Ports & 
 
 ## Kernkomponenten
 
-### 1. Orchestrator (Monolithisch)
-- **Datei**: `Schaltungsagent/src/orchestrator/orchestrator.py` (1195 Zeilen)
-- **Klasse**: `AsyncAgentOrchestrator`
-- **Verantwortung**: Kompletter Workflow von Anforderung bis FPGA-Flash
-- **Status**: Wird durch SupervisorAgent ersetzt
+### 1. Supervisor-Orchestrator
+- **Datei**: `Schaltungsagent/src/orchestrator/supervisor_orchestrator.py`
+- **Klasse**: `SupervisorOrchestrator`
+- **Verantwortung**: Task-Lifecycle, Phasensteuerung, Approval und Agentenkoordination
 
 ### 2. State Machine
 - **Datei**: `Schaltungsagent/src/domain/state_machine.py`
-- **15 Zustände**: CREATED → ANALYZING → RAG_SEARCH → GENERATING_ARTIFACTS → WORKSPACE_READY → RUNNING_AGENT → TESTING → REPAIRING → VALIDATING → SYNTHESIZING → AWAITING_APPROVAL → FLASHING → FLASHED → COMPLETED/FAILED
+- **Produktionsablauf**: ANALYZING → ARCHITECTING → IMPLEMENTING → STATIC_CHECK → SIMULATING → VALIDATING → SYNTHESIZING → FPGA_PROGRAMMING → HARDWARE_TESTING
 - **Erweitert**: Um ARCHITECTING, IMPLEMENTING, STATIC_CHECK, SIMULATING, DEBUGGING, FPGA_PROGRAMMING, HARDWARE_TESTING, AUTONOMOUS_LIMIT_REACHED
 
 ### 3. EventBus
@@ -25,14 +24,13 @@ Das bestehende `vhdl-agent` System ist eine **Hexagonal Architecture** (Ports & 
 ### 4. Domain Models (Pydantic)
 - **TaskState**: Zentraler Task-Zustand
 - **Event/EventType**: Strukturierte Events
-- **KnowledgeBundle/ArtifactBundle**: RAG/Artefakt-Container
+- **ArtifactBundle**: Deterministische Artefakt-Fallbacks
 - **DesignState (NEU)**: Persistenter Projektzustand für Multi-Agent
 
 ### 5. Ports (ABCs) - Alle wiederverwendet
 | Port | Interface | Implementierung |
 |------|-----------|-----------------|
-| LLMService | analyze, generate, classify, answer | OllamaLLMService |
-| RAGService | retrieve_knowledge | VHDLRAGService |
+| LLMService | analyze, generate_text, classify, answer, naming | OllamaLLMService |
 | ValidationService | validate, validate_file | GHDLValidator |
 | BitstreamService | build_bitstream | VivadoBitstreamService |
 | FlashService | flash, detect_boards | VivadoFlashService, OpenFPGALoaderFlashService |
@@ -45,7 +43,7 @@ Das bestehende `vhdl-agent` System ist eine **Hexagonal Architecture** (Ports & 
 - **VivadoBitstreamService**: Non-Project-Mode Bitstream-Erzeugung
 - **VivadoFlashService**: JTAG-Flash via Vivado Hardware Manager
 - **OpenFPGALoaderFlashService**: Flash via openFPGALoader
-- **VHDLRAGService**: Template-Matching + Qdrant Vector Search
+- **HDL-Codegenerierung**: OpenCode erzeugt Module und Testbenches; Ollama liefert nur Textdaten wie Architektur und Diagnosen
 - **ProjectMemoryService**: memory.md pro Projekt
 
 ### 7. Domain Plugin System
@@ -53,26 +51,24 @@ Das bestehende `vhdl-agent` System ist eine **Hexagonal Architecture** (Ports & 
 - **VHDL Plugin**: Templates, Prompts, Test-Definitions, Build-Definitions
 
 ### 8. API (FastAPI)
-- REST-Endpunkte für Task-Management, Chat, Projekte, RAG
+- REST-Endpunkte für Task-Management, Chat und Projekte
 - WebSocket für Echtzeit-Events
 
-## Workflow (Legacy)
+## Workflow
 
 ```
 User Request
     ↓
 Classify (new_project/resume/question)
     ↓
-Analyze → RAG Search → Generate Artifacts → Prepare Workspace
+Analyze → Architect → Implement (OpenCode) → Static Check → Simulate
     ↓
-Run Agent (OpenCode) → Test & Repair Loop (max 5) → Validate
-    ↓
-Synthesize (Vivado) → Await Approval → Flash (FPGA) → Complete
+    Debug/Repair (bei Fehlern) → Synthesize → Approval → Flash → Hardware Test
 ```
 
 ## Wichtige Design-Entscheidungen
 
 1. **Human-in-the-Loop**: Approval vor Flash (threading.Event)
 2. **Self-Healing**: Test & Repair Loop mit strukturierten Repair-Instruktionen
-3. **Template-basiert**: Sichere Code-Generierung mit UNTRUSTED DATA-Markierung
+3. **OpenCode für HDL**: Ollama-Codegenerierung ist nicht Teil des Projekt-Dateipfads
 4. **Multi-Board**: FPGA Registry für GateMate A1 und Arty S7-50

@@ -22,12 +22,6 @@ class AnalyzeTaskCommand(Command):
 
 
 @dataclass
-class SearchRAGCommand(Command):
-    request: str = ""
-    domain: str = "vhdl"
-
-
-@dataclass
 class GenerateArtifactsCommand(Command):
     request: str = ""
     analysis: str = ""

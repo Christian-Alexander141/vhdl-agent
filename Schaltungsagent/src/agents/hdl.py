@@ -6,6 +6,12 @@ from typing import Any
 
 from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.domain.models import DesignState, ArchitectureInfo, ModuleInfo
+from src.services.deterministic_design import DeterministicDesignService
+from src.services.design_fallback import RuleBasedFallback
+from src.services.opencode_task_runner import OpenCodeTaskRunner
+from src.services.opencode_service import describe_opencode_failure
+from src.domain.exceptions import OpenCodeDeliveryError, WorkflowError
+from src.domain_plugins.vhdl.templates import VHDLTemplates
 
 logger = logging.getLogger(__name__)
 
@@ -23,27 +29,35 @@ class HDLAgent(BaseAgent):
 
     def __init__(
         self,
-        llm_service,
-        rag_service,
         opencode_service,
         filesystem_service,
         event_publisher=None,
+        task_runner=None,
+        skills_dir: str = ".opencode/skills",
     ):
         super().__init__("HDLAgent", event_publisher)
-        self._llm = llm_service
-        self._rag = rag_service
         self._opencode = opencode_service
         self._fs = filesystem_service
+        self._deterministic = DeterministicDesignService()
+        self._fallback = RuleBasedFallback(self._deterministic)
+        self._task_runner = task_runner or OpenCodeTaskRunner(
+            opencode_service, event_publisher=event_publisher
+        )
+        self._skills_dir = skills_dir
 
     @property
     def supported_task_types(self) -> list[str]:
-        return ["implement_hdl", "modify_hdl", "fix_hdl", "review_hdl"]
+        return ["implement_hdl", "implement_module", "implement_top", "modify_hdl", "fix_hdl", "review_hdl"]
 
     async def execute(self, task: AgentTask) -> AgentResult:
         task_type = task.type
         
         if task_type == "implement_hdl":
             return await self._implement_hdl(task)
+        elif task_type == "implement_module":
+            return await self._implement_module(task)
+        elif task_type == "implement_top":
+            return await self._implement_top(task)
         elif task_type == "modify_hdl":
             return await self._modify_hdl(task)
         elif task_type == "fix_hdl":
@@ -62,6 +76,9 @@ class HDLAgent(BaseAgent):
         architecture = task.inputs.get("architecture", {})
         workspace = task.inputs.get("workspace", "")
         domain = task.inputs.get("domain", "vhdl")
+        request = task.inputs.get("request_full", task.inputs.get("request", ""))
+        change_request = task.inputs.get("change_request", "")
+        analysis = task.inputs.get("analysis", "")
         
         modules = architecture.get("modules", [])
         if not modules:
@@ -84,7 +101,11 @@ class HDLAgent(BaseAgent):
             module = ModuleInfo(**module_data) if isinstance(module_data, dict) else module_data
             
             try:
-                vhdl_code = await self._generate_module_vhdl(module, architecture, domain)
+                vhdl_code = await self._generate_module_vhdl(
+                    module, architecture, domain,
+                    request=request, analysis=analysis, workspace=workspace,
+                    change_request=change_request,
+                )
                 
                 # Datei schreiben
                 file_name = f"{module.name}.vhd"
@@ -103,7 +124,10 @@ class HDLAgent(BaseAgent):
                 all_errors.append({"module": module.name, "error": str(e)})
         
         # Testbenches generieren
-        tb_files = await self._generate_testbenches(modules, workspace, domain)
+        tb_files = await self._generate_testbenches(
+            modules, workspace, domain, request=request, analysis=analysis,
+            change_request=change_request,
+        )
         generated_files.extend(tb_files)
         
         if all_errors:
@@ -123,101 +147,512 @@ class HDLAgent(BaseAgent):
             },
         )
 
-    async def _generate_module_vhdl(
-        self, module: ModuleInfo, architecture: dict, domain: str
-    ) -> str:
-        """Generiert VHDL-Code für ein einzelnes Modul."""
-        
-        # RAG für VHDL-Patterns abfragen
-        vhdl_knowledge = self._rag.retrieve_knowledge(
-            f"VHDL {module.type} module {module.name}", domain
+    async def _implement_module(self, task: AgentTask) -> AgentResult:
+        """Implementiert VHDL + Testbench für genau ein Modul (Graph-Task)."""
+        module_data = task.inputs.get("module", {})
+        architecture = task.inputs.get("architecture", {})
+        workspace = task.inputs.get("workspace", "")
+        domain = task.inputs.get("domain", "vhdl")
+        request = task.inputs.get("request_full", task.inputs.get("request", ""))
+        analysis = task.inputs.get("analysis", "")
+        change_request = task.inputs.get("change_request", "")
+
+        module = ModuleInfo(**module_data) if isinstance(module_data, dict) else module_data
+
+        src_dir = Path(workspace) / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if module.name == "uart":
+                vhdl_code = task.inputs.get("uart_template") or VHDLTemplates.render("uart", "vhdl")
+            else:
+                vhdl_code = await self._generate_module_vhdl(
+                    module, architecture, domain, request=request, analysis=analysis,
+                    workspace=workspace, change_request=change_request,
+                )
+            if not vhdl_code:
+                return AgentResult(
+                    task_id=task.id,
+                    status=AgentStatus.FAILED,
+                    error_message=f"Module generation produced no code for {module.name}",
+                )
+
+            file_name = f"{module.name}.vhd"
+            file_path = src_dir / file_name
+            self._fs.write_file(str(file_path), vhdl_code)
+            files = [f"src/{file_name}"]
+            if (
+                task.inputs.get("uart_required")
+                and module.name == architecture.get("top_module")
+            ):
+                files = self._integrate_uart_top(workspace, architecture, module.name)
+
+            self.emit_event("MODULE_IMPLEMENTED", {
+                "task_id": task.id,
+                "module": module.name,
+                "file": file_name,
+            })
+
+            # Testbench für Leaf-/Top-Module
+            if (
+                module.type == "combinational"
+                or not module.dependencies
+                or module.name == architecture.get("top_module")
+            ):
+                if module.name == "uart":
+                    tb_code = task.inputs.get("uart_testbench") or VHDLTemplates.render(
+                        "uart", "testbench"
+                    )
+                else:
+                    tb_code = await self._generate_testbench(
+                        module, workspace, domain, request=request, analysis=analysis,
+                        change_request=change_request,
+                    )
+                if tb_code and task.inputs.get("uart_required") and module.name == architecture.get("top_module"):
+                    tb_code = self._adapt_uart_testbench(tb_code, workspace, module.name)
+                if tb_code:
+                    tb_dir = Path(workspace) / "tests"
+                    tb_dir.mkdir(parents=True, exist_ok=True)
+                    tb_name = f"{module.name}_tb.vhd"
+                    self._fs.write_file(str(tb_dir / tb_name), tb_code)
+                    files.append(f"tests/{tb_name}")
+
+            return AgentResult(
+                task_id=task.id,
+                status=AgentStatus.COMPLETED,
+                outputs={
+                    "module": module.name,
+                    "files": files,
+                    "generated_files": files,
+                    "expected_artifacts": [f"src/{file_name}"],
+                },
+            )
+        except Exception as e:
+            logger.exception("Failed to implement module %s", module.name)
+            return AgentResult(
+                task_id=task.id,
+                status=AgentStatus.FAILED,
+                error_message=f"Module {module.name} implementation failed: {e}",
+                diagnostics=[{
+                    "type": "implementation_failure",
+                    "module": module.name,
+                    "message": str(e),
+                    **({"failure_type": e.failure_type} if getattr(e, "failure_type", "") else {}),
+                    **({"details": e.to_dict()} if hasattr(e, "to_dict") else {}),
+                }],
+            )
+
+    async def _implement_top(self, task: AgentTask) -> AgentResult:
+        """Erzeugt den Top-Level-Wrapper, der alle Module instanziiert."""
+        architecture = task.inputs.get("architecture", {})
+        workspace = task.inputs.get("workspace", "")
+        request = task.inputs.get("request_full", task.inputs.get("request", ""))
+        change_request = task.inputs.get("change_request", "")
+        analysis = task.inputs.get("analysis", "")
+        modules = architecture.get("modules", [])
+        non_uart_modules = [
+            module for module in modules
+            if (module.get("name", "") if isinstance(module, dict) else module.name).lower() != "uart"
+        ]
+        top_module = architecture.get("top_module") or (
+            non_uart_modules[-1].get("name") if non_uart_modules and isinstance(non_uart_modules[-1], dict)
+            else getattr(non_uart_modules[-1], "name", "") if non_uart_modules else ""
         )
-        
-        # Interface-Signale aufbauen
+
+        if not modules or not top_module:
+            return AgentResult(
+                task_id=task.id,
+                status=AgentStatus.FAILED,
+                error_message="No modules/top_module for integration",
+            )
+
+        if any(
+            (module.get("name", "") if isinstance(module, dict) else module.name) == "uart"
+            for module in modules
+        ):
+            try:
+                files = self._integrate_uart_top(workspace, architecture, top_module)
+            except (OSError, ValueError) as exc:
+                return AgentResult(
+                    task_id=task.id,
+                    status=AgentStatus.FAILED,
+                    error_message=f"UART top-level integration failed: {exc}",
+                )
+            return AgentResult(
+                task_id=task.id,
+                status=AgentStatus.COMPLETED,
+                outputs={
+                    "top_module": top_module,
+                    "files": files,
+                    "generated_files": files,
+                    "expected_artifacts": files,
+                },
+            )
+
+        file_name = f"{top_module}.vhd"
+        relative_path = f"src/{file_name}"
+        request_full = task.inputs.get("request_full", request)
+        instruction = (
+            f"Schreibe das Top-Level direkt in {relative_path}.\n"
+            f"Top-Entity: {top_module}\nArchitektur/Manifest: {architecture}\n"
+            "Lies PROMPT.md vollständig. Verbinde alle Module anhand ihrer Interfaces, "
+            "erzeuge eine gültige VHDL-2008 Entity und Architecture und schreibe sie "
+            "direkt in die Zieldatei. stdout ist nur ein Log."
+        )
+        if change_request:
+            instruction += f"\nZusätzlicher Änderungswunsch:\n{change_request}"
+        delivery = self._task_runner.run(
+            workspace=workspace,
+            request_full=request_full,
+            stage="implement_top",
+            task_instruction=instruction,
+            expected_files=[relative_path],
+            task_id=f"top_{uuid.uuid4().hex[:8]}",
+            skills_dir=self._skills_dir,
+        )
+        wrapper = delivery.files.get(relative_path, "") if delivery.ok else ""
+        if not wrapper:
+            plan = task.inputs.get("plan_manifest", architecture)
+            wrapper = self._fallback.top_vhdl(request_full, plan) or ""
+            if wrapper:
+                self.emit_event("FALLBACK_USED", {
+                    "stage": "implement_top",
+                    "module": top_module,
+                    "reason": delivery.reason,
+                })
+        if not wrapper:
+            error = delivery.error(f"Top-Level '{top_module}'")
+            logger.error("%s", error)
+            return AgentResult(
+                task_id=task.id,
+                status=AgentStatus.FAILED,
+                error_message=str(error),
+                diagnostics=[{
+                    "type": "implementation_failure",
+                    "module": top_module,
+                    "message": str(error),
+                    "details": error.to_dict(),
+                }],
+            )
+        self._fs.write_file(str(Path(workspace) / relative_path), wrapper)
+
+        self.emit_event("TOP_INTEGRATED", {
+            "task_id": task.id,
+            "top_module": top_module,
+            "file": file_name,
+            "module_count": len(modules),
+        })
+
+        return AgentResult(
+            task_id=task.id,
+            status=AgentStatus.COMPLETED,
+            outputs={
+                "top_module": top_module,
+                "files": [f"src/{file_name}"],
+                "generated_files": [f"src/{file_name}"],
+                "expected_artifacts": [f"src/{file_name}"],
+            },
+        )
+
+    def _integrate_uart_top(self, workspace: str, architecture: dict, top_module: str) -> list[str]:
+        """Add an idempotent UART echo bridge without replacing the design entity."""
+        import re
+
+        if not top_module or top_module.lower() == "uart":
+            raise ValueError("UART cannot be used as the design top module")
+        top_path = Path(workspace) / "src" / f"{top_module}.vhd"
+        if not top_path.is_file():
+            raise ValueError(f"Original top-level source not found: {top_path.name}")
+        code = top_path.read_text()
+        entity_end = re.compile(
+            rf"entity\s+{re.escape(top_module)}\s+is.*?end\s+(?:(?:entity\s+)?{re.escape(top_module)}|entity)\s*;",
+            re.IGNORECASE | re.DOTALL,
+        )
+        entity_match = entity_end.search(code)
+        if not entity_match:
+            raise ValueError(f"Could not parse entity {top_module}")
+        entity = entity_match.group(0)
+        port_start = re.search(r"\bport\s*\(", entity, re.IGNORECASE)
+        port_open = entity.find("(", port_start.start()) if port_start else -1
+        port_close = -1
+        if port_open >= 0:
+            depth = 0
+            for index in range(port_open, len(entity)):
+                if entity[index] == "(":
+                    depth += 1
+                elif entity[index] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        port_close = index
+                        break
+        port_text = entity[port_open + 1:port_close] if port_close >= 0 else ""
+        port_declarations = [
+            item.strip() for item in re.sub(r"--[^\n]*", "", port_text).split(";") if item.strip()
+        ]
+        ports: dict[str, tuple[str, str, str]] = {}
+        for declaration in port_declarations:
+            parsed = re.match(
+                r"([\w\s,]+?)\s*:\s*(in|out|inout)\s+(.+)",
+                declaration, re.IGNORECASE | re.DOTALL,
+            )
+            if parsed:
+                for port_name in parsed.group(1).split(","):
+                    actual_name = port_name.strip()
+                    ports[actual_name.lower()] = (
+                        actual_name, parsed.group(2).lower(), parsed.group(3).strip().lower()
+                    )
+
+        additions = []
+        for name, direction in (("uart_rx", "in"), ("uart_tx", "out")):
+            existing = ports.get(name)
+            if existing and (
+                existing[1] != direction or "std_logic" not in existing[2]
+                or "vector" in existing[2]
+            ):
+                raise ValueError(f"Existing {name} must be scalar std_logic {direction}")
+            if not existing:
+                additions.append(f"{name} : {direction} std_logic")
+
+        clock = next(
+            (ports[name][0] for name in ("clk", "clock", "sys_clk", "clk_in")
+             if name in ports and ports[name][1] == "in"),
+            "",
+        )
+        reset = next(
+            (ports[name][0] for name in ("rst", "reset", "reset_n", "rst_n")
+             if name in ports and ports[name][1] == "in"),
+            "",
+        )
+        if not clock:
+            clock = "clk"
+            additions.append("clk : in std_logic")
+        if not reset:
+            reset = "rst"
+            additions.append("rst : in std_logic")
+
+        combined_ports = port_text.strip()
+        if additions and combined_ports and not combined_ports.endswith(";"):
+            combined_ports += ";"
+        if additions:
+            combined_ports += ("\n        " if combined_ports else "") + ";\n        ".join(additions)
+        if port_close >= 0:
+            entity = entity[:port_open + 1] + combined_ports + entity[port_close:]
+        else:
+            entity = re.sub(
+                rf"(end\s+(?:entity\s+)?{re.escape(top_module)}\s*;)",
+                f"port (\n        {combined_ports}\n    );\n\\1",
+                entity, count=1, flags=re.IGNORECASE,
+            )
+        code = code[:entity_match.start()] + entity + code[entity_match.end():]
+
+        uart_module = next(
+            item for item in architecture.get("modules", [])
+            if (item.get("name", "") if isinstance(item, dict) else item.name) == "uart"
+        )
+        params = uart_module.get("parameters", {}) if isinstance(uart_module, dict) else uart_module.parameters
+        reset_expr = f"not {reset}" if reset.lower() in {"reset_n", "rst_n"} else reset
+        architecture_pattern = re.compile(
+            rf"(architecture\s+\w+\s+of\s+{re.escape(top_module)}\s+is)(.*?)(\bbegin\b)",
+            re.IGNORECASE | re.DOTALL,
+        )
+        architecture_match = architecture_pattern.search(code)
+        if not architecture_match:
+            raise ValueError(f"Could not find architecture body for {top_module}")
+        declarations = architecture_match.group(2)
+        if "uart_rx_data" not in declarations.lower():
+            declarations += "\n    signal uart_rx_data : std_logic_vector(7 downto 0);\n    signal uart_rx_valid : std_logic;\n"
+        code = (
+            code[:architecture_match.start()]
+            + architecture_match.group(1) + declarations + architecture_match.group(3)
+            + code[architecture_match.end():]
+        )
+        if "uart_bridge:" not in code.lower():
+            insertion = architecture_match.start() + len(architecture_match.group(1) + declarations + architecture_match.group(3))
+            bridge = (
+                "\n    uart_bridge: entity work.uart\n"
+                f"        generic map (CLOCK_FREQ_HZ => {params.get('CLOCK_FREQ_HZ', 100_000_000)}, "
+                f"BAUD_RATE => {params.get('BAUD_RATE', 115_200)})\n"
+                "        port map (\n"
+                f"            clk => {clock}, rst => {reset_expr},\n"
+                "            uart_rx => uart_rx, uart_tx => uart_tx,\n"
+                "            rx_data => uart_rx_data, rx_valid => uart_rx_valid,\n"
+                "            tx_data => uart_rx_data, tx_valid => uart_rx_valid, tx_ready => open\n"
+                "        );\n"
+            )
+            code = code[:insertion] + bridge + code[insertion:]
+        self._fs.write_file(str(top_path), code)
+        return [f"src/{top_module}.vhd"]
+
+    def _adapt_uart_testbench(self, testbench: str, workspace: str, top_module: str) -> str:
+        """Connect added UART and clock/reset ports in an existing top-level testbench."""
+        import re
+
+        top_code = (Path(workspace) / "src" / f"{top_module}.vhd").read_text()
+        entity = re.search(
+            rf"entity\s+{re.escape(top_module)}\s+is.*?end\s+(?:(?:entity\s+)?{re.escape(top_module)}|entity)\s*;",
+            top_code, re.IGNORECASE | re.DOTALL,
+        )
+        if not entity:
+            return testbench
+        port_start = re.search(r"\bport\s*\(", entity.group(0), re.IGNORECASE)
+        if not port_start:
+            return testbench
+        entity_text = entity.group(0)
+        opening = entity_text.find("(", port_start.start())
+        depth = 0
+        closing = -1
+        for index in range(opening, len(entity_text)):
+            if entity_text[index] == "(":
+                depth += 1
+            elif entity_text[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    closing = index
+                    break
+        if closing < 0:
+            return testbench
+
+        port_text = re.sub(r"--[^\n]*", "", entity_text[opening + 1:closing])
+        top_ports = []
+        for declaration in port_text.split(";"):
+            parsed = re.match(
+                r"([\w\s,]+?)\s*:\s*(in|out|inout)\s+(.+)",
+                declaration.strip(), re.IGNORECASE | re.DOTALL,
+            )
+            if parsed:
+                for formal in parsed.group(1).split(","):
+                    name = formal.strip()
+                    if name.lower() in {"uart_rx", "uart_tx", "clk", "rst", "clock", "reset"}:
+                        top_ports.append((name, parsed.group(2).lower()))
+
+        port_map = re.search(r"port\s+map\s*\(", testbench, re.IGNORECASE)
+        if not port_map:
+            return testbench
+        map_open = testbench.find("(", port_map.start())
+        depth = 0
+        map_close = -1
+        for index in range(map_open, len(testbench)):
+            if testbench[index] == "(":
+                depth += 1
+            elif testbench[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    map_close = index
+                    break
+        if map_close < 0:
+            return testbench
+
+        mapped_text = testbench[map_open + 1:map_close]
+        mapped = {name.lower() for name in re.findall(r"\b([\w]+)\s*=>", mapped_text)}
+        new_maps = [(name, direction) for name, direction in top_ports if name.lower() not in mapped]
+        if not new_maps:
+            return testbench
+
+        declarations = []
+        for name, direction in new_maps:
+            if not re.search(rf"\bsignal\s+{re.escape(name)}\s*:", testbench, re.IGNORECASE):
+                initial = " := '1'" if name.lower() == "uart_rx" else " := '0'" if name.lower() in {"clk", "clock", "rst", "reset"} else ""
+                declarations.append(f"    signal {name} : std_logic{initial};")
+        if declarations:
+            architecture = re.search(r"architecture\s+\w+\s+of\s+\w+\s+is.*?\bbegin\b", testbench, re.IGNORECASE | re.DOTALL)
+            if architecture:
+                insertion = architecture.end() - len("begin")
+                testbench = (
+                    testbench[:insertion] + "\n" + "\n".join(declarations)
+                    + "\n" + testbench[insertion:]
+                )
+                port_map = re.search(r"port\s+map\s*\(", testbench, re.IGNORECASE)
+                map_open = testbench.find("(", port_map.start())
+                depth = 0
+                for index in range(map_open, len(testbench)):
+                    if testbench[index] == "(":
+                        depth += 1
+                    elif testbench[index] == ")":
+                        depth -= 1
+                        if depth == 0:
+                            map_close = index
+                            break
+                mapped_text = testbench[map_open + 1:map_close]
+        additions = ",\n            ".join(f"{name} => {name}" for name, _ in new_maps)
+        separator = ",\n            " if mapped_text.strip() else "\n            "
+        return testbench[:map_close] + separator + additions + testbench[map_close:]
+
+    async def _generate_module_vhdl(
+        self, module: ModuleInfo, architecture: dict, domain: str,
+        request: str = "", analysis: str = "", workspace: str = "",
+        change_request: str = "",
+    ) -> str:
+        """Ask OpenCode to write one module; use a safe template only on delivery failure."""
         ports = self._build_port_list(module)
         generics = self._build_generic_list(module)
-        
-        # Strukturiertes RAG-Wissen aufbauen (mit Fallbacks für robustness)
-        coding_rules = getattr(vhdl_knowledge, 'coding_rules', []) or []
-        reference_designs = getattr(vhdl_knowledge, 'reference_designs', []) or []
-        matched_template = getattr(vhdl_knowledge, 'matched_template', None)
-        template_status = getattr(vhdl_knowledge, 'template_status', 'none')
-        template_score = getattr(vhdl_knowledge, 'template_score', 0.0)
-        template_metadata = getattr(vhdl_knowledge, 'template_metadata', None)
-        
-        coding_rules_text = ""
-        if coding_rules:
-            rules = "\n".join(f"- {rule.description}" for rule in coding_rules[:5])
-            coding_rules_text = f"\nCODING RULES:\n{rules}"
-        
-        reference_text = ""
-        if reference_designs:
-            refs = "\n".join(f"- {ref.name}: {ref.description}" for ref in reference_designs[:3])
-            reference_text = f"\nREFERENCE DESIGNS:\n{refs}"
-        
-        template_text = ""
-        if matched_template and template_status == "matched":
-            template_text = f"\n--- MATCHED TEMPLATE: {matched_template} (score: {template_score:.2f}) ---"
-            if template_metadata:
-                meta = template_metadata
-                template_text += f"\nPurpose: {getattr(meta, 'purpose', '')}"
-                template_text += f"\nInterfaces: {', '.join(getattr(meta, 'interfaces', []))}"
-                if hasattr(meta, 'fpga_family') and meta.fpga_family:
-                    template_text += f"\nFPGA: {meta.fpga_family}"
-                template_text += "\nUse this template as reference, adapt to current requirements."
-        
-        prompt = f"""Du bist ein VHDL-Experte. Generiere synthesizable VHDL-Code für folgendes Modul:
-
-MODUL:
-- Name: {module.name}
-- Typ: {module.type} (combinational/sequential/fsm)
-- Generics: {generics}
-- Ports: {ports}
-- Beschreibung: {module.description}
-- Dependencies: {module.dependencies}
-
-ARCHITEKTUR-KONTEXT:
-- Clock Domain: {architecture.get('clock_domain', 'clk')}
-- Reset Concept: {architecture.get('reset_concept', 'async_active_high')}
-{coding_rules_text}
-{reference_text}
-{template_text}
-
-VHDL CODING GUIDELINES:
-- IEEE 1076-2008 Standard
-- Keine wait-Anweisungen in synthesizable Code
-- Asynchroner Reset: process(clk, rst) mit rst in sensitivity list
-- Synchroner Reset: process(clk) mit if rst then
-- Keine ungebundenen Loops in Kombinatorik
-- Alle Signale in sensitivity list (Kombinatorik) oder clock edge (Sequentiell)
-- Explizite Typ-Definitionen für Ports
-
-WICHTIG: Generiere NUR den VHDL-Code (Entity + Architecture). Keine Erklärungen."""
-        
-        vhdl_code = self._llm.generate_code(prompt, temperature=0.1)
-        
-        # Code validieren und bereinigen
-        vhdl_code = self._clean_vhdl_code(vhdl_code)
-        
-        return vhdl_code
+        target_file = f"src/{module.name}.vhd"
+        request_full = request
+        instruction = (
+            f"Schreibe die VHDL-Implementierung direkt in {target_file}.\n"
+            f"Modul: {module.model_dump()}\nInterface: {ports}\nGenerics: {generics}\n"
+            f"Architektur: clock_domain={architecture.get('clock_domain', 'clk')}; "
+            f"reset={architecture.get('reset_concept', 'async_active_high')}\n"
+            "Lies den vollständigen Originalprompt. Er ist maßgeblich und darf nicht "
+            "gekürzt oder ersetzt werden. Erzeuge VHDL-2008; die Entity muss exakt "
+            f"{module.name} heißen. Schreibe die Datei selbst, stdout ist nur ein Log."
+        )
+        if change_request:
+            instruction += f"\nZusätzlicher Änderungswunsch:\n{change_request}"
+        delivery = self._task_runner.run(
+            workspace=workspace,
+            request_full=request_full,
+            stage="implement_module",
+            task_instruction=instruction,
+            expected_files=[target_file],
+            task_id=f"{module.name}_{uuid.uuid4().hex[:8]}",
+            skills_dir=self._skills_dir,
+        )
+        vhdl_code = delivery.files.get(target_file, "") if delivery.ok else ""
+        if not vhdl_code:
+            vhdl_code = self._fallback.module_vhdl(request_full, module.name) or ""
+            if vhdl_code:
+                self.emit_event("FALLBACK_USED", {
+                    "stage": "implement_module",
+                    "module": module.name,
+                    "reason": delivery.reason,
+                })
+        if not vhdl_code:
+            error = delivery.error(f"Modul '{module.name}'")
+            if not error.hint:
+                error.hint = "Für dieses Modul gibt es keine sichere Vorlage als Ersatz."
+            raise error
+        return self._clean_vhdl_code(vhdl_code)
 
     def _build_port_list(self, module: ModuleInfo) -> str:
         """Erstellt Port-Liste als String."""
         ports = []
+        
+        width = module.parameters.get("width", None)
+        if width is not None and isinstance(width, int):
+            vector_type = f"std_logic_vector({width - 1} downto 0)"
+        else:
+            vector_type = "std_logic_vector"
         
         # Clock und Reset hinzufügen für sequentielle Module
         if module.type in ["sequential", "fsm"]:
             ports.append("clk : in std_logic")
             ports.append("rst : in std_logic")
         
+        # Typisierter Contract (module.ports) hat Vorrang vor geratenen Typen.
+        contract = {name.lower(): spec for name, spec in (module.ports or {}).items()}
+
+        def port_type(name: str) -> str:
+            spec = contract.get(name.lower())
+            return spec.get("type", vector_type) if isinstance(spec, dict) else vector_type
+
         # Inputs (ohne clk/rst, die schon oben hinzugefügt wurden)
         for inp in module.inputs:
             if inp not in ["clk", "rst"]:
-                ports.append(f"{inp} : in std_logic_vector")
+                ports.append(f"{inp} : in {port_type(inp)}")
         
         # Outputs
         for out in module.outputs:
-            ports.append(f"{out} : out std_logic_vector")
+            ports.append(f"{out} : out {port_type(out)}")
         
         return "; ".join(ports)
 
@@ -243,7 +678,8 @@ WICHTIG: Generiere NUR den VHDL-Code (Entity + Architecture). Keine Erklärungen
         return code
 
     async def _generate_testbenches(
-        self, modules: list, workspace: str, domain: str
+        self, modules: list, workspace: str, domain: str,
+        request: str = "", analysis: str = "", change_request: str = "",
     ) -> list[str]:
         """Generiert Testbenches für alle Module."""
         workspace_path = Path(workspace)
@@ -258,7 +694,14 @@ WICHTIG: Generiere NUR den VHDL-Code (Entity + Architecture). Keine Erklärungen
             # Nur für Leaf-Module oder Haupt-Module Testbenches
             if module.type == "combinational" or not module.dependencies:
                 try:
-                    tb_code = await self._generate_testbench(module, workspace, domain)
+                    tb_code = await self._generate_testbench(
+                        module, workspace, domain,
+                        request=request, analysis=analysis,
+                        change_request=change_request,
+                    )
+
+                    if not tb_code:
+                        continue
                     
                     file_name = f"{module.name}_tb.vhd"
                     file_path = tb_dir / file_name
@@ -271,34 +714,71 @@ WICHTIG: Generiere NUR den VHDL-Code (Entity + Architecture). Keine Erklärungen
         return tb_files
 
     async def _generate_testbench(
-        self, module: ModuleInfo, workspace: str, domain: str
+        self, module: ModuleInfo, workspace: str, domain: str,
+        request: str = "", analysis: str = "", change_request: str = "",
     ) -> str:
-        """Generiert Testbench für ein Modul."""
-        
-        vhdl_knowledge = self._rag.retrieve_knowledge(
-            f"VHDL testbench {module.name}", domain
-        )
-        
+        """Ask OpenCode to write a testbench file and use only a safe fallback."""
         ports = self._build_port_list(module)
-        
-        prompt = f"""Generiere eine VHDL-Testbench für folgendes Modul:
+        target_file = f"tests/{module.name}_tb.vhd"
+        instruction = (
+            f"Schreibe die VHDL-2008-Testbench direkt in {target_file}.\n"
+            f"DUT-Entity: {module.name}\nTyp: {module.type}\nPorts: {ports}\n"
+            "Lies PROMPT.md vollständig und prüfe alle darin beschriebenen Funktionen. "
+            "Die Testbench muss die Entity exakt als <DUT>_tb benennen, Assertions "
+            "enthalten und mit GHDL ausführbar sein. Schreibe das Ergebnis in die Datei; "
+            "stdout ist nur ein Log."
+        )
+        if change_request:
+            instruction += f"\nZusätzlicher Änderungswunsch:\n{change_request}"
+        delivery = self._task_runner.run(
+            workspace=workspace,
+            request_full=request,
+            stage="implement_testbench",
+            task_instruction=instruction,
+            expected_files=[target_file],
+            task_id=f"{module.name}_{uuid.uuid4().hex[:8]}",
+            skills_dir=self._skills_dir,
+        )
+        testbench = delivery.files.get(target_file, "") if delivery.ok else ""
+        if not testbench:
+            # Kein Abbruch: fehlende Testbenches fängt das Coverage-Gate ab.
+            logger.warning("%s", delivery.error(f"Testbench für '{module.name}'"))
+            testbench = self._fallback.testbench_vhdl(request, module.name) or ""
+            if testbench:
+                self.emit_event("FALLBACK_USED", {
+                    "stage": "implement_testbench",
+                    "module": module.name,
+                    "reason": delivery.reason,
+                })
+        return self._clean_vhdl_code(testbench) if testbench else ""
 
-MODUL: {module.name}
-PORTS: {ports}
-TYP: {module.type}
+    def _opencode_call_failed(
+        self, task: AgentTask, subject: str, exc: WorkflowError, module: str = "",
+    ) -> AgentResult:
+        """OpenCode-Aufruf scheiterte (Zeitlimit, Docker, Programm fehlt).
 
-ANFORDERUNGEN:
-- Vollständige Testbench mit Clock/Reset Generation
-- Stimulus für alle Input-Kombinationen (kombinatorisch) oder State-Transitions (sequentiell)
-- Assertions für erwartete Outputs
-- Report am Ende: "TB_COMPLETE: PASS" oder "TB_COMPLETE: FAIL"
-- Stop-Time: 20 us für kombinatorisch, 50 us für sequentiell
-- GHDL-kompatibel (keine VHDL-2019 Features)
-
-Generiere COMPLETE VHDL Testbench Code."""
-
-        tb_code = self._llm.generate_code(prompt, temperature=0.1)
-        return self._clean_vhdl_code(tb_code)
+        Ergebnis statt Ausnahme: Der Supervisor kann den Fehler klassifizieren
+        und weiterleiten, statt dass der ganze Workflow abbricht.
+        """
+        exc.message = f"{subject}: {exc.message}"
+        logger.error("OPENCODE_FAILED %s", exc)
+        self.emit_event("OPENCODE_FAILED", {
+            "task_id": task.id,
+            "module": module,
+            "error": str(exc),
+        })
+        return AgentResult(
+            task_id=task.id,
+            status=AgentStatus.FAILED,
+            error_message=str(exc),
+            diagnostics=[{
+                "type": "opencode_failure",
+                "message": str(exc),
+                "modules": [module] if module else [],
+                **({"failure_type": exc.failure_type} if exc.failure_type else {}),
+                "details": exc.to_dict(),
+            }],
+        )
 
     async def _modify_hdl(self, task: AgentTask) -> AgentResult:
         """Modifiziert existierenden VHDL-Code."""
@@ -325,10 +805,13 @@ Generiere COMPLETE VHDL Testbench Code."""
         current_code = self._fs.read_file(str(full_path))
         
         # Modifikation via OpenCode
-        result = self._opencode.execute(
-            workspace,
-            f"Modifiziere {file_path} gemäß: {instruction}\n\nAktueller Code:\n{current_code}",
-        )
+        try:
+            result = self._opencode.execute(
+                workspace,
+                f"Modifiziere {file_path} gemäß: {instruction}\n\nAktueller Code:\n{current_code}",
+            )
+        except WorkflowError as exc:
+            return self._opencode_call_failed(task, f"Änderung an {file_path}", exc)
         
         if result.success:
             return AgentResult(
@@ -337,10 +820,16 @@ Generiere COMPLETE VHDL Testbench Code."""
                 outputs={"modified_file": file_path},
             )
         else:
+            cause, hint = describe_opencode_failure(result.returncode, result.stdout, result.stderr)
+            error = OpenCodeDeliveryError(
+                f"Änderung an {file_path} fehlgeschlagen",
+                cause=cause, hint=hint,
+                context={"Exit-Code": result.returncode, "stderr (Ende)": (result.stderr or "")[-2000:]},
+            )
             return AgentResult(
                 task_id=task.id,
                 status=AgentStatus.FAILED,
-                error_message=f"Modification failed: {result.stderr}",
+                error_message=str(error),
             )
 
     async def _fix_hdl(self, task: AgentTask) -> AgentResult:
@@ -359,7 +848,7 @@ Generiere COMPLETE VHDL Testbench Code."""
 
         # Build comprehensive context for OpenCode
         from src.services.opencode_context import OpenCodeContextBuilder
-        context_builder = OpenCodeContextBuilder(self._fs, self._rag)
+        context_builder = OpenCodeContextBuilder(self._fs)
 
         context = context_builder.build_context(
             workspace=workspace,
@@ -433,7 +922,12 @@ IMPORTANT:
             "affected_files": affected_files,
         })
 
-        result = self._opencode.execute(workspace, instruction)
+        try:
+            result = self._opencode.execute(workspace, instruction)
+        except WorkflowError as exc:
+            return self._opencode_call_failed(
+                task, f"Reparatur von '{failed_module or 'Design'}'", exc, module=failed_module,
+            )
 
         if result.success:
             logger.info("OPENCODE_COMPLETED module=%s", failed_module)
@@ -453,18 +947,28 @@ IMPORTANT:
                 },
             )
         else:
-            logger.error("OPENCODE_FAILED module=%s error=%s", failed_module, result.stderr)
+            cause, hint = describe_opencode_failure(result.returncode, result.stdout, result.stderr)
+            error = OpenCodeDeliveryError(
+                f"Reparatur von '{failed_module or 'Design'}' fehlgeschlagen",
+                cause=cause, hint=hint,
+                context={
+                    "Exit-Code": result.returncode,
+                    "Betroffene Dateien": ", ".join(affected_files),
+                    "stderr (Ende)": (result.stderr or "")[-2000:],
+                },
+            )
+            logger.error("OPENCODE_FAILED %s", error)
             self.emit_event("OPENCODE_FAILED", {
                 "task_id": task.id,
                 "module": failed_module,
-                "error": result.stderr,
+                "error": str(error),
                 "stdout": result.stdout[-4000:],
                 "stderr": result.stderr[-4000:],
             })
             return AgentResult(
                 task_id=task.id,
                 status=AgentStatus.FAILED,
-                error_message=f"Fix failed: {result.stderr}",
+                error_message=str(error),
             )
 
     async def _review_hdl(self, task: AgentTask) -> AgentResult:

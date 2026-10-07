@@ -11,37 +11,70 @@ class LLMConfig:
     base_url: str = "http://localhost:11434"
     temperature: float = 0.1
     max_tokens: int = 4096
+    context_window: int = 32768
+    api_key_file: str = ""
+    chat_timeout_seconds: float = 120.0
+    naming_timeout_seconds: float = 30.0
+    naming_max_tokens: int = 96
+    fallback_model: str = "llama3.2:1b"
+    fallback_cooldown: float = 60.0
+    primary_timeout: float = 120.0
+    fallback_timeout: float = 600.0
 
 
-@dataclass
-class RAGConfig:
-    enabled: bool = True
-    vector_store: str = "qdrant"
-    vector_store_path: str = "./memory/qdrant"
-    embedding_model: str = "jina-embeddings-v5-text-small"
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
-    max_results: int = 5
-    data_dir: str = "./Dateien"
-    memory_dir: str = "./memory"
+
 
 
 @dataclass
 class WorkspaceConfig:
     base_dir: str = "./projects"
     cleanup_on_failure: bool = False
+    cleanup_temp_files: bool = True
     cleanup_ttl_hours: int = 72
     keep_logs: bool = True
     max_workspaces: int = 100
 
 
 @dataclass
+class LimitsConfig:
+    max_prompt_bytes: int = 200_000
+    # Unabhängige Module, die gleichzeitig von HDL-Workern implementiert
+    # werden. 1 = sequentiell (ressourcenschonend für lokales OpenCode).
+    max_parallel_workers: int = 2
+
+
+@dataclass
+class KnowledgeConfig:
+    enabled: bool = True
+
+
+@dataclass
 class OpenCodeConfig:
     binary: str = "opencode"
+    model: str = "opencode/mimo-v2.6-flash-free"
+    fallback_model: str = "opencode/mimo-v2.6-flash-free"
     default_timeout: int = 600
+    plan_timeout_seconds: int = 180
+    skills_dir: str = ".opencode/skills"
     max_repair_iterations: int = 5
-    use_docker: bool = False
+    # Ausführung: produktiv IMMER in Docker. Nur der Testmodus führt OpenCode
+    # nativ auf dem Host aus (für Rechner ohne ausreichende Docker-Leistung).
     test_mode: bool = False
+    # Veraltet: wird ignoriert; Docker gilt immer, wenn test_mode false ist.
+    use_docker: bool = True
+    # "per_task": eigener Container je Auftrag (docker run --rm), nur das
+    #             Projektverzeichnis ist eingebunden (empfohlen).
+    # "shared":   docker exec in einen laufenden Container (docker_container),
+    #             der projects/ unter docker_workspace eingebunden hat.
+    docker_isolation: str = "per_task"
+    docker_image: str = "ghcr.io/anomalyco/opencode:latest"
+    docker_binary: str = "opencode"
+    docker_network: str = "bridge"
+    docker_memory: str = ""        # z. B. "4g"; leer = kein Limit
+    docker_cpus: str = ""          # z. B. "2"; leer = kein Limit
+    # Host-Verzeichnis mit OpenCode-Zugangsdaten, wird schreibgeschützt
+    # eingebunden (z. B. ~/.local/share/opencode). Leer = keine Zugangsdaten.
+    docker_auth_dir: str = ""
     docker_container: str = "opencode-agent"
     docker_workspace: str = "/workspace"
     docker_host_workspace: str = "./projects"
@@ -109,6 +142,27 @@ class SynthesisConfig:
 
 
 @dataclass
+class HardwareTestConfig:
+    # Serieller Port der USB-UART-Brücke (z. B. /dev/ttyUSB1). Leer = keine
+    # echte Hardware: Hardwaretests werden übersprungen, nie als bestanden
+    # gemeldet.
+    uart_port: str = ""
+    baudrate: int = 115200
+    timeout_seconds: float = 5.0
+
+
+@dataclass
+class VerificationGateConfig:
+    # Mindestanteil der Architekturmodule, die von einer simulierten
+    # Testbench erreicht werden müssen, bevor synthetisiert wird.
+    min_module_coverage: float = 1.0
+    # Contract-Verletzungen (Ports, Richtung, Breite) blockieren den Static Check.
+    enforce_contracts: bool = True
+    # Timing-Gate: WNS/WHS müssen >= 0 sein; fehlende Reports blockieren.
+    require_timing_closure: bool = True
+
+
+@dataclass
 class FpgaConfig:
     # Ein Eintrag aus der FPGA-Registry (fpgas.yaml).
     family: str = ""
@@ -123,8 +177,9 @@ class FpgaConfig:
 @dataclass
 class Settings:
     llm: LLMConfig = field(default_factory=LLMConfig)
-    rag: RAGConfig = field(default_factory=RAGConfig)
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
+    limits: LimitsConfig = field(default_factory=LimitsConfig)
+    knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     opencode: OpenCodeConfig = field(default_factory=OpenCodeConfig)
     ghdl: GHDLConfig = field(default_factory=GHDLConfig)
     vivado: VivadoConfig = field(default_factory=VivadoConfig)
@@ -134,6 +189,8 @@ class Settings:
     domains: DomainsConfig = field(default_factory=DomainsConfig)
     eda_tools: EdaToolsConfig = field(default_factory=EdaToolsConfig)
     synthesis: SynthesisConfig = field(default_factory=SynthesisConfig)
+    hardware_test: HardwareTestConfig = field(default_factory=HardwareTestConfig)
+    gates: VerificationGateConfig = field(default_factory=VerificationGateConfig)
 
     _config_dir: str = ""
 
@@ -172,10 +229,12 @@ def load_config(config_path: str | None = None) -> Settings:
 
     if "llm" in data:
         settings.llm = LLMConfig(**data["llm"])
-    if "rag" in data:
-        settings.rag = RAGConfig(**data["rag"])
     if "workspace" in data:
         settings.workspace = WorkspaceConfig(**data["workspace"])
+    if "limits" in data:
+        settings.limits = LimitsConfig(**data["limits"])
+    if "knowledge" in data:
+        settings.knowledge = KnowledgeConfig(**data["knowledge"])
     if "opencode" in data:
         settings.opencode = OpenCodeConfig(**data["opencode"])
     if "ghdl" in data:
@@ -199,6 +258,10 @@ def load_config(config_path: str | None = None) -> Settings:
         settings.eda_tools = EdaToolsConfig(**data["eda_tools"])
     if "synthesis" in data:
         settings.synthesis = SynthesisConfig(**data["synthesis"])
+    if "hardware_test" in data:
+        settings.hardware_test = HardwareTestConfig(**data["hardware_test"])
+    if "gates" in data:
+        settings.gates = VerificationGateConfig(**data["gates"])
 
     if os.environ.get("VHDL_AGENT_TEST_MODE", "").lower() in {"1", "true", "yes", "on"}:
         settings.opencode.test_mode = True

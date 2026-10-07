@@ -1,0 +1,5 @@
+Erstelle einen 4-Bit Zähler mit Enable-Eingang und asynchronem Reset (active high). 
+Der Zähler soll bei jedem Clock-Zyklus inkrementieren, wenn enable='1' ist.
+Entity-Name: counter_4bit
+Ports: clk, rst, enable (in), count (out, 4-bit)
+Taktfrequenz: 50 MHz
