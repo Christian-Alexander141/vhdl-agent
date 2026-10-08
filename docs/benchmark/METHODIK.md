@@ -117,3 +117,4 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
 |---|---|---|
 | 2026-10-08 11:33 | ungültig, keine Daten | Workspaces lagen im Repo, und OpenCode arbeitete wegen `$PWD` im Quellbaum (Doku #16/#17). Abgebrochen, Repo bereinigt. |
 | `20261008-121802` | abgebrochen nach 8 von 27 Läufen | Älterer Code-Stand: vor Doku #18 (Fehlklassifikation `clock_reset_error`) und #19 (vorzeitiger Modellabbruch), noch ohne Referenz-Testbench. Ergebnisse und nachträgliche Referenzprüfung in `ergebnisse/20261008-121802-abgebrochen/`. |
+| `20261008-161755` | läuft (2 Runden, 18 Läufe) | Code-Stand = Commit `73769ce` (geprüft: alle 24 in `meta.json` erfassten Dateiprüfsummen stimmen mit dem Commit überein). Erster Lauf mit Referenz-Testbench, abwechselnder Reihenfolge und Doku #16–#19. |

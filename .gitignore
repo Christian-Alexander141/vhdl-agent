@@ -70,3 +70,6 @@ Thumbs.db
 # Ignore virtual environment marker files
 pip-log.txt
 pip-delete-this-directory.txt
+
+# Benchmark-Logs sind Teil der dokumentierten Messergebnisse
+!docs/benchmark/**/*.log
