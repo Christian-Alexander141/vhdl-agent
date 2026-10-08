@@ -1,0 +1,2 @@
+round,prompt,variant,model,passed,validator,ref_passed,ref_detail,duration_s,final_stage,failure_type,mast_category,started_at,workspace,note
+1,03_ampel,single,opencode/nemotron-3.5-lightning-free,False,GHDL simulation failed for ampel_tb (runtime error or failed assertion),False,-r: /home/alex/Dokumente/Github/vhdl-agent/Schaltungsagent/benchmark/reference/03_ampel_ref_tb.vhd:113:9:@2016ns:(assertion error): REF_FAIL kein vollstaendiger Zyklus in 200 Takten,1600.0,,,,2026-10-08T16:17:57,/home/alex/vhdl-agent-benchmark/20261008-161755/03_ampel-single-1,

@@ -57,9 +57,16 @@ class OpenCodeConfig:
     plan_timeout_seconds: int = 180
     skills_dir: str = ".opencode/skills"
     max_repair_iterations: int = 5
-    # Ausführung: produktiv IMMER in Docker. Nur der Testmodus führt OpenCode
-    # nativ auf dem Host aus (für Rechner ohne ausreichende Docker-Leistung).
+    # Ausführung: test_mode=true führt OpenCode nativ auf dem Host aus (GHDL
+    # steht den Workern dann direkt zur Verfügung). Docker-Isolation ist für
+    # den Produktivbetrieb vorgesehen und wird erst wieder aufgenommen, wenn
+    # das MAS einem einzelnen OpenCode (gleiches Modell) überlegen ist.
     test_mode: bool = False
+    # "modular": ein OpenCode-Aufruf je Modul/Testbench (TaskGraph, parallel).
+    # "single_session": ein OpenCode-Aufruf implementiert das ganze Projekt
+    #   mit gemeinsamem Kontext; die Gates, Reparatur und Hardware-Stufen des
+    #   MAS bleiben unverändert.
+    implementation_mode: str = "modular"
     # Veraltet: wird ignoriert; Docker gilt immer, wenn test_mode false ist.
     use_docker: bool = True
     # "per_task": eigener Container je Auftrag (docker run --rm), nur das
@@ -149,6 +156,10 @@ class HardwareTestConfig:
     uart_port: str = ""
     baudrate: int = 115200
     timeout_seconds: float = 5.0
+    # UART-Echo-Brücke ins Top-Level einbauen: "auto" nur bei echtem
+    # Hardwaretest (uart_port gesetzt), definierten hardware_tests oder wenn
+    # die Anforderung UART erwähnt; "always" / "off" erzwingen es.
+    uart_integration: str = "auto"
 
 
 @dataclass

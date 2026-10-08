@@ -34,6 +34,10 @@ _ROUTES: dict[str, RepairTarget] = {
     # Synthese/Timing
     "synthesis_error": RepairTarget.FPGA,
     "timing_error": RepairTarget.FPGA,
+    # Simulation grün, Hardware weicht ab: echter HDL-Fehler, der sich nur im
+    # Hardwarekontext zeigt (CDC, Reset-Annahmen, Initialwerte) - gehört damit
+    # zur selben Reparaturklasse wie Synthese-/Timing-Fehler, nicht zu HUMAN.
+    "simulation_hardware_divergence": RepairTarget.FPGA,
     # Nicht durch Code-Agenten reparierbar
     "resource_error": RepairTarget.HUMAN,
     "constraint_error": RepairTarget.HUMAN,

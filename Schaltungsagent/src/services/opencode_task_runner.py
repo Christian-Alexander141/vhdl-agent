@@ -23,6 +23,7 @@ STAGE_SKILLS: dict[str, list[str]] = {
     "implement_module": ["vhdl-synthesis-rules", "vhdl-fsm"],
     "implement_testbench": ["vhdl-testbench", "vhdl-synthesis-rules"],
     "implement_top": ["vhdl-synthesis-rules", "arty-s7-50-board"],
+    "implement_project": ["vhdl-synthesis-rules", "vhdl-fsm", "vhdl-testbench"],
     "review_and_fix": ["ghdl-vivado-errors", "vhdl-synthesis-rules", "arty-s7-50-board"],
 }
 
@@ -107,9 +108,25 @@ _IGNORED_SNAPSHOT_PARTS = {
     # geänderte Datei" in Fehlermeldungen auf und verschleiert die echte
     # Ursache (siehe Bugreport: "manifest.json fehlt" zeigte nur
     # node_modules-Dateien statt eines Hinweises auf das eigentliche Problem).
-    ".opencode_tasks", ".opencode",
+    ".opencode_tasks", ".opencode", "opencode.json",
     ".git", "build", "__pycache__", "node_modules",
 }
+
+
+# Ein Aufruf, der so kurz läuft, mit Exit-Code 0 endet und gar nichts schreibt,
+# ist kein Lösungsversuch, sondern ein vorzeitiger Abbruch des Modells (im
+# Benchmark beobachtet: Antwort endete nach 24 s mitten im Satz). Einmal
+# wiederholen statt sofort Reparatur oder Abbruch auszulösen.
+EARLY_STOP_RETRY_SECONDS = 180
+
+
+def _ended_prematurely(result, changed: list[str], duration: float, root: Path, expected_files: list[str]) -> bool:
+    if result.returncode != 0 or changed or duration >= EARLY_STOP_RETRY_SECONDS:
+        return False
+    cause, _ = describe_opencode_failure(result.returncode, result.stdout or "", result.stderr or "")
+    if cause and is_provider_failure(cause):  # Rate-Limit o. Ä.: Wiederholen hilft nicht
+        return False
+    return any(not (root / name).is_file() for name in expected_files)
 
 
 def _snapshot(workspace: Path) -> dict[str, float]:
@@ -274,21 +291,37 @@ class OpenCodeTaskRunner:
             "stage": stage, "prompt_sha256": digest, "runner": runner,
             "task_file": task_path.relative_to(root).as_posix(),
         }
-        try:
-            result = self._opencode.execute(
-                workspace, short_instruction, timeout_seconds=timeout_seconds
-            )
-        except Exception as exc:
-            cause = getattr(exc, "cause", "") or str(exc)
-            self._emit(stage, task_id, digest, len(request_full), False, cause)
-            return OpenCodeDelivery(
-                ok=False, stderr=str(exc), reason=cause, hint=getattr(exc, "hint", ""),
-                exception=exc, duration_s=time.monotonic() - started,
-                file_status={name: "nicht erzeugt" for name in expected_files}, **base,
-            )
+        attempt = 0
+        while True:
+            attempt += 1
+            attempt_started = time.monotonic()
+            try:
+                result = self._opencode.execute(
+                    workspace, short_instruction, timeout_seconds=timeout_seconds
+                )
+            except Exception as exc:
+                cause = getattr(exc, "cause", "") or str(exc)
+                self._emit(stage, task_id, digest, len(request_full), False, cause)
+                return OpenCodeDelivery(
+                    ok=False, stderr=str(exc), reason=cause, hint=getattr(exc, "hint", ""),
+                    exception=exc, duration_s=time.monotonic() - started,
+                    file_status={name: "nicht erzeugt" for name in expected_files}, **base,
+                )
+            after = _snapshot(root)
+            changed = sorted(name for name, mtime in after.items() if before.get(name) != mtime)
+            if attempt < 2 and _ended_prematurely(
+                result, changed, time.monotonic() - attempt_started, root, expected_files,
+            ):
+                logger.warning(
+                    "OPENCODE_EARLY_STOP stage=%s task_id=%s: Modell endete nach %.0f s ohne "
+                    "Datei (Exit 0); einmalige Wiederholung", stage, task_id,
+                    time.monotonic() - attempt_started,
+                )
+                self._emit(stage, task_id, digest, len(request_full), False,
+                           "early stop without output; retrying once")
+                continue
+            break
         duration = time.monotonic() - started
-        after = _snapshot(root)
-        changed = sorted(name for name, mtime in after.items() if before.get(name) != mtime)
 
         files: dict[str, str] = {}
         file_status: dict[str, str] = {}

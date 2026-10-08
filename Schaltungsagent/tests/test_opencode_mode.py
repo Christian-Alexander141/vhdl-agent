@@ -81,7 +81,7 @@ def test_per_task_refuses_paths_outside_projects(tmp_path):
 def test_shared_container_uses_exec_into_project_path(tmp_path):
     service, projects = _per_task_service(tmp_path, isolation="shared", container="oc")
     cmd = service.build_command(str(projects / "counter"), "do it")
-    assert cmd[:5] == ["docker", "exec", "-w", "/workspace/counter", "oc"]
+    assert cmd[:6] == ["docker", "exec", "-t", "-w", "/workspace/counter", "oc"]
 
 
 @pytest.mark.parametrize("stderr", [

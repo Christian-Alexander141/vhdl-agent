@@ -18,6 +18,29 @@ from src.domain.exceptions import (
 logger = logging.getLogger(__name__)
 
 
+NATIVE_GUARD_FILE = "opencode.json"
+NATIVE_GUARD_CONFIG = {
+    "$schema": "https://opencode.ai/config.json",
+    "permission": {"external_directory": "deny"},
+}
+
+
+def ensure_native_guard(project_path: str) -> None:
+    """Sperrt nativen OpenCode-Läufen den Zugriff außerhalb des Projektordners.
+
+    OpenCode erlaubt nativ standardmäßig alles. Ein Benchmark-Lauf hat sich
+    deshalb im Repo umgesehen und Dateien unter einem halluzinierten Pfad
+    angelegt. Die Sperre wirkt für Read/Edit und Shell-Befehle, aber nur
+    außerhalb des Git-Repos, in dem der Workspace liegt: OpenCode betrachtet
+    das ganze Repo als Projekt. Workspaces gehören deshalb nicht ins Repo.
+    Eine vorhandene opencode.json des Projekts bleibt unangetastet.
+    """
+    path = Path(project_path) / NATIVE_GUARD_FILE
+    if path.exists() or not Path(project_path).is_dir():
+        return
+    path.write_text(json.dumps(NATIVE_GUARD_CONFIG, indent=2) + "\n", encoding="utf-8")
+
+
 def _run_via_pty(cmd: list[str], cwd: str | None, timeout: float) -> subprocess.CompletedProcess:
     """Führt ``cmd`` mit einem echten Pseudo-Terminal für stdin/stdout/stderr aus.
 
@@ -40,9 +63,16 @@ def _run_via_pty(cmd: list[str], cwd: str | None, timeout: float) -> subprocess.
     """
     master_fd, slave_fd = pty.openpty()
     try:
+        # OpenCode wählt sein Sitzungsverzeichnis nach $PWD, nicht nach dem
+        # Prozess-cwd. Ohne Anpassung erbte jeder Worker das Startverzeichnis
+        # des Python-Prozesses (z. B. den Quellbaum) und arbeitete dort statt
+        # im Projekt-Workspace.
+        env = dict(os.environ)
+        if cwd:
+            env["PWD"] = str(Path(cwd).resolve())
         proc = subprocess.Popen(
             cmd, cwd=cwd, stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-            close_fds=True, start_new_session=True,
+            close_fds=True, start_new_session=True, env=env,
         )
     finally:
         os.close(slave_fd)
@@ -357,6 +387,7 @@ class SubprocessOpenCodeService(OpenCodeService):
         if effective_model:
             cmd.extend(["--model", effective_model])
         cmd.append(instruction)
+        ensure_native_guard(project_path)
         return _run_via_pty(cmd, cwd=project_path, timeout=timeout)
 
     def _should_use_fallback(self, result: subprocess.CompletedProcess) -> bool:

@@ -65,6 +65,11 @@ class ModuleInfo(BaseModel):
     files: list[str] = Field(default_factory=list)
     # Maschinenprüfbarer Port-Contract: {port: {"direction": "in", "type": "..."}}
     ports: dict = Field(default_factory=dict)
+    # Golden-Model-Vektoren für die Simulation: [{"inputs": {...}, "expected": {...},
+    # "after_clocks": int, "requirement": "..."}]. Aus der Spezifikation
+    # abgeleitete, verbindliche Erwartungswerte statt selbst erfundener
+    # Testbench-Annahmen (siehe test_plan.format_simulation_vectors).
+    simulation_vectors: list[dict] = Field(default_factory=list)
 
 
 class ArchitectureInfo(BaseModel):

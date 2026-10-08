@@ -286,8 +286,8 @@
                             <div class="settings-field">
                                 <label for="set-exec-mode">Ausführungsmodus</label>
                                 <select id="set-exec-mode" data-setting="opencode.test_mode" data-type="bool">
-                                    <option value="false">Docker – isoliert (Produktiv)</option>
-                                    <option value="true">Nativ auf dem Host (nur Testmodus)</option>
+                                    <option value="false">Docker – isoliert (Produktiv, zurückgestellt bis MAS-Nachweis)</option>
+                                    <option value="true">Nativ auf dem Host (aktuelle Evaluationsphase)</option>
                                 </select>
                             </div>
                             <div class="settings-field docker-only">
@@ -390,11 +390,19 @@
                                 <label for="set-coverage">Mindest-Modulabdeckung (0–1) ⟳</label>
                                 <input type="number" id="set-coverage" data-setting="gates.min_module_coverage" min="0" max="1" step="0.05">
                             </div>
+                            <div class="settings-field">
+                                <label for="set-impl-mode">Implementierung ⟳</label>
+                                <select id="set-impl-mode" data-setting="opencode.implementation_mode">
+                                    <option value="modular">Modular – ein Worker je Modul</option>
+                                    <option value="single_session">Single-Session – ein Lauf für das ganze Projekt</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="toggle-list">
                             <label class="toggle"><input type="checkbox" data-setting="gates.enforce_contracts"><span>Port-Verträge erzwingen (Richtung, Typ, Bitbreite) ⟳</span></label>
                             <label class="toggle"><input type="checkbox" data-setting="gates.require_timing_closure"><span>Timing-Gate: WNS/WHS ≥ 0 und Reports Pflicht ⟳</span></label>
                             <label class="toggle"><input type="checkbox" data-setting="knowledge.enabled"><span>Wissensbasis (Skills, Board-Daten) bereitstellen ⟳</span></label>
+                            <label class="toggle"><input type="checkbox" data-setting="synthesis.enabled"><span>Nach bestandener Validierung synthetisieren (aus: Lauf endet nach der Simulation) ⟳</span></label>
                         </div>
                     </div>
 
@@ -414,6 +422,14 @@
                             <div class="settings-field">
                                 <label for="set-hw-timeout">Antwort-Timeout (s) ⟳</label>
                                 <input type="number" id="set-hw-timeout" data-setting="hardware_test.timeout_seconds" min="0.1" step="0.1">
+                            </div>
+                            <div class="settings-field">
+                                <label for="set-uart-integration">UART-Brücke ins Top-Level ⟳</label>
+                                <select id="set-uart-integration" data-setting="hardware_test.uart_integration">
+                                    <option value="auto">Automatisch (nur bei Hardwaretest/UART-Bedarf)</option>
+                                    <option value="always">Immer</option>
+                                    <option value="off">Nie</option>
+                                </select>
                             </div>
                         </div>
                     </div>

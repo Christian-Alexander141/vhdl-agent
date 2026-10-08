@@ -1,0 +1,59 @@
+{
+  "run_id": "20261008-161755",
+  "started_at": "2026-10-08T16:17:55",
+  "command": "/home/alex/Dokumente/Github/vhdl-agent/Schaltungsagent/benchmark/mas_vs_single.py --prompt-files 03_ampel.md 02_hamming_decoder.md 01_counter.md --repeat 2",
+  "variants": [
+    "single",
+    "mas",
+    "mas-single"
+  ],
+  "rounds": 2,
+  "prompts": {
+    "03_ampel": "ca79a58e09419353",
+    "02_hamming_decoder": "2d7e27b752eff2a3",
+    "01_counter": "fb3c1a70939918e2"
+  },
+  "model": "opencode/nemotron-3.5-lightning-free",
+  "fallback_model": "opencode/muse-spark-1.3-free",
+  "opencode_timeout_s": 3000,
+  "max_repair_iterations": 3,
+  "opencode_version": "1.18.35",
+  "ghdl_version": "GHDL 4.1.0 (Ubuntu 4.1.0+dfsg-0ubuntu2.1) [Dunoon edition]",
+  "acceptance": "GHDLValidator: analysieren, elaborieren, jede tests/*_tb.vhd mit --stop-time=1ms --assert-level=error simulieren; TB_COMPLETE vorhanden; keine fehlgeschlagene Assertion",
+  "reference_acceptance": "unabhängige Referenz-Testbench je Prompt (benchmark/reference), nur gegen src/*.vhd",
+  "reference_testbenches": {
+    "01_counter_ref_tb.vhd": "7ca26004efe99ade",
+    "02_hamming_decoder_ref_tb.vhd": "7ae2967e01b61c6e",
+    "03_ampel_ref_tb.vhd": "f8b5b7d41a6dc1ad"
+  },
+  "workspaces": "/home/alex/vhdl-agent-benchmark/20261008-161755",
+  "code_state": {
+    "head": "82431d79cdc0f6b1976a3a3e3492852701ca9bad",
+    "uncommitted_files": {
+      "Schaltungsagent/src/agents/debug.py": "bd63e5391aee7ba4",
+      "Schaltungsagent/src/agents/hardware_test.py": "7bb6317f948a35e3",
+      "Schaltungsagent/src/agents/hdl.py": "91b08beb844cf034",
+      "Schaltungsagent/src/agents/supervisor.py": "5e2b91432136cbc8",
+      "Schaltungsagent/src/agents/verification.py": "705e9e26294066e1",
+      "Schaltungsagent/src/config.py": "04d1bf211c23b9e4",
+      "Schaltungsagent/src/config.yaml": "2e84327d333c5db6",
+      "Schaltungsagent/src/dashboard/index.html": "c1caab169de25390",
+      "Schaltungsagent/src/domain/agents/repair_routing.py": "defb5bfe1e806d77",
+      "Schaltungsagent/src/domain/agents/test_plan.py": "e0c378646db372f8",
+      "Schaltungsagent/src/domain/models/design_state.py": "52228dacb14f22d7",
+      "Schaltungsagent/src/domain/state_machine.py": "e4b89d8f2116df2e",
+      "Schaltungsagent/src/orchestrator/agent_factory.py": "dcc1fec2b20ea814",
+      "Schaltungsagent/src/services/opencode_service.py": "9a79696d15e27ecf",
+      "Schaltungsagent/src/services/opencode_task_runner.py": "e61ed2847e3cf3f4",
+      "Schaltungsagent/src/services/plan_service.py": "e768bca76e9c432d",
+      "Schaltungsagent/src/services/settings_store.py": "f77c88cbeb6bc252",
+      "Schaltungsagent/src/tests/test_chat.py": "ac32620eed7738fc",
+      "Schaltungsagent/tests/test_multi_agent_gates.py": "7b4df39ba08b4571",
+      "Schaltungsagent/tests/test_opencode_mode.py": "4fc47cc22efdd7bb",
+      "Schaltungsagent/tests/test_opencode_pty_execution.py": "d735d62902bc9caf",
+      "config.yaml": "3d1e49b1e575285e",
+      "Schaltungsagent/src/domain/agents/worker_instructions.py": "c77dd9ed3bf9eafd",
+      "Schaltungsagent/tests/test_mas_improvements.py": "a0777ea480ae6b71"
+    }
+  }
+}

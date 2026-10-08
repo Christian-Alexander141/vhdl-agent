@@ -27,6 +27,8 @@ CHOICES = {
     ("opencode", "docker_network"): ("bridge", "none", "host"),
     ("llm", "provider"): ("ollama", "openai", "anthropic", "stub"),
     ("flash", "method"): ("vivado", "openfpgaloader"),
+    ("opencode", "implementation_mode"): ("modular", "single_session"),
+    ("hardware_test", "uart_integration"): ("auto", "always", "off"),
 }
 
 RANGES = {

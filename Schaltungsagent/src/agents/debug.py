@@ -110,8 +110,12 @@ _ERROR_PATTERNS: list[tuple[str, list[re.Pattern], str, str]] = [
     (
         "clock_reset_error",
         [
-            re.compile(r"clock|clk.*(?:not\s+driven|undriven|multiple\s+drivers)", re.I),
-            re.compile(r"reset|rst.*(?:not\s+connected|active|level)", re.I),
+            # Früher "clock|clk.*(...)" bzw. "reset|rst.*(...)": durch die
+            # Rangfolge von | traf schon das bloße Wort "clock"/"reset" – jede
+            # Meldung mit "Reset" (Prompt-Ausschnitte, "active high") wurde
+            # zum clock_reset_error und verdrängte die eigentliche Fehlerklasse.
+            re.compile(r"\b(?:clock|clk)\w*\b.{0,40}\b(?:not\s+driven|undriven|multiple\s+drivers|not\s+connected)", re.I),
+            re.compile(r"\b(?:reset|rst)\w*\b.{0,40}\b(?:not\s+driven|undriven|multiple\s+drivers|not\s+connected)", re.I),
             re.compile(r"signal\s+\w+\s+is\s+delayed\s+by\s+more\s+than", re.I),
         ],
         "Check clock and reset signal connections and drive strength",
@@ -188,6 +192,20 @@ _ERROR_PATTERNS: list[tuple[str, list[re.Pattern], str, str]] = [
         ],
         "Check board connection, JTAG/SPI cable, and re-flash bitstream",
         "medium",
+    ),
+    (
+        # Simulation (inkl. Golden-Model-Vektoren) war grün, die reale Hardware
+        # antwortet trotzdem mit einem anderen Wert: kein Infra-/Board-Fehler,
+        # sondern eine echte Software/Hardware-Diskrepanz (CDC, Reset-Annahmen,
+        # Initialwerte ...), siehe hardware_test.py.
+        "simulation_hardware_divergence",
+        [
+            re.compile(r"diverged\s+from\s+(?:the\s+)?(?:passed\s+)?simulation", re.I),
+            re.compile(r"simulation.{0,20}hardware.{0,20}diverg", re.I),
+        ],
+        "Simulation passed but hardware disagrees: check clock-domain crossings, "
+        "reset assumptions, and register initial values that simulation cannot catch",
+        "high",
     ),
 ]
 
@@ -426,6 +444,11 @@ class DebugAgent(BaseAgent):
             "resource_error": "Reduce resource usage or target a larger FPGA device",
             "bitstream_error": "Check design constraints and re-run synthesis/implementation",
             "hardware_error": "Check board connection, JTAG/SPI cable, and re-flash bitstream",
+            "simulation_hardware_divergence": (
+                "Simulation (incl. golden-model vectors) passed but real hardware returned a "
+                "different value: review clock-domain crossings, reset assumptions, and register "
+                "initial values that the testbench cannot observe"
+            ),
             "logic_error": "Review testbench expectations and DUT logic",
             "constraint_error": "Add missing pin/clock constraints to the board constraint file",
             "contract_violation": "Align the module entity with its architecture contract",

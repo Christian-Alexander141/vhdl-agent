@@ -15,6 +15,12 @@
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background: #e8efff; }
     section { margin-bottom: 1.5rem; }
+    td code, li code { padding: 1px 4px; }
+    .ok { color: #1b6e2f; font-weight: bold; }
+    .part { color: #8a5a00; font-weight: bold; }
+    .open { color: #a0242b; font-weight: bold; }
+    .note { background: #f3f6ff; border-left: 4px solid #1d2a52; padding: 8px 12px; }
+    .table-wrap { overflow-x: auto; }
   </style>
 </head>
 <body>
@@ -282,6 +288,202 @@
     <h2>14. Zusammenfassung</h2>
     <p>Die Plattform besteht aus einer zentralen Steuerung, die Aufgaben analysiert, Wissen recherchiert, Artefakte generiert, Workspaces vorbereitet, Agenten ausführt und Ergebnisse testet.</p>
     <p>Die klare Trennung von Schnittstellen (Ports) und Implementierung erlaubt Testbarkeit und Austauschbarkeit von LLM-, RAG- und Ausführungsdiensten.</p>
+  </section>
+
+  <section id="mas-analyse">
+    <h2>15. Analyse: Warum das MAS hinter einem einzelnen OpenCode zurückblieb (Stand 2026-10-08)</h2>
+    <p>Ausgangslage: Das Multi-Agenten-System (MAS) soll VHDL-Projekte umsetzen, die ein einzelner OpenCode-Lauf nicht schafft. Tatsächlich scheiterte es an Projekten, die OpenCode allein löst. Die Ursachen wurden per Code-Analyse der Pipeline (Plan → Architektur → UART-Integration → Modul-Worker → Gates → Reparatur) ermittelt. Wie oft welche Ursache zuschlägt, ist noch nicht gemessen; dafür gibt es jetzt den Benchmark aus 15.3.</p>
+    <p class="note"><strong>Projektentscheidung:</strong> Bis nachgewiesen ist, dass das MAS einem einzelnen OpenCode mit demselben Modell überlegen ist, laufen alle OpenCode-Agenten <strong>nativ</strong> (<code>opencode.test_mode: true</code>). Die Docker-Isolation für den Produktivbetrieb bleibt im Code erhalten, wird aber erst danach wieder aufgenommen.</p>
+
+    <h3>15.1 Probleme, Verbesserungen und Status</h3>
+    <p>Legende: <span class="ok">Gelöst</span> · <span class="part">Teilweise</span> · <span class="open">Offen</span></p>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Problem</th><th>Verbesserungsvorschlag</th><th>Gelöst?</th><th>Umsetzung</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td>Die Worker prüften ihr Ergebnis nicht selbst. Nur der Reparatur-Auftrag verlangte <code>ghdl -a</code>; Modul-, Top- und Testbench-Aufträge schrieben VHDL „blind“. Ein einzelner OpenCode-Lauf kompiliert und simuliert dagegen selbst. (Die ursprüngliche Vermutung „kein GHDL im Docker-Image“ betraf die eigenen Läufe nicht: Die aktive <code>config.yaml</code> lief bereits nativ.)</td>
+          <td>Native Ausführung mit Host-GHDL; jeder Worker-Auftrag enthält konkrete GHDL-Befehle zur Selbstprüfung mit eigenem <code>--workdir</code> je Auftrag (parallele Worker).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>domain/agents/worker_instructions.py</code> (<code>ghdl_selfcheck</code>), eingebunden in <code>hdl.py</code> (Modul, Top-Level, Testbench, Single-Session, Reparatur); <code>src/config.yaml</code> standardmäßig nativ. Ein GHDL-fähiges Docker-Image ist bewusst zurückgestellt.</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td>Testbench-Aufträge kannten die Abnahmeregeln des Validators nicht. Der Validator simuliert mit <code>--stop-time=1ms</code> und verlangt den Marker <code>TB_COMPLETE</code>. Der HDL-Testbench-Auftrag nannte keins von beidem, der Verification-Auftrag nicht das Zeitlimit. Testbenches mit realen Timer-/Baudraten-Zeiten wurden deshalb sicher als „abgebrochen“ gewertet.</td>
+          <td>Gemeinsame, mit dem Validator abgeglichene Testbench-Regeln in allen Testbench-Aufträgen (Zeitlimit, Generics herunterskalieren, <code>severity error</code>, <code>TB_COMPLETE</code>).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>TESTBENCH_RULES</code> in <code>worker_instructions.py</code>; genutzt in <code>hdl.py</code> und <code>verification.py</code>; ein Test sichert die Übereinstimmung mit <code>VHDLTestDefinitions.DEFAULT</code>.</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td>Widersprüchliche Interfaces im Worker-Auftrag: <code>_build_port_list</code> fügte bei sequenziellen Modulen immer <code>clk</code>/<code>rst</code> hinzu. Da das Manifest kein Feld <code>type</code> kannte, galt jedes Modul als sequenziell, auch rein kombinatorische. Generics wurden als <code>positive</code> (schließt 0 aus) bzw. <code>string</code> geraten.</td>
+          <td>Port-Liste ausschließlich aus dem typisierten Contract; Modultyp aus dem Manifest oder aus den Ports ableiten; Generic-Typen passend zum Wert.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>hdl.py</code> (<code>_build_port_list</code>, <code>_build_generic_list</code>), <code>architecture.py</code> (<code>module_from_manifest</code>), <code>plan_service.py</code> (Schema mit <code>type</code>, <code>parameters</code>, expliziten Takt-/Reset-Ports; Validierung).</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td>Zerstückelter Kontext: Jedes Modul ist ein kalter Einzelaufruf. Abhängige Module und das Top-Level sahen nur den Manifest-Eintrag, nicht die tatsächlich erzeugten Entities. Hardware-Entwurf ist eng gekoppelt; laut Google Research verlieren Multi-Agent-Systeme bei solchen sequenziellen Aufgaben 39–70&nbsp;%.</td>
+          <td>(a) Die tatsächlichen Entity-Deklarationen der Abhängigkeiten in den Auftrag geben. (b) Alternativ das ganze Projekt in einer OpenCode-Sitzung implementieren, mit den MAS-Gates und der Reparatur darum herum.</td>
+          <td><span class="part">Teilweise</span></td>
+          <td>(a) <code>entity_declarations</code> + <code>_dependency_context</code> in Modul- und Top-Auftrag. (b) neuer Modus <code>opencode.implementation_mode: single_session</code> (Task <code>implement_project</code>). Ob das reicht, um ein einzelnes OpenCode zu schlagen, zeigt erst der Benchmark (15.3).</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td>UART wurde in jedes Projekt eingebaut: zusätzliches Modul, Regex-Umbau des LLM-Top-Levels (Ports <code>uart_rx</code>/<code>uart_tx</code>, Echo-Brücke) und damit eine Abweichung vom Manifest-Contract, auch ohne UART-Wunsch und ohne angeschlossenes Board.</td>
+          <td>UART nur bei Bedarf (echter Hardwaretest, definierte <code>hardware_tests</code>, „UART“ in der Anforderung). Langfristig ein deterministischer Wrapper statt eines Umbaus des Top-Levels.</td>
+          <td><span class="part">Teilweise</span></td>
+          <td>Bedarfsprüfung <code>_uart_required</code> im Supervisor, Schalter <code>hardware_test.uart_integration: auto|always|off</code> (Dashboard). <span class="open">Offen:</span> deterministischer Wrapper (<code>&lt;top&gt;_board</code>) statt Regex-Umbau; Synthese-Top müsste dafür auf den Wrapper zeigen.</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td>Unnötige Neuimplementierung: Jeder Durchlauf der UART-Integration (z.&nbsp;B. nach einer Architektur-Reparatur) erhöhte <code>architecture.version</code> und invalidierte abhängige Modul-Tasks.</td>
+          <td>Version nur bei tatsächlicher Änderung hochzählen.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_architecture_snapshot</code>-Vergleich in <code>_run_uart_integration</code>.</td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td>Doppelter Top-Level-Auftrag: Stand das Top-Level als Modul im Manifest (der Normalfall), schrieben ohne UART sowohl <code>implement_module_&lt;top&gt;</code> als auch <code>implement_top</code> dieselbe Datei. Bisher verdeckt, weil UART immer aktiv war.</td>
+          <td><code>implement_top</code> nur, wenn das Top-Level kein eigenes Modul im Manifest ist; das Top-Modul läuft nach allen Abhängigkeiten.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>supervisor.py</code> (<code>_run_implementation</code>); Plan-Schema verlangt das Top-Level als Modul mit vollständigem <code>depends_on</code>.</td>
+        </tr>
+        <tr>
+          <td>8</td>
+          <td>Ungeprüfte Fallback-Vorlagen: Bei Lieferfehlern setzte der HDL-Agent Regel-Vorlagen ein, auch wenn deren Interface nicht zum Contract passte. Die Folgefehler zeigten sich erst in späteren Gates.</td>
+          <td>Vorlage nur verwenden, wenn Entity-Name und alle Contract-Ports passen; sonst den echten Lieferfehler melden.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>HDLAgent._matches_contract</code> in <code>_generate_module_vhdl</code>.</td>
+        </tr>
+        <tr>
+          <td>9</td>
+          <td>Verlustbehaftete Reparatur-Rückmeldung: Klassifikation per Regex, unscharfe Anweisung („run the full GHDL validation“), keine Signalverläufe. Die Reparatur läuft direkt über <code>opencode.execute</code>, ohne Skills.</td>
+          <td>Konkrete, validatorgleiche Prüfbefehle; Zustandsausgaben an Prüfpunkten der Testbench (vgl. MAGE); später gezielte Abfragen von Signalverläufen (vgl. SeqFeed, VerilogCoder).</td>
+          <td><span class="part">Teilweise</span></td>
+          <td><code>_repair_verification</code> (alle Quellen in Abhängigkeitsreihenfolge, jede Testbench mit <code>--stop-time=1ms --assert-level=error</code>); <code>CHECK</code>-Reports über <code>TESTBENCH_RULES</code>. <span class="open">Offen:</span> Reparatur über den Task-Runner (Skills), Waveform-/Trace-Werkzeug.</td>
+        </tr>
+        <tr>
+          <td>10</td>
+          <td>Die Zahl der Aufrufe vervielfacht Infrastrukturfehler: modular ≈ 2·N+3 OpenCode-Aufrufe statt einem, mit Free-Modellen und deren Rate-Limits.</td>
+          <td>Weniger Aufrufe pro Projekt.</td>
+          <td><span class="part">Teilweise</span></td>
+          <td><code>single_session</code> reduziert die Implementierung auf einen Aufruf (plus Reparaturen); der modulare Modus bleibt unverändert.</td>
+        </tr>
+        <tr>
+          <td>11</td>
+          <td>Mehr und strengere Gates als beim Einzellauf (Contract, Coverage, Golden-Vektoren), dazu Testbenches aus einer anderen Sitzung. Der Vergleich „MAS vs. OpenCode“ war bisher unfair, weil der Einzellauf nur von Hand beurteilt wurde.</td>
+          <td>Gleiches Abnahmekriterium für beide Varianten; Testbench-Erwartungen aus der Spezifikation statt aus der Implementierung; perspektivisch eine eigene, kontext-isolierte Verifikationsrolle.</td>
+          <td><span class="part">Teilweise</span></td>
+          <td>Benchmark bewertet alle Varianten mit demselben <code>GHDLValidator</code>; Regel „Erwartungswerte aus PROMPT.md/Golden-Vektoren“ in <code>TESTBENCH_RULES</code>. <span class="open">Offen:</span> eigene Verifikationsrolle mit isoliertem Kontext.</td>
+        </tr>
+        <tr>
+          <td>12</td>
+          <td>Keine Messdaten: Welche Ursache wie oft zuschlägt, war unbekannt.</td>
+          <td>Reproduzierbarer Vergleich mit demselben Modell; Fehlschläge nach der MAST-Taxonomie einordnen.</td>
+          <td><span class="part">Teilweise</span></td>
+          <td>Werkzeug fertig: <code>Schaltungsagent/benchmark/mas_vs_single.py</code> + 3 Referenz-Prompts. <span class="open">Offen:</span> die Messläufe selbst (Modellzeit, Rate-Limits).</td>
+        </tr>
+        <tr>
+          <td>13</td>
+          <td>Der Schalter <code>synthesis.enabled</code> existierte, hatte aber keine Wirkung.</td>
+          <td>Ausgeschaltet endet der Lauf nach bestandener Validierung (nötig für Simulationsvergleiche).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_determine_next_stage</code>; Zustandsautomat erlaubt <code>VALIDATING → COMPLETED</code>; Schalter im Dashboard.</td>
+        </tr>
+        <tr>
+          <td>14</td>
+          <td>Ein Test bestand nur dank der immer eingebauten UART: <code>test_deterministic_pipeline_reaches_ghdl_verification</code>. Die Mock-Testbench des Zählers prüft nichts; die Assertions kamen aus der UART-Vorlage.</td>
+          <td>Den Test UART ausdrücklich anfordern lassen und die Abhängigkeit dokumentieren.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>src/tests/test_chat.py</code>.</td>
+        </tr>
+        <tr>
+          <td>15</td>
+          <td>Docker-Isolation pro Projekt (Produktivziel).</td>
+          <td>Eigenes Worker-Image mit GHDL, nur Projektordner eingebunden.</td>
+          <td><span class="open">Offen</span></td>
+          <td>Bewusst zurückgestellt, bis das MAS seine Überlegenheit gezeigt hat (Projektentscheidung oben).</td>
+        </tr>
+        <tr>
+          <td>16</td>
+          <td>Nativ ist OpenCode nicht auf den Workspace begrenzt. Der erste Benchmark-Lauf (Workspace innerhalb des Repos) hat sich im Repo umgesehen, alle Benchmark-Prompts gelesen und Dateien unter einem halluzinierten Pfad (<code>vhdl-agent/Schinalgents/</code>) sowie in <code>Schaltungsagent/src/</code> angelegt. Versionierte Dateien wurden nicht verändert; der Lauf wurde abgebrochen und aufgeräumt. OpenCode betrachtet das ganze Git-Repo als Projekt; <code>external_directory: deny</code> wirkt nur außerhalb davon.</td>
+          <td>Jeder native Aufruf bekommt eine <code>opencode.json</code> mit <code>external_directory: deny</code> (vorhandene Projektkonfiguration bleibt erhalten). Workspaces gehören außerhalb des Repos.</td>
+          <td><span class="part">Teilweise</span></td>
+          <td><code>ensure_native_guard</code> in <code>opencode_service.py</code> (getestet: Read und Shell werden außerhalb des Repos verweigert, kein Hängen). Der Benchmark legt alle Workspaces unter <code>~/vhdl-agent-benchmark</code> an und lehnt Ziele im Repo ab. <span class="open">Offen:</span> <code>workspace.base_dir: ./projects</code> liegt im Repo; für echten Schutz der Quellen muss der Projektordner nach außerhalb verlegt werden (Entscheidung ausstehend). Vollständige Isolation bleibt Docker (#15).</td>
+        </tr>
+        <tr>
+          <td>17</td>
+          <td><strong>Native Worker arbeiteten im falschen Verzeichnis.</strong> OpenCode legt seine Sitzung nach der Umgebungsvariable <code>$PWD</code> an, nicht nach dem Arbeitsverzeichnis des Prozesses. <code>subprocess</code> setzt nur das Arbeitsverzeichnis (<code>cwd</code>), <code>$PWD</code> blieb das Startverzeichnis des Python-Prozesses (z.&nbsp;B. <code>Schaltungsagent/</code>). Jeder native Worker arbeitete damit im Quellbaum statt im Projekt-Workspace. Nachgewiesen im OpenCode-Log: Sitzungsverzeichnis <code>…/Schaltungsagent</code> trotz Workspace als <code>cwd</code>. Das erklärt mit hoher Wahrscheinlichkeit frühere Fehler wie „OpenCode did not deliver src/…vhd“ und Repo-Erkundungen per <code>git log</code>. Ein von Hand im Projektordner gestarteter Einzel-OpenCode war nicht betroffen, der Vergleich war also zusätzlich verzerrt.</td>
+          <td>Beim Start jedes Unterprozesses <code>PWD</code> auf das Arbeitsverzeichnis setzen.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_run_via_pty</code> in <code>opencode_service.py</code>; Regressionstest in <code>test_opencode_pty_execution.py</code>; mit echtem OpenCode geprüft (Sitzungsverzeichnis = Workspace). Im Quellbaum wurden keine Reste früherer MAS-Läufe gefunden.</td>
+        </tr>
+        <tr>
+          <td>18</td>
+          <td>Falsche Fehlerklassifikation: Die Regex-Muster für <code>clock_reset_error</code> lauteten <code>clock|clk.*(…)</code> bzw. <code>reset|rst.*(…)</code>. Wegen der Rangfolge von <code>|</code> genügte schon das bloße Wort „clock“ oder „reset“. Fast jede Meldung mit „Reset“ (VHDL-Logs, zurückgegebene Prompt-Ausschnitte wie „synchron, active high“) wurde so zum <code>clock_reset_error</code> und verdrängte die eigentliche Klasse; das Muster wird vor Testbench-, Simulations- und Synthesefehlern geprüft. Im Benchmark beobachtet: Ein Lieferfehler (Datei nicht geschrieben) landete als <code>clock_reset_error</code> in der HDL-Reparatur.</td>
+          <td>Takt-/Reset-Fehler nur noch bei echtem Befund (Signal nicht getrieben, mehrfach getrieben, nicht verbunden).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_ERROR_PATTERNS</code> in <code>debug.py</code>; Regressionstest in <code>test_mas_improvements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>19</td>
+          <td>Vorzeitiger Abbruch des Modells: <code>nemotron-3.5-lightning-free</code> beendete einen Worker-Aufruf nach 24&nbsp;s mitten im Satz, mit Exit-Code 0 und ohne Datei. Das MAS ist dafür anfälliger als ein Einzellauf, weil pro Projekt viele Aufrufe alle gelingen müssen.</td>
+          <td>Einen Aufruf, der kurz läuft, mit 0 endet und die erwartete Datei nicht liefert, einmal automatisch wiederholen (statt sofort zu reparieren oder abzubrechen).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_ended_prematurely</code> im <code>OpenCodeTaskRunner</code>: Exit 0, keine geschriebene Datei, Laufzeit unter 180&nbsp;s, kein Provider-Fehler → einmal wiederholen. Rate-Limits werden nicht wiederholt. Tests in <code>test_mas_improvements.py</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h3>15.2 Neue Einstellungen</h3>
+    <p>Alle drei Schalter sind im Dashboard unter <em>Einstellungen</em> verfügbar und gelten ab dem nächsten Start (⟳).</p>
+    <table>
+      <thead><tr><th>Schlüssel</th><th>Werte</th><th>Wirkung</th></tr></thead>
+      <tbody>
+        <tr><td><code>opencode.implementation_mode</code></td><td><code>modular</code> (Standard) · <code>single_session</code></td><td>Ein Worker je Modul (TaskGraph, parallel) oder ein OpenCode-Lauf für das ganze Projekt. Gates, Reparatur und Hardware-Stufen bleiben gleich.</td></tr>
+        <tr><td><code>hardware_test.uart_integration</code></td><td><code>auto</code> (Standard) · <code>always</code> · <code>off</code></td><td>UART-Echo-Brücke nur bei Bedarf, immer oder nie.</td></tr>
+        <tr><td><code>synthesis.enabled</code></td><td><code>true</code> · <code>false</code></td><td>Ausgeschaltet endet der Lauf nach bestandener Validierung (Simulation).</td></tr>
+      </tbody>
+    </table>
+
+    <h3>15.3 Vergleichsmessung MAS vs. einzelnes OpenCode</h3>
+    <p>Der Benchmark führt jeden Prompt aus <code>Schaltungsagent/benchmark/prompts/*.md</code> in drei Varianten aus, alle nativ, mit dem in <code>opencode.model</code> eingestellten Modell und ohne Synthese:</p>
+    <ul>
+      <li><code>single</code>: ein OpenCode-Lauf auf dem ganzen Projekt. Er kennt dieselben Testbench-Regeln wie die MAS-Worker.</li>
+      <li><code>mas</code>: MAS mit modularer Implementierung.</li>
+      <li><code>mas-single</code>: MAS mit <code>implementation_mode: single_session</code>.</li>
+    </ul>
+    <p>Bewertet wird alles mit demselben <code>GHDLValidator</code>: analysieren, elaborieren, jede Testbench simulieren, <code>TB_COMPLETE</code> vorhanden, keine fehlgeschlagene Assertion. MAS-Fehlschläge werden grob nach der MAST-Taxonomie eingeordnet (Spezifikation, Abstimmung zwischen Agenten, Verifikation, Infrastruktur). Diese Einordnung ist eine Heuristik und ersetzt keine manuelle Annotation.</p>
+<p>Zusätzlich prüft eine <strong>unabhängige Referenz-Testbench</strong> je Prompt (<code>Schaltungsagent/benchmark/reference/</code>, dem System unbekannt) die erzeugten Quellen. Sie ist das Hauptkriterium, weil die systemeigene Testbench zu schwach oder selbst fehlerhaft sein kann. Im abgebrochenen Vorlauf bestanden alle MAS-Entwürfe mit Quelldateien die Referenz, obwohl die eigene Testbench zweimal scheiterte.</p>
+<pre>cd Schaltungsagent
+python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.md 01_counter.md --repeat 2</pre>
+    <p>Methodik, Ergebnisse und Metadaten je Lauf: <code>docs/benchmark/</code> (<code>METHODIK.md</code>, <code>ergebnisse/&lt;Lauf-ID&gt;/results.csv</code>, <code>summary.json</code>, <code>meta.json</code>). Die Arbeitsverzeichnisse liegen außerhalb des Repos unter <code>~/vhdl-agent-benchmark/</code> (siehe #16) (Erfolgsquote, mittlere Dauer, MAST-Verteilung je Variante). Wegen der Streuung von LLM-Ausgaben sollte jede Variante mehrfach laufen (<code>--repeat</code>).</p>
+
+    <h3>15.4 Literatur</h3>
+    <ul>
+      <li>Cemri et al.: <em>Why Do Multi-Agent LLM Systems Fail?</em> (MAST), arXiv:2503.13657. 14 Fehlermodi; Ursachen meist im Systemdesign.</li>
+      <li>Kim, Liu et al. (Google Research): <em>Towards a Science of Scaling Agent Systems</em>, arXiv:2512.08296. Multi-Agent verschlechtert sequenzielle, gekoppelte Aufgaben um 39–70&nbsp;%.</li>
+      <li><em>VeriGraphi</em>, arXiv:2604.14550. Hierarchische RTL-Generierung über einen Knowledge Graph, der Hierarchie, Interfaces und Verdrahtung vorab festlegt.</li>
+      <li><em>Veri-Sure</em>, arXiv:2601.19747. Design-Contract zwischen den Agenten gegen Bedeutungsverschiebung; Trace-Analyse und formale Prüfung.</li>
+      <li><em>MAGE</em>, arXiv:2412.07822. Multi-Agent-RTL mit Zustands-Checkpoints für präzises Debug-Feedback.</li>
+      <li><em>VerilogCoder</em>, arXiv:2408.08927. Der Agent bedient den Simulator selbst; Waveform-Tracing-Werkzeug.</li>
+      <li><em>SeqFeed</em>, arXiv:2608.16934. Abfragen von Signalverläufen über mehrere Takte als Feedback.</li>
+      <li><em>Spec-Driven Hardware Evolution</em>, arXiv:2608.12684. Ausführbare Contracts als Grundlage für Änderungen.</li>
+      <li><em>VeriMoA</em>, arXiv:2510.27617, und <em>HDLFORGE</em>, arXiv:2603.04646. Mehr Leistung aus kleinen Modellen bzw. Eskalation zu großen Modellen nur bei Bedarf.</li>
+      <li><em>VHDLSuite</em>, arXiv:2606.13735, und <em>VHDL-Eval</em>, arXiv:2406.04379. VHDL-spezifische Bewertung; LLMs sind bei VHDL deutlich schwächer als bei Verilog.</li>
+    </ul>
+
+    <h3>15.5 Empfohlene nächste Schritte</h3>
+    <ol>
+      <li>Benchmark mit mindestens 3 Wiederholungen je Variante laufen lassen und die MAST-Verteilung auswerten.</li>
+      <li>Je nach Ergebnis: deterministischer UART-Wrapper (#5), Reparatur über den Task-Runner und ein Trace-Werkzeug (#9), eine kontext-isolierte Verifikationsrolle (#11).</li>
+      <li>Erst wenn das MAS einen einzelnen OpenCode-Lauf messbar übertrifft: Docker-Isolation wieder aufnehmen (#15).</li>
+    </ol>
   </section>
 </body>
 </html>

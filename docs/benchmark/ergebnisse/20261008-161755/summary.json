@@ -1,0 +1,38 @@
+{
+  "single": {
+    "runs": 1,
+    "passed": 0,
+    "pass_rate": 0.0,
+    "ref_passed": 0,
+    "ref_pass_rate": 0.0,
+    "mean_duration_s": 1600.0,
+    "per_prompt": {
+      "03_ampel": {
+        "runs": 1,
+        "passed": 0,
+        "ref_passed": 0
+      }
+    },
+    "mast": {}
+  },
+  "mas": {
+    "runs": 0,
+    "passed": 0,
+    "pass_rate": 0.0,
+    "ref_passed": 0,
+    "ref_pass_rate": 0.0,
+    "mean_duration_s": 0.0,
+    "per_prompt": {},
+    "mast": {}
+  },
+  "mas-single": {
+    "runs": 0,
+    "passed": 0,
+    "pass_rate": 0.0,
+    "ref_passed": 0,
+    "ref_pass_rate": 0.0,
+    "mean_duration_s": 0.0,
+    "per_prompt": {},
+    "mast": {}
+  }
+}

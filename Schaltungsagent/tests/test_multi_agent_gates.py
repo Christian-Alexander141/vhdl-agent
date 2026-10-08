@@ -170,7 +170,12 @@ def test_independent_modules_run_in_parallel(tmp_path):
     assert r_start < a_end and a_start < r_end, "unabhängige Module müssen überlappen"
     # Abhängige Tasks starten erst nach ihren Abhängigkeiten.
     assert hdl.windows["implement_module_control"][0] >= a_end
-    assert hdl.windows["implement_top"][0] >= max(w[1] for k, w in hdl.windows.items() if k != "implement_top")
+    # Das Top-Level steht als Modul im Manifest und läuft nach allen Abhängigkeiten;
+    # ein zusätzlicher implement_top-Task würde dieselbe Datei überschreiben.
+    assert "implement_top" not in hdl.windows
+    assert hdl.windows["implement_module_cpu"][0] >= max(
+        w[1] for k, w in hdl.windows.items() if k != "implement_module_cpu"
+    )
     assert "PARALLEL_BATCH_STARTED" in events.types()
 
 
@@ -189,11 +194,10 @@ def test_contract_change_invalidates_only_dependent_tasks(tmp_path):
 
     assert result.status == AgentStatus.COMPLETED
     executed = {t.id for t in hdl.calls}
-    # ALU + alle, die sie instanziieren (control, cpu) + Top-Integration;
+    # ALU + alle, die sie instanziieren (control, cpu = Top-Level);
     # das unabhängige Registerfile bleibt unangetastet.
     assert executed == {
-        "implement_module_alu", "implement_module_control",
-        "implement_module_cpu", "implement_top",
+        "implement_module_alu", "implement_module_control", "implement_module_cpu",
     }
     graph = json.loads((tmp_path / "proj" / "task_graph.json").read_text())
     assert graph["tasks"]["implement_module_regfile"]["result"]["reused"] is True
@@ -208,7 +212,7 @@ def test_resume_after_crash_reruns_only_open_tasks(tmp_path):
     first = run(supervisor._run_implementation())
     assert first.status == AgentStatus.FAILED
     graph = json.loads((tmp_path / "proj" / "task_graph.json").read_text())
-    assert graph["tasks"]["implement_top"]["status"] == "BLOCKED"
+    assert graph["tasks"]["implement_module_cpu"]["status"] == "BLOCKED"
     assert graph["tasks"]["implement_module_alu"]["status"] == "COMPLETED"
 
     # Neuer Prozess: frischer Supervisor, gleicher Workspace und Auftrag.
@@ -218,9 +222,7 @@ def test_resume_after_crash_reruns_only_open_tasks(tmp_path):
     second = run(resumed._run_implementation())
 
     assert second.status == AgentStatus.COMPLETED
-    assert {t.id for t in healthy.calls} == {
-        "implement_module_regfile", "implement_module_cpu", "implement_top",
-    }
+    assert {t.id for t in healthy.calls} == {"implement_module_regfile", "implement_module_cpu"}
 
 
 def test_new_run_after_completion_does_not_reuse_previous_tasks(tmp_path):
@@ -234,7 +236,7 @@ def test_new_run_after_completion_does_not_reuse_previous_tasks(tmp_path):
     supervisor._design_state.current_stage = DesignStage.UART_INTEGRATION
     run(supervisor._run_implementation())
 
-    assert len(hdl.calls) == 5
+    assert len(hdl.calls) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +407,8 @@ def test_interface_mismatch_with_contract_violation_stays_with_hdl():
     ("Resource limit exceeded: LUT 140%", "resource_error", RepairTarget.HUMAN),
     ("Flash failed: no cable found", "flash_error", RepairTarget.HUMAN),
     ("ghdl: command not found", "infrastructure", RepairTarget.HUMAN),
+    ("hardware test diverged from passed simulation: uart_loopback expected 1f got 2a",
+     "simulation_hardware_divergence", RepairTarget.FPGA),
 ])
 def test_failure_classes_route_to_responsible_role(message, failure_type, target):
     assert classify_error(message)[0] == failure_type
@@ -452,6 +456,53 @@ def test_testbench_coverage_follows_instantiation_hierarchy(tmp_path):
     assert plan["uncovered"] == ["unused"]
     assert plan["requirements"]["r1"]["covered"] is True
     assert plan["requirements"]["r2"]["covered"] is False
+
+
+def test_coverage_requires_golden_vectors_to_be_checked_not_just_reached(tmp_path):
+    """FPGAgent-Paper Punkt 1: reine Erreichbarkeit genügt nicht mehr, wenn ein
+    Modul Golden-Model-Vektoren definiert - die Testbench muss sie auch prüfen."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "src" / "adder.vhd").write_text(entity("adder", ["a : in std_logic_vector(3 downto 0)"]))
+    unchecked_tb = (
+        "entity adder_tb is end entity;\narchitecture sim of adder_tb is begin\n"
+        "  dut: entity work.adder port map (a => (others => '0'));\n"
+        "end architecture;\n"
+    )
+    (tmp_path / "tests" / "adder_tb.vhd").write_text(unchecked_tb)
+    architecture = {"modules": [{
+        "name": "adder",
+        "simulation_vectors": [{"inputs": {"a": "0001"}, "expected": {"sum": "0010"}}],
+    }]}
+
+    plan = build_test_plan(architecture, str(tmp_path))
+    assert plan["modules"]["adder"]["simulation_vectors"] == 1
+    assert plan["modules"]["adder"]["vectors_referenced"] == 0
+    assert plan["uncovered"] == ["adder"], "erreichbar, aber der Golden-Vektor wird nie geprüft"
+
+    (tmp_path / "tests" / "adder_tb.vhd").write_text(
+        unchecked_tb.replace(
+            "end architecture;",
+            '  assert sum = "0010" report "VECTOR_FAIL" severity error;\nend architecture;',
+        )
+    )
+    plan = build_test_plan(architecture, str(tmp_path))
+    assert plan["modules"]["adder"]["vectors_referenced"] == 1
+    assert plan["covered"] == ["adder"]
+
+
+def test_format_simulation_vectors_renders_requirement_and_empty_list():
+    from src.domain.agents.test_plan import format_simulation_vectors
+
+    assert format_simulation_vectors([]) == ""
+
+    text = format_simulation_vectors([{
+        "inputs": {"a": "0001", "b": "0001"}, "expected": {"sum": "0010"},
+        "after_clocks": 1, "requirement": "addiert korrekt",
+    }])
+    assert "GOLDEN-MODEL-VEKTOREN" in text
+    assert "0001" in text and "0010" in text
+    assert "addiert korrekt" in text
 
 
 def test_validation_gate_blocks_uncovered_modules(tmp_path):
@@ -642,6 +693,59 @@ def test_cpu_program_vectors_pass_and_fail_on_real_interface():
     assert failed.diagnostics[0]["failure_type"] == "hardware_error"
 
 
+def test_hardware_mismatch_after_passed_simulation_is_a_divergence_not_hardware_error():
+    """FPGAgent-Paper Punkt 2: simuliert grün, Board antwortet falsch -> eigene
+    Fehlerklasse (Software/Hardware-Diskrepanz), nicht die generische
+    hardware_error (die weiterhin Infrastruktur-/Board-Probleme meint)."""
+    wrong_value = HardwareTestAgent(None, hardware_interface=FakeSerial(lambda kind, p: b"\x07"))
+    result = run(wrong_value.execute(
+        hw_task(architecture={"hardware_tests": CPU_TESTS}, verification_passed=True)
+    ))
+    assert result.status == AgentStatus.FAILED
+    assert result.diagnostics[0]["failure_type"] == "simulation_hardware_divergence"
+    assert "diverged" in result.diagnostics[0]["message"]
+
+    # Ohne vorher bestandene Simulation bleibt es die generische Klasse.
+    same_board = HardwareTestAgent(None, hardware_interface=FakeSerial(lambda kind, p: b"\x07"))
+    without_verification = run(same_board.execute(
+        hw_task(architecture={"hardware_tests": CPU_TESTS}, verification_passed=False)
+    ))
+    assert without_verification.diagnostics[0]["failure_type"] == "hardware_error"
+
+
+def test_hardware_connection_error_stays_hardware_error_even_after_passed_simulation():
+    """Eine Infrastruktur-/Verbindungsstörung (Exception im Interface, keine
+    echte Antwort) ist auch nach bestandener Simulation kein Divergenzfund."""
+    class RaisingInterface(HardwareTestInterface):
+        async def reset(self):
+            return True
+
+        async def send_command(self, command):
+            return True
+
+        async def send_program(self, program):
+            return True
+
+        async def start(self):
+            return True
+
+        async def read_output(self, length=1024, timeout=5.0):
+            return b""
+
+        async def run_test(self, test):
+            return {"passed": False, "error": "serial port disconnected"}
+
+        async def close(self):
+            pass
+
+    agent = HardwareTestAgent(None, hardware_interface=RaisingInterface())
+    result = run(agent.execute(
+        hw_task(architecture={"hardware_tests": CPU_TESTS}, verification_passed=True)
+    ))
+    assert result.status == AgentStatus.FAILED
+    assert result.diagnostics[0]["failure_type"] == "hardware_error"
+
+
 def test_real_hardware_without_project_tests_is_blocked(tmp_path):
     agent = HardwareTestAgent(None, hardware_interface=FakeSerial(lambda kind, p: p))
     result = run(agent.execute(hw_task(architecture={"modules": [{"name": "cpu"}]}, workspace=str(tmp_path))))
@@ -683,6 +787,35 @@ def test_supervisor_completion_without_real_hardware_is_explicit(tmp_path):
         tmp_path, hardware_test_agent=HardwareTestAgent(None, hardware_interface=FakeSerial(lambda k, p: p)),
     )
     assert real._determine_next_stage(DesignStage.FPGA_PROGRAMMING, None) == DesignStage.HARDWARE_TESTING
+
+
+def test_supervisor_tells_hardware_test_whether_simulation_already_passed(tmp_path):
+    """Voraussetzung für Punkt 2 (Divergenzklasse): der HardwareTestAgent muss
+    wissen, ob die Golden-Model-Simulation bereits bestanden wurde."""
+    captured = {}
+
+    class CapturingHardwareTestAgent:
+        async def execute(self, task):
+            captured.update(task.inputs)
+            return AgentResult(
+                task_id=task.id, status=AgentStatus.COMPLETED,
+                outputs={"hardware_result": {"status": "passed", "test_mode": "REAL_HARDWARE"}},
+            )
+
+    supervisor, _, _ = make_supervisor(tmp_path, hardware_test_agent=CapturingHardwareTestAgent())
+    set_architecture(supervisor, [{"name": "cpu"}], "cpu")
+    supervisor._design_state.verification.status = "passed"
+    supervisor._design_state.current_stage = DesignStage.FPGA_PROGRAMMING
+
+    result = run(supervisor._run_hardware_test())
+
+    assert result.status == AgentStatus.COMPLETED
+    assert captured["verification_passed"] is True
+
+    supervisor._design_state.verification.status = "failed"
+    supervisor._design_state.current_stage = DesignStage.FPGA_PROGRAMMING
+    run(supervisor._run_hardware_test())
+    assert captured["verification_passed"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -812,3 +945,31 @@ def test_manifest_port_list_and_validator():
     assert PlanValidator.validate(manifest) == []
     bad = {**manifest, "modules": [{**item, "ports": [{"name": "x", "direction": "sideways"}]}]}
     assert any("Invalid direction" in e for e in PlanValidator.validate(bad))
+
+
+def test_manifest_simulation_vectors_become_module_field_and_validated():
+    """Golden-Model-Vektoren (FPGAgent-Paper, Punkt 1) aus dem Manifest."""
+    from src.agents.architecture import module_from_manifest
+    from src.services.plan_service import PlanValidator
+
+    item = {
+        "entity": "adder", "file": "src/adder.vhd",
+        "simulation_vectors": [{
+            "inputs": {"a": "0001", "b": "0001"}, "expected": {"sum": "0010"},
+            "after_clocks": 1, "requirement": "R1: addiert korrekt",
+        }],
+    }
+    module = module_from_manifest(item)
+    assert module.simulation_vectors == item["simulation_vectors"]
+
+    manifest = {"project_name": "adder-test", "top_entity": "adder", "modules": [item]}
+    assert PlanValidator.validate(manifest) == []
+
+    missing_expected = {**manifest, "modules": [{**item, "simulation_vectors": [{"inputs": {"a": "1"}}]}]}
+    assert any("simulation_vector" in e for e in PlanValidator.validate(missing_expected))
+
+    wrong_shape = {**manifest, "modules": [{**item, "simulation_vectors": "not-a-list"}]}
+    assert any(
+        "simulation_vectors" in e and "must be a list" in e
+        for e in PlanValidator.validate(wrong_shape)
+    )

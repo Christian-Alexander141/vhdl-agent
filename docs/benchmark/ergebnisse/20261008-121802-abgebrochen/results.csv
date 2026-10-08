@@ -1,0 +1,9 @@
+prompt,variant,run,passed,duration_s,failure_type_or_validator
+01_counter,single,1,True,654.3,"All VHDL files analyzed, elaborated and simulated successful"
+01_counter,single,2,False,740.4,GHDL simulation failed for counter4_tb (runtime error or fai
+01_counter,single,3,True,564.5,"All VHDL files analyzed, elaborated and simulated successful"
+01_counter,mas,1,True,2880.1,"All VHDL files analyzed, elaborated and simulated successful"
+01_counter,mas,2,False,1329.7,clock_reset_error
+01_counter,mas,3,False,405.7,infrastructure
+01_counter,mas-single,1,False,3284.4,unknown
+01_counter,mas-single,2,True,2888.4,"All VHDL files analyzed, elaborated and simulated successful"

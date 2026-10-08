@@ -29,6 +29,7 @@ opencode:
   skills_dir: .opencode/skills
   max_repair_iterations: 3
   test_mode: true
+  implementation_mode: modular
   docker_isolation: per_task
   docker_image: ghcr.io/anomalyco/opencode:latest
   docker_binary: opencode
@@ -80,6 +81,7 @@ hardware_test:
   uart_port: ''
   baudrate: 115200
   timeout_seconds: 5.0
+  uart_integration: auto   # auto | always | off
 gates:
   min_module_coverage: 1.0
   enforce_contracts: true

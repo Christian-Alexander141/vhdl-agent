@@ -118,3 +118,13 @@ else:
     assert duration < 5
     assert result.returncode == 1
     assert "Rate limit exceeded" in result.stdout
+
+
+def test_pwd_matches_cwd_so_opencode_uses_the_workspace(tmp_path):
+    """OpenCode wählt sein Sitzungsverzeichnis nach $PWD. Ohne Anpassung erbte
+    der Worker das Startverzeichnis des Python-Prozesses (Quellbaum)."""
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    cmd = _write_fake(tmp_path, "import os; print('PWD=' + os.environ.get('PWD', ''))")
+    result = _run_via_pty(cmd, cwd=str(workdir), timeout=10)
+    assert f"PWD={workdir.resolve()}" in result.stdout

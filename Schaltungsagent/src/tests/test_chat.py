@@ -211,7 +211,10 @@ def test_deterministic_pipeline_reaches_ghdl_verification():
     try:
         base = os.path.join(tmp, "projects")
         agent = make_agent(base)
-        result = agent.handle_chat("bau einen Zähler")
+        # UART ausdrücklich anfordern: Die Mock-Testbench des Zählers prüft
+        # nichts; der verifizierbare Teil ist die UART-Vorlage samt Testbench.
+        # (Früher wurde UART in jedes Projekt eingebaut, siehe uart_integration.)
+        result = agent.handle_chat("bau einen Zähler mit UART")
         task_id = result["task_id"]
         workspace = os.path.join(base, task_id)
 

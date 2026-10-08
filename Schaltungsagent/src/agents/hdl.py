@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,10 @@ from src.services.design_fallback import RuleBasedFallback
 from src.services.opencode_task_runner import OpenCodeTaskRunner
 from src.services.opencode_service import describe_opencode_failure
 from src.domain.exceptions import OpenCodeDeliveryError, WorkflowError
+from src.domain.agents.test_plan import _instantiations, format_simulation_vectors
+from src.domain.agents.worker_instructions import (
+    TESTBENCH_RULES, entity_declarations, ghdl_selfcheck,
+)
 from src.domain_plugins.vhdl.templates import VHDLTemplates
 
 logger = logging.getLogger(__name__)
@@ -47,7 +52,10 @@ class HDLAgent(BaseAgent):
 
     @property
     def supported_task_types(self) -> list[str]:
-        return ["implement_hdl", "implement_module", "implement_top", "modify_hdl", "fix_hdl", "review_hdl"]
+        return [
+            "implement_hdl", "implement_module", "implement_top", "implement_project",
+            "modify_hdl", "fix_hdl", "review_hdl",
+        ]
 
     async def execute(self, task: AgentTask) -> AgentResult:
         task_type = task.type
@@ -56,6 +64,8 @@ class HDLAgent(BaseAgent):
             return await self._implement_hdl(task)
         elif task_type == "implement_module":
             return await self._implement_module(task)
+        elif task_type == "implement_project":
+            return await self._implement_project(task)
         elif task_type == "implement_top":
             return await self._implement_top(task)
         elif task_type == "modify_hdl":
@@ -242,6 +252,133 @@ class HDLAgent(BaseAgent):
                 }],
             )
 
+    @staticmethod
+    def _module_order(modules: list[ModuleInfo]) -> list[ModuleInfo]:
+        """Abhängigkeiten vor ihren Nutzern (für Kompilierreihenfolge und Prompt)."""
+        by_name = {m.name: m for m in modules}
+        ordered: list[ModuleInfo] = []
+
+        def visit(module: ModuleInfo, seen: set[str]) -> None:
+            if module.name in seen:
+                return
+            seen.add(module.name)
+            for dep in module.dependencies:
+                if dep in by_name:
+                    visit(by_name[dep], seen)
+            ordered.append(module)
+
+        seen: set[str] = set()
+        for module in modules:
+            visit(module, seen)
+        return ordered
+
+    async def _implement_project(self, task: AgentTask) -> AgentResult:
+        """Implementiert alle Module, Top-Level und Testbench in EINER OpenCode-Sitzung.
+
+        Gegenstück zum modularen TaskGraph: gleicher Kontext für alle Module
+        wie bei einem einzelnen OpenCode-Lauf, aber weiterhin mit den Gates,
+        der Reparatur und den Hardware-Stufen des MAS.
+        """
+        architecture = task.inputs.get("architecture", {})
+        workspace = task.inputs.get("workspace", "")
+        request = task.inputs.get("request_full", task.inputs.get("request", ""))
+        change_request = task.inputs.get("change_request", "")
+        modules = self._module_order([
+            ModuleInfo(**m) if isinstance(m, dict) else m
+            for m in architecture.get("modules", [])
+        ])
+        top = architecture.get("top_module") or (modules[-1].name if modules else "")
+        if not modules or not top:
+            return AgentResult(task_id=task.id, status=AgentStatus.FAILED,
+                               error_message="No modules/top_module for single-session implementation")
+
+        uart_required = bool(task.inputs.get("uart_required"))
+        ws = Path(workspace)
+        (ws / "src").mkdir(parents=True, exist_ok=True)
+        (ws / "tests").mkdir(parents=True, exist_ok=True)
+        fixed: list[str] = []
+        if uart_required and any(m.name == "uart" for m in modules):
+            # Die UART-Vorlage ist vorgegeben und wird nicht vom Modell geschrieben.
+            self._fs.write_file(str(ws / "src" / "uart.vhd"),
+                                task.inputs.get("uart_template") or VHDLTemplates.render("uart", "vhdl"))
+            self._fs.write_file(str(ws / "tests" / "uart_tb.vhd"),
+                                task.inputs.get("uart_testbench") or VHDLTemplates.render("uart", "testbench"))
+            fixed = ["src/uart.vhd", "tests/uart_tb.vhd"]
+
+        lines = []
+        for m in modules:
+            if m.name == "uart" and fixed:
+                lines.append("- uart: src/uart.vhd ist vorgegeben (nicht ändern).")
+                continue
+            entry = (
+                f"- {m.name}: src/{m.name}.vhd; Rolle: {m.description or '-'}; "
+                f"instanziiert: {', '.join(m.dependencies) or '-'}\n"
+                f"  Ports (verbindlich): {self._build_port_list(m)}"
+            )
+            generics = self._build_generic_list(m)
+            if generics:
+                entry += f"\n  Generics: {generics}"
+            vectors = format_simulation_vectors(m.simulation_vectors)
+            if vectors:
+                entry += "\n  " + vectors.replace("\n", "\n  ")
+            lines.append(entry)
+
+        src_files = [f"src/{m.name}.vhd" for m in modules]
+        tb_file = f"tests/{top}_tb.vhd"
+        instruction = (
+            "Implementiere das GESAMTE Projekt in dieser Sitzung. Lies PROMPT.md vollständig; "
+            "er ist maßgeblich.\n"
+            f"Top-Level: {top}. Module in Abhängigkeitsreihenfolge:\n" + "\n".join(lines) + "\n"
+            "Jede Entity heißt exakt wie angegeben und hat genau die angegebenen Ports. "
+            f"Schreibe außerdem die Testbench {tb_file} (Entity {top}_tb), die das Top-Level "
+            "und damit alle Module prüft; für Module mit eigener Logik zusätzlich "
+            "tests/<modul>_tb.vhd.\n"
+            f"{TESTBENCH_RULES}\n"
+            + ghdl_selfcheck([*src_files, tb_file], "build/ghdl/project", tb_entity=f"{top}_tb")
+        )
+        if change_request:
+            instruction += f"\nZusätzlicher Änderungswunsch:\n{change_request}"
+
+        expected = [f for f in src_files if f not in fixed] + [tb_file]
+        delivery = self._task_runner.run(
+            workspace=workspace,
+            request_full=request,
+            stage="implement_project",
+            task_instruction=instruction,
+            expected_files=expected,
+            task_id=f"project_{uuid.uuid4().hex[:8]}",
+            skills_dir=self._skills_dir,
+        )
+        if not delivery.ok:
+            error = delivery.error("Projekt (Single-Session)")
+            return AgentResult(
+                task_id=task.id,
+                status=AgentStatus.FAILED,
+                error_message=str(error),
+                diagnostics=[{
+                    "type": "implementation_failure",
+                    "message": str(error),
+                    **({"failure_type": error.failure_type} if getattr(error, "failure_type", "") else {}),
+                }],
+            )
+
+        files = sorted({*expected, *fixed, *(
+            f"tests/{p.name}" for p in (ws / "tests").glob("*_tb.vhd")
+        )})
+        if uart_required and top != "uart":
+            files = sorted({*files, *self._integrate_uart_top(workspace, architecture, top)})
+            tb_path = ws / tb_file
+            if tb_path.is_file():
+                self._fs.write_file(
+                    str(tb_path), self._adapt_uart_testbench(tb_path.read_text(errors="replace"), workspace, top),
+                )
+        self.emit_event("PROJECT_IMPLEMENTED", {"task_id": task.id, "files": files})
+        return AgentResult(
+            task_id=task.id,
+            status=AgentStatus.COMPLETED,
+            outputs={"files": files, "generated_files": files, "expected_artifacts": expected},
+        )
+
     async def _implement_top(self, task: AgentTask) -> AgentResult:
         """Erzeugt den Top-Level-Wrapper, der alle Module instanziiert."""
         architecture = task.inputs.get("architecture", {})
@@ -299,6 +436,21 @@ class HDLAgent(BaseAgent):
             "erzeuge eine gültige VHDL-2008 Entity und Architecture und schreibe sie "
             "direkt in die Zieldatei. stdout ist nur ein Log."
         )
+        module_names = [
+            m.get("name", "") if isinstance(m, dict) else m.name
+            for m in modules
+        ]
+        declarations = entity_declarations(workspace, [n for n in module_names if n != top_module])
+        if declarations:
+            instruction += (
+                "\nTatsächliche Entities der bereits implementierten Module (verbindlich "
+                f"für die Instanziierung, Ports exakt so verwenden):\n{declarations}"
+            )
+        src_files = [
+            f"src/{n}.vhd" for n in module_names
+            if n != top_module and (Path(workspace) / "src" / f"{n}.vhd").is_file()
+        ]
+        instruction += "\n" + ghdl_selfcheck([*src_files, relative_path], "build/ghdl/top")
         if change_request:
             instruction += f"\nZusätzlicher Änderungswunsch:\n{change_request}"
         delivery = self._task_runner.run(
@@ -594,7 +746,13 @@ class HDLAgent(BaseAgent):
             f"reset={architecture.get('reset_concept', 'async_active_high')}\n"
             "Lies den vollständigen Originalprompt. Er ist maßgeblich und darf nicht "
             "gekürzt oder ersetzt werden. Erzeuge VHDL-2008; die Entity muss exakt "
-            f"{module.name} heißen. Schreibe die Datei selbst, stdout ist nur ein Log."
+            f"{module.name} heißen und genau die Ports aus 'Interface' haben (keine "
+            "zusätzlichen, keine umbenannten). Schreibe die Datei selbst, stdout ist nur ein Log."
+        )
+        instruction += self._dependency_context(module, workspace)
+        dep_files = [f"src/{dep}.vhd" for dep in module.dependencies if (Path(workspace) / "src" / f"{dep}.vhd").is_file()]
+        instruction += "\n" + ghdl_selfcheck(
+            [*dep_files, target_file], f"build/ghdl/{module.name}",
         )
         if change_request:
             instruction += f"\nZusätzlicher Änderungswunsch:\n{change_request}"
@@ -610,6 +768,11 @@ class HDLAgent(BaseAgent):
         vhdl_code = delivery.files.get(target_file, "") if delivery.ok else ""
         if not vhdl_code:
             vhdl_code = self._fallback.module_vhdl(request_full, module.name) or ""
+            if vhdl_code and not self._matches_contract(vhdl_code, module):
+                # Eine Vorlage mit anderem Interface erzeugt nur Folgefehler
+                # in späteren Gates; dann lieber den echten Lieferfehler melden.
+                logger.warning("Fallback template for %s does not match its port contract; discarded", module.name)
+                vhdl_code = ""
             if vhdl_code:
                 self.emit_event("FALLBACK_USED", {
                     "stage": "implement_module",
@@ -623,8 +786,74 @@ class HDLAgent(BaseAgent):
             raise error
         return self._clean_vhdl_code(vhdl_code)
 
+    @staticmethod
+    def _matches_contract(vhdl_code: str, module: ModuleInfo) -> bool:
+        """Entity-Name stimmt und alle Contract-Ports kommen in der Entity vor."""
+        match = re.search(
+            rf"\bentity\s+{re.escape(module.name)}\s+is\b(.*?)\bend\b",
+            vhdl_code, re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return False
+        declared = match.group(1).lower()
+        return all(re.search(rf"\b{re.escape(p.lower())}\b", declared) for p in (module.ports or {}))
+
+    @staticmethod
+    def _compile_order(module: ModuleInfo, workspace: str) -> list[str]:
+        """Quelldateien des Moduls und seiner (transitiven) Abhängigkeiten, Abhängigkeiten zuerst."""
+        src = Path(workspace) / "src"
+        order: list[str] = []
+
+        def visit(name: str, seen: set[str]) -> None:
+            if name in seen:
+                return
+            seen.add(name)
+            path = src / f"{name}.vhd"
+            if not path.is_file():
+                return
+            for child in sorted(_instantiations(path.read_text(errors="replace"))):
+                if (src / f"{child}.vhd").is_file():
+                    visit(child, seen)
+            rel = f"src/{name}.vhd"
+            if rel not in order:
+                order.append(rel)
+
+        visit(module.name, set())
+        return order
+
+    @staticmethod
+    def _dependency_context(module: ModuleInfo, workspace: str) -> str:
+        """Tatsächliche Entities der Abhängigkeiten statt nur Manifest-Einträge.
+
+        Der TaskGraph implementiert Abhängigkeiten vorher; ihre Dateien
+        existieren also bereits und sind die verbindliche Instanziierungs-
+        vorlage (ein einzelner OpenCode-Lauf sieht sie ebenfalls).
+        """
+        if not module.dependencies or not workspace:
+            return ""
+        declarations = entity_declarations(workspace, list(module.dependencies))
+        if not declarations:
+            return ""
+        return (
+            f"\nDieses Modul instanziiert: {', '.join(module.dependencies)}. Tatsächliche "
+            "Entities (verbindlich, Ports exakt so verwenden, Dateien nicht ändern):\n"
+            f"{declarations}"
+        )
+
     def _build_port_list(self, module: ModuleInfo) -> str:
-        """Erstellt Port-Liste als String."""
+        """Erstellt Port-Liste als String.
+
+        Ein typisierter Contract (``module.ports``) wird unverändert
+        übernommen. Früher kamen für sequenzielle Module immer ``clk``/``rst``
+        dazu – auch wenn der Contract z. B. ``clk_i``/``reset_n`` vorsah; der
+        Worker bekam damit zwei widersprüchliche Interfaces.
+        """
+        if module.ports:
+            return "; ".join(
+                f"{name} : {str((spec or {}).get('direction', 'in')).lower()} "
+                f"{(spec or {}).get('type') or 'std_logic'}"
+                for name, spec in module.ports.items()
+            )
         ports = []
         
         width = module.parameters.get("width", None)
@@ -633,8 +862,10 @@ class HDLAgent(BaseAgent):
         else:
             vector_type = "std_logic_vector"
         
-        # Clock und Reset hinzufügen für sequentielle Module
-        if module.type in ["sequential", "fsm"]:
+        # Clock/Reset nur ergänzen, wenn das Modul noch keinen Takteingang nennt.
+        has_clock = any("clk" in n.lower() or "clock" in n.lower() for n in module.inputs)
+        injected = module.type in ["sequential", "fsm"] and not has_clock
+        if injected:
             ports.append("clk : in std_logic")
             ports.append("rst : in std_logic")
         
@@ -645,9 +876,8 @@ class HDLAgent(BaseAgent):
             spec = contract.get(name.lower())
             return spec.get("type", vector_type) if isinstance(spec, dict) else vector_type
 
-        # Inputs (ohne clk/rst, die schon oben hinzugefügt wurden)
         for inp in module.inputs:
-            if inp not in ["clk", "rst"]:
+            if not (injected and inp in ["clk", "rst"]):
                 ports.append(f"{inp} : in {port_type(inp)}")
         
         # Outputs
@@ -660,8 +890,14 @@ class HDLAgent(BaseAgent):
         """Erstellt Generic-Liste als String."""
         generics = []
         for name, value in module.parameters.items():
-            if isinstance(value, int):
-                generics.append(f"{name} : positive := {value}")
+            # bool vor int prüfen (bool ist eine int-Unterklasse); "positive"
+            # schloss 0 aus, "string" machte z. B. PARITY="none" zum String-Generic.
+            if isinstance(value, bool):
+                generics.append(f"{name} : boolean := {str(value).lower()}")
+            elif isinstance(value, int):
+                generics.append(f"{name} : integer := {value}")
+            elif isinstance(value, float):
+                generics.append(f"{name} : real := {value}")
             else:
                 generics.append(f"{name} : string := \"{value}\"")
         return "; ".join(generics)
@@ -727,6 +963,14 @@ class HDLAgent(BaseAgent):
             "Die Testbench muss die Entity exakt als <DUT>_tb benennen, Assertions "
             "enthalten und mit GHDL ausführbar sein. Schreibe das Ergebnis in die Datei; "
             "stdout ist nur ein Log."
+        )
+        instruction += f"\n{TESTBENCH_RULES}"
+        vector_block = format_simulation_vectors(module.simulation_vectors)
+        if vector_block:
+            instruction += f"\n{vector_block}"
+        src_files = self._compile_order(module, workspace)
+        instruction += "\n" + ghdl_selfcheck(
+            [*src_files, target_file], f"build/ghdl/{module.name}_tb", tb_entity=f"{module.name}_tb",
         )
         if change_request:
             instruction += f"\nZusätzlicher Änderungswunsch:\n{change_request}"
@@ -832,6 +1076,24 @@ class HDLAgent(BaseAgent):
                 error_message=str(error),
             )
 
+    def _repair_verification(self, workspace: str, architecture: dict, failed_module: str) -> str:
+        """GHDL-Befehle für die Reparatur: alle Quellen, dann jede Testbench simulieren."""
+        modules = self._module_order([
+            ModuleInfo(**m) if isinstance(m, dict) else m
+            for m in (architecture or {}).get("modules", [])
+        ])
+        src = [f"src/{m.name}.vhd" for m in modules if (Path(workspace) / "src" / f"{m.name}.vhd").is_file()]
+        tbs = sorted((Path(workspace) / "tests").glob("*_tb.vhd")) if workspace else []
+        workdir = f"build/ghdl/repair_{failed_module or 'all'}"
+        if not tbs:
+            return ghdl_selfcheck(src, workdir)
+        parts = [ghdl_selfcheck([*src, *(f"tests/{tb.name}" for tb in tbs)], workdir, tb_entity=tbs[0].stem)]
+        for tb in tbs[1:]:
+            parts.append(
+                f"  ghdl -r --std=08 --workdir={workdir} {tb.stem} --stop-time=1ms --assert-level=error"
+            )
+        return "\n".join(parts) + "\n" + TESTBENCH_RULES
+
     async def _fix_hdl(self, task: AgentTask) -> AgentResult:
         """Repariert VHDL-Code basierend auf Fehlerinformationen.
 
@@ -868,6 +1130,7 @@ class HDLAgent(BaseAgent):
             }],
         )
 
+        verification = self._repair_verification(workspace, architecture, failed_module)
         instruction = f"""{context}
 
 =====================================================================
@@ -905,9 +1168,11 @@ INSTRUCTIONS:
 2. Analyze the GHDL error and the debug diagnosis
 3. Fix ONLY the root cause in the identified file(s)
 4. Preserve all working code - do NOT rewrite unrelated files
-5. After fixing, run: ghdl -a --std=08 src/{failed_module}.vhd
-6. Then run the full GHDL validation to verify the fix
-7. Stop only when the acceptance criteria are satisfied
+5. Verify with exactly the commands below (same checks as the pipeline's validator)
+6. Stop only when they pass
+
+VERIFICATION:
+{verification}
 
 IMPORTANT:
 - This is a REPAIR, not a rewrite. Patch the existing code.

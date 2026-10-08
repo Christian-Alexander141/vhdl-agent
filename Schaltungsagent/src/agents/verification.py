@@ -5,6 +5,8 @@ from typing import Any
 
 from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.domain.agents.communication import VerificationResult
+from src.domain.agents.test_plan import format_simulation_vectors
+from src.domain.agents.worker_instructions import TESTBENCH_RULES
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
 from src.domain.exceptions import OpenCodeDeliveryError
 from src.services.opencode_service import describe_opencode_failure
@@ -124,6 +126,10 @@ class VerificationAgent(BaseAgent):
         
         # VHDL-Code des Moduls lesen
         module_name = module.get("name", "") if isinstance(module, dict) else getattr(module, "name", "")
+        simulation_vectors = (
+            module.get("simulation_vectors", []) if isinstance(module, dict)
+            else getattr(module, "simulation_vectors", [])
+        ) or []
         vhdl_content = ""
         if module_name and workspace:
             src_dir = Path(workspace) / "src"
@@ -136,6 +142,7 @@ class VerificationAgent(BaseAgent):
                         pass
                     break
 
+        vector_section = f"\n{format_simulation_vectors(simulation_vectors)}\n" if simulation_vectors else ""
         prompt = f"""Generiere eine vollständige VHDL-Testbench für folgendes Modul:
 
 VHDL-CODE DES MODULS:
@@ -154,6 +161,8 @@ ANFORDERUNGEN:
 - Entity-Name muss "_tb" Suffix haben und zum Modul passen
 - Ports müssen exakt zum Entity-Declaration des Moduls passen
 
+{TESTBENCH_RULES}
+{vector_section}
 Antworte ausschließlich mit dem VHDL-Testbench-Code (Entity + Architecture). Ändere keine Dateien."""
 
         try:

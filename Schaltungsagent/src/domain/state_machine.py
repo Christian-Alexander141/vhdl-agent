@@ -167,6 +167,7 @@ _TRANSITIONS: dict[str, list[str]] = {
     ],
     WorkflowState.VALIDATING: [
         WorkflowState.SYNTHESIZING, WorkflowState.SIMULATION_PASSED,
+        WorkflowState.COMPLETED,
         WorkflowState.DEBUGGING, WorkflowState.FAILED,
     ],
     WorkflowState.DEBUGGING: [

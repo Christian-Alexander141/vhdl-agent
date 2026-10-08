@@ -274,6 +274,11 @@ class HardwareTestAgent(BaseAgent):
     gemeldet (``SKIPPED``). Mit echter Schnittstelle laufen ausschließlich
     projektspezifische Testvektoren aus Architektur oder
     ``tests/hardware_tests.yaml``; fehlen sie, ist das Ergebnis ``BLOCKED``.
+
+    War die Simulation bereits erfolgreich (``task.inputs["verification_passed"]``)
+    und antwortet die Hardware dennoch mit einem falschen statt gar keinem Wert,
+    wird das als eigene Fehlerklasse ``simulation_hardware_divergence`` statt als
+    generischer ``hardware_error`` gemeldet (siehe ``_run_hardware_test``).
     """
 
     TEST_SPEC_FILES = ("hardware_tests.yaml", "hardware_tests.yml", "hardware_tests.json")
@@ -451,6 +456,22 @@ class HardwareTestAgent(BaseAgent):
         })
 
         failures = [t for t in test_results if not t["passed"]]
+        # Ein Test ohne "error" hat tatsächlich geantwortet, nur mit dem
+        # falschen Wert (keine Infrastruktur-/Verbindungsstörung). War die
+        # Simulation (inkl. Golden-Model-Vektoren) bereits grün, ist das keine
+        # Board-/Kabelstörung, sondern eine echte Software/Hardware-Diskrepanz.
+        has_real_mismatch = any(not t.get("error") for t in failures)
+        verification_passed = bool(task.inputs.get("verification_passed"))
+        failure_type = (
+            "simulation_hardware_divergence"
+            if failures and has_real_mismatch and verification_passed
+            else "hardware_error"
+        )
+        message_prefix = (
+            "hardware test diverged from passed simulation"
+            if failure_type == "simulation_hardware_divergence"
+            else "hardware test failed"
+        )
         return AgentResult(
             task_id=task.id,
             status=AgentStatus.COMPLETED if overall_passed else AgentStatus.FAILED,
@@ -458,9 +479,9 @@ class HardwareTestAgent(BaseAgent):
             error_message="" if overall_passed else f"{failed} hardware test(s) failed",
             diagnostics=[{
                 "type": "hardware_test_failure",
-                "failure_type": "hardware_error",
+                "failure_type": failure_type,
                 "stage": "hardware",
-                "message": "hardware test failed: " + "; ".join(
+                "message": f"{message_prefix}: " + "; ".join(
                     f"{t['name']} expected {t['expected']} got {t['output'] or t['error']}"
                     for t in failures
                 ),

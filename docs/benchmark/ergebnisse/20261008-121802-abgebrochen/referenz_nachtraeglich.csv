@@ -1,0 +1,9 @@
+workspace,ref_passed,ref_detail
+01_counter-single-1,True,Referenz-Testbench bestanden
+01_counter-single-2,False,-r: ~/Dokumente/Github/vhdl-agent/Schaltungsagent/benchmark/reference/01_counter_ref_tb.vhd:30:13:@26ns:(assertion error): REF_FAIL count step 1: got 0
+01_counter-single-3,True,Referenz-Testbench bestanden
+counter4-0ae1c7,True,Referenz-Testbench bestanden
+counter4-295872,True,Referenz-Testbench bestanden
+counter4-2a2cee,True,Referenz-Testbench bestanden
+counter4-39ca47,True,Referenz-Testbench bestanden
+counter4-72b90a,False,keine Quelldateien in src/

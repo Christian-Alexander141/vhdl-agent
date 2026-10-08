@@ -105,5 +105,8 @@ def build_supervisor_agent(
             "enforce_contracts": getattr(gates, "enforce_contracts", True),
             "max_parallel_workers": getattr(limits, "max_parallel_workers", 2),
             "default_fpga": getattr(synthesis, "default_fpga", "arty_s7_50"),
+            "synthesis_enabled": getattr(synthesis, "enabled", True),
+            "uart_integration": getattr(hardware, "uart_integration", "auto"),
+            "implementation_mode": getattr(getattr(settings, "opencode", None), "implementation_mode", "modular"),
         },
     )

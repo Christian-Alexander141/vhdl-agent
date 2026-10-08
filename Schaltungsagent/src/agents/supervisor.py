@@ -3,6 +3,7 @@ import hashlib
 import logging
 import json
 import os
+import re
 import uuid
 import threading
 from datetime import datetime, timezone
@@ -624,10 +625,43 @@ class SupervisorAgent(BaseAgent):
         
         return result
 
+    def _uart_required(self) -> bool:
+        """UART-Echo-Brücke nur, wenn sie gebraucht wird (siehe hardware_test.uart_integration).
+
+        Früher wurde sie in jedes Projekt eingebaut: zusätzliches Modul,
+        nachträglich umgebautes Top-Level und eine Abweichung vom
+        Manifest-Contract – auch wenn niemand UART verlangt hatte.
+        """
+        mode = str(self._config.get("uart_integration", "auto")).lower()
+        if mode == "always":
+            return True
+        if mode == "off":
+            return False
+        if getattr(self._hardware_test_agent, "has_real_hardware", False):
+            return True
+        if self._design_state.architecture.hardware_tests:
+            return True
+        request = self._design_state.metadata.get(
+            "request_full", self._current_task.inputs.get("request_full", self._current_task.inputs.get("request", "")),
+        )
+        return bool(re.search(r"\buart\b", request or "", re.IGNORECASE))
+
     async def _run_uart_integration(self) -> AgentResult:
         """Make UART a persistent architectural requirement before HDL generation."""
         architecture = self._design_state.architecture
         modules = architecture.modules
+        if not self._uart_required():
+            self._design_state.metadata.update({
+                "uart_required": False,
+                "uart_integration_status": "skipped",
+            })
+            await self._save_design_state()
+            return AgentResult(
+                task_id=self._current_task.id,
+                status=AgentStatus.COMPLETED,
+                outputs={"uart_required": False, "top_module": architecture.top_module},
+            )
+        before = self._architecture_snapshot(architecture)
         non_uart_modules = [module for module in modules if module.name.lower() != "uart"]
         non_uart_names = {module.name for module in non_uart_modules}
         if (
@@ -687,8 +721,11 @@ class SupervisorAgent(BaseAgent):
             "parity": "none",
             "stop_bits": 1,
         }
-        architecture.version += 1
-        architecture.updated_at = datetime.now(timezone.utc).isoformat()
+        # Nur bei echter Änderung hochzählen: jede neue Version invalidiert
+        # abhängige Implementierungs-Tasks und erzwingt Neugenerierung.
+        if self._architecture_snapshot(architecture) != before:
+            architecture.version += 1
+            architecture.updated_at = datetime.now(timezone.utc).isoformat()
 
         self._design_state.metadata.update({
             "uart_required": True,
@@ -711,6 +748,11 @@ class SupervisorAgent(BaseAgent):
                 "module_count": len(architecture.modules),
             },
         )
+
+    @staticmethod
+    def _architecture_snapshot(architecture) -> str:
+        data = architecture.model_dump(exclude={"version", "created_at", "updated_at"})
+        return json.dumps(data, sort_keys=True, default=str)
 
     @staticmethod
     def _last_module_name(modules: list) -> str:
@@ -823,7 +865,14 @@ class SupervisorAgent(BaseAgent):
             else getattr(non_uart_modules[-1], "name", "") if non_uart_modules else ""
         )
         integration_task_id = None
-        if len(modules) > 1 and not self._design_state.metadata.get("uart_required"):
+        # Steht das Top-Level selbst als Modul im Manifest, implementiert es
+        # bereits sein Modul-Task (nach allen Abhängigkeiten); ein zweiter
+        # Task für dieselbe Datei würde sie überschreiben.
+        if (
+            len(modules) > 1
+            and not self._design_state.metadata.get("uart_required")
+            and top_module not in module_tasks
+        ):
             integration_task_id = "implement_top"
             graph.add_task(
                 AgentTask(
@@ -850,6 +899,40 @@ class SupervisorAgent(BaseAgent):
                 owned_files=[f"src/{top_module}.vhd"] if top_module else None,
             )
         
+        if self._config.get("implementation_mode") == "single_session":
+            # Ein OpenCode-Aufruf für das ganze Projekt: gemeinsamer Kontext
+            # statt kalter Einzelaufrufe je Modul. Gates, Reparatur und
+            # Hardware-Stufen bleiben unverändert.
+            owned = [f"src/{name}.vhd" for name in module_tasks]
+            graph = TaskGraph()
+            integration_task_id = None
+            graph.add_task(
+                AgentTask(
+                    id="implement_project",
+                    type="implement_project",
+                    project_id=self._current_task.project_id,
+                    inputs={
+                        "architecture": architecture,
+                        "workspace": workspace,
+                        "domain": domain,
+                        "request": request,
+                        "request_full": request,
+                        "change_request": change_request,
+                        "analysis": analysis,
+                        "uart_required": bool(self._design_state.metadata.get("uart_required")),
+                        "uart_template": VHDLTemplates.render("uart", "vhdl"),
+                        "uart_testbench": VHDLTemplates.render("uart", "testbench"),
+                    },
+                    acceptance_criteria=[
+                        "Alle Module und das Top-Level sind implementiert",
+                        "Jedes Modul hat eine Testbench unter tests/",
+                        "GHDL analysiert, elaboriert und simuliert ohne Fehler",
+                    ],
+                    expected_artifacts=owned,
+                ),
+                owned_files=owned,
+            )
+
         # --- Wiederaufnahme: unveränderte, abgeschlossene Tasks übernehmen ---
         reused, rerun = self._reuse_completed_tasks(graph, workspace, architecture, change_request)
 
@@ -1491,9 +1574,13 @@ class SupervisorAgent(BaseAgent):
                 "fpga_config": self._design_state.fpga.model_dump(),
                 "architecture": self._design_state.architecture.model_dump(),
                 "workspace": self._fs.workspace_path(self._current_task.project_id),
+                # Golden-Vektor-Simulation bereits grün? Weicht die Hardware
+                # trotzdem ab, ist das kein Infra-/Board-Fehler, sondern eine
+                # Software/Hardware-Diskrepanz (siehe hardware_test.py).
+                "verification_passed": self._design_state.verification.status == "passed",
             },
         )
-        
+
         result = await self._hardware_test_agent.execute(task)
         hw_result = result.outputs.get("hardware_result", {})
         if hw_result:
@@ -1917,7 +2004,11 @@ class SupervisorAgent(BaseAgent):
             DesignStage.IMPLEMENTING: DesignStage.STATIC_CHECK,
             DesignStage.STATIC_CHECK: DesignStage.SIMULATING,
             DesignStage.SIMULATING: DesignStage.VALIDATING,
-            DesignStage.VALIDATING: DesignStage.SYNTHESIZING,
+            DesignStage.VALIDATING: (
+                DesignStage.SYNTHESIZING
+                if self._config.get("synthesis_enabled", True)
+                else DesignStage.COMPLETED
+            ),
             DesignStage.SYNTHESIZING: DesignStage.FPGA_PROGRAMMING,
             DesignStage.FPGA_PROGRAMMING: after_flash,
             DesignStage.HARDWARE_TESTING: DesignStage.COMPLETED,

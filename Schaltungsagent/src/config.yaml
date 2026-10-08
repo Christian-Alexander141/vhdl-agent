@@ -30,8 +30,10 @@ opencode:
   plan_timeout_seconds: 600
   skills_dir: .opencode/skills
   max_repair_iterations: 5
-  test_mode: false
-  # Produktiv immer Docker; test_mode: true = nativ (nur Testrechner).
+  # Nativ, bis das MAS einem einzelnen OpenCode (gleiches Modell) überlegen ist;
+  # danach wieder Docker-Isolation (test_mode: false) für den Produktivbetrieb.
+  test_mode: true
+  implementation_mode: modular   # modular | single_session
   docker_isolation: per_task
   docker_image: ghcr.io/anomalyco/opencode:latest
   docker_binary: opencode
@@ -87,6 +89,7 @@ hardware_test:
   uart_port: ""
   baudrate: 115200
   timeout_seconds: 5.0
+  uart_integration: auto   # auto | always | off
 
 # Harte Gates zwischen den Phasen.
 gates:

@@ -48,9 +48,14 @@ def module_from_manifest(item: dict) -> ModuleInfo:
             names[direction].append(name)
             if port_type:
                 ports.setdefault(name, {"direction": direction, "type": port_type})
+    # Ohne Angabe im Manifest galt jedes Modul als sequenziell; der HDL-Prompt
+    # forderte dann auch für rein kombinatorische Module clk/rst. Der Typ
+    # folgt jetzt dem Port-Contract (gleiche Regel wie der Contract-Checker).
+    all_ports = [*ports, *names["in"], *names["out"]]
+    has_clock = any("clk" in str(p).lower() or "clock" in str(p).lower() for p in all_ports)
     return ModuleInfo(
         name=item["entity"],
-        type=item.get("type", "sequential"),
+        type=item.get("type") or ("sequential" if has_clock else "combinational"),
         inputs=names["in"],
         outputs=names["out"],
         parameters=item.get("parameters", {}),
@@ -58,6 +63,7 @@ def module_from_manifest(item: dict) -> ModuleInfo:
         dependencies=item.get("depends_on", []),
         files=[item["file"]],
         ports=ports,
+        simulation_vectors=item.get("simulation_vectors", []) or [],
     )
 
 
