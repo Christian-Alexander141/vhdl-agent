@@ -55,6 +55,8 @@ Weil die Varianten innerhalb jeder Runde abwechseln, wirken sich zeitabhängige 
 
 Gemessen wird die Wanduhrzeit vom Start der Variante bis zum Ende ihres letzten Agentenschritts, ohne die anschließende Bewertung.
 
+**Provider-Prüfung:** Vor jedem Einzellauf geht eine kurze Testanfrage an das Modell („Antworte nur mit dem Wort OK.“). Ist der Provider nicht erreichbar, wartet der Benchmark in 10-Minuten-Schritten bis höchstens `--max-provider-wait` Minuten (Standard 120) und beendet sich dann sauber; `meta.json` vermerkt den Abbruch. Nach jedem Lauf wird erneut geprüft (`provider_ok_after`). Ein fehlgeschlagener Lauf, nach dem der Provider nicht erreichbar ist, gilt als **ungültig** (`valid = False`): Er misst den Ausfall, nicht die Variante. `summary.json` rechnet Quoten nur über gültige Läufe und weist die ausgeschlossenen aus (`invalid_runs_excluded`).
+
 ## 6. Bewertung
 
 Jeder Einzellauf wird zweifach bewertet:
@@ -81,6 +83,7 @@ Wo der Prompt die Taktzählung offenlässt (Phasenlängen der Ampel), toleriert 
 | `final_stage`, `failure_type` | MAS: letzte Phase der Zustandsmaschine und erste klassifizierte Fehlerklasse |
 | `mast_category` | grobe Zuordnung des Fehlschlags zur MAST-Taxonomie (Cemri et al., arXiv:2503.13657): Spezifikation, Abstimmung zwischen Agenten, Verifikation, Infrastruktur |
 | `started_at`, `workspace`, `note` | Startzeit, Arbeitsverzeichnis, Fehlermeldung |
+| `provider_ok_after`, `valid` | Provider nach dem Lauf erreichbar; Lauf gültig (Abschnitt 5) |
 
 `summary.json` fasst je Variante zusammen: Läufe, Erfolgsquote (eigene und Referenz-Testbench), mittlere Dauer, Ergebnisse je Prompt und Verteilung der MAST-Kategorien.
 
@@ -117,4 +120,4 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
 |---|---|---|
 | 2026-10-08 11:33 | ungültig, keine Daten | Workspaces lagen im Repo, und OpenCode arbeitete wegen `$PWD` im Quellbaum (Doku #16/#17). Abgebrochen, Repo bereinigt. |
 | `20261008-121802` | abgebrochen nach 8 von 27 Läufen | Älterer Code-Stand: vor Doku #18 (Fehlklassifikation `clock_reset_error`) und #19 (vorzeitiger Modellabbruch), noch ohne Referenz-Testbench. Ergebnisse und nachträgliche Referenzprüfung in `ergebnisse/20261008-121802-abgebrochen/`. |
-| `20261008-161755` | läuft (2 Runden, 18 Läufe) | Code-Stand = Commit `73769ce` (geprüft: alle 24 in `meta.json` erfassten Dateiprüfsummen stimmen mit dem Commit überein). Erster Lauf mit Referenz-Testbench, abwechselnder Reihenfolge und Doku #16–#19. |
+| `20261008-161755` | größtenteils ungültig | Code-Stand Commit `73769ce`. Ab ca. 18:00 Ausfall des Modell-Providers ([502] Upstream error from Nvidia); 15 von 18 Läufen ungültig. Gültige Beobachtung: Beide Ampel-Entwürfe bleiben auf Haupt-Grün stehen, der MAS-Entwurf besteht trotzdem seine eigene Testbench. Anlass für die Provider-Prüfung (Abschnitt 5). Details: `ergebnisse/20261008-161755/HINWEIS.md`. |

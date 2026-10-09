@@ -1,14 +1,24 @@
 {
   "single": {
-    "runs": 1,
+    "runs": 6,
     "passed": 0,
     "pass_rate": 0.0,
     "ref_passed": 0,
     "ref_pass_rate": 0.0,
-    "mean_duration_s": 1600.0,
+    "mean_duration_s": 2766.8,
     "per_prompt": {
       "03_ampel": {
-        "runs": 1,
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "02_hamming_decoder": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "01_counter": {
+        "runs": 2,
         "passed": 0,
         "ref_passed": 0
       }
@@ -16,23 +26,59 @@
     "mast": {}
   },
   "mas": {
-    "runs": 0,
-    "passed": 0,
-    "pass_rate": 0.0,
+    "runs": 6,
+    "passed": 1,
+    "pass_rate": 0.167,
     "ref_passed": 0,
     "ref_pass_rate": 0.0,
-    "mean_duration_s": 0.0,
-    "per_prompt": {},
-    "mast": {}
+    "mean_duration_s": 2119.0,
+    "per_prompt": {
+      "03_ampel": {
+        "runs": 2,
+        "passed": 1,
+        "ref_passed": 0
+      },
+      "02_hamming_decoder": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "01_counter": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      }
+    },
+    "mast": {
+      "infrastructure": 5
+    }
   },
   "mas-single": {
-    "runs": 0,
-    "passed": 0,
-    "pass_rate": 0.0,
-    "ref_passed": 0,
-    "ref_pass_rate": 0.0,
-    "mean_duration_s": 0.0,
-    "per_prompt": {},
-    "mast": {}
+    "runs": 6,
+    "passed": 1,
+    "pass_rate": 0.167,
+    "ref_passed": 1,
+    "ref_pass_rate": 0.167,
+    "mean_duration_s": 1732.3,
+    "per_prompt": {
+      "03_ampel": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "02_hamming_decoder": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "01_counter": {
+        "runs": 2,
+        "passed": 1,
+        "ref_passed": 1
+      }
+    },
+    "mast": {
+      "infrastructure": 5
+    }
   }
 }

@@ -149,9 +149,45 @@ def reference_check(workspace: str, prompt_stem: str, scratch: Path, ghdl: str =
     return True, "Referenz-Testbench bestanden"
 
 
+def provider_ok(settings, scratch: Path, timeout: int = 120) -> tuple[bool, str]:
+    """Kurze Testanfrage an das Modell: ist der Provider gerade erreichbar?
+
+    Im Lauf 20261008-161755 fiel der Provider des Gratis-Modells ab ~18:00
+    aus ([502] Upstream error from Nvidia). OpenCode wartete still bis zum
+    Zeitlimit; 15 von 18 Läufen waren dadurch wertlos und kosteten 10 h.
+    """
+    scratch.mkdir(parents=True, exist_ok=True)
+    cfg = settings.opencode
+    service = SubprocessOpenCodeService(
+        binary=cfg.binary, model=cfg.model, default_timeout=timeout, fallback_model=cfg.model,
+    )
+    try:
+        result = service.execute(str(scratch), "Antworte nur mit dem Wort OK.", timeout_seconds=timeout)
+    except Exception as exc:
+        return False, f"{type(exc).__name__}"
+    output = (result.stdout or "") + (result.stderr or "")
+    if result.returncode == 0 and "OK" in output.upper():
+        return True, "ok"
+    return False, (output.strip().splitlines() or ["keine Antwort"])[-1][:120]
+
+
+def wait_for_provider(settings, scratch: Path, max_wait_min: int) -> bool:
+    deadline = time.monotonic() + max_wait_min * 60
+    while True:
+        ok, detail = provider_ok(settings, scratch)
+        if ok:
+            return True
+        if time.monotonic() >= deadline:
+            print(f"PROVIDER_DOWN seit über {max_wait_min} min ({detail}) – Benchmark wird beendet", flush=True)
+            return False
+        print(f"PROVIDER_DOWN ({detail}) – neuer Versuch in 10 min", flush=True)
+        time.sleep(600)
+
+
 FIELDS = [
     "round", "prompt", "variant", "model", "passed", "validator", "ref_passed", "ref_detail", "duration_s",
     "final_stage", "failure_type", "mast_category", "started_at", "workspace", "note",
+    "provider_ok_after", "valid",
 ]
 
 
@@ -177,9 +213,11 @@ def _code_state() -> dict:
 
 
 def _summary(rows: list[dict], variants: list[str]) -> dict:
+    """Quoten nur über gültige Läufe (Provider vor und nach dem Lauf erreichbar)."""
     summary = {}
     for variant in variants:
-        runs = [r for r in rows if r["variant"] == variant]
+        invalid = sum(1 for r in rows if r["variant"] == variant and not r.get("valid", True))
+        runs = [r for r in rows if r["variant"] == variant and r.get("valid", True)]
         per_prompt = {}
         for r in runs:
             entry = per_prompt.setdefault(r["prompt"], {"runs": 0, "passed": 0, "ref_passed": 0})
@@ -188,6 +226,7 @@ def _summary(rows: list[dict], variants: list[str]) -> dict:
             entry["ref_passed"] += int(r.get("ref_passed") is True)
         summary[variant] = {
             "runs": len(runs),
+            "invalid_runs_excluded": invalid,
             "passed": sum(r["passed"] for r in runs),
             "pass_rate": round(sum(r["passed"] for r in runs) / len(runs), 3) if runs else 0.0,
             "ref_passed": sum(1 for r in runs if r.get("ref_passed") is True),
@@ -210,6 +249,8 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1, help="Runden; jede Runde führt jeden Prompt in jeder Variante aus")
     parser.add_argument("--out", default=str(Path.home() / "vhdl-agent-benchmark"),
                         help="Ablage der Workspaces; muss außerhalb jedes Git-Repos liegen")
+    parser.add_argument("--max-provider-wait", type=int, default=120,
+                        help="Minuten, die auf einen ausgefallenen Modell-Provider gewartet wird, bevor der Benchmark endet")
     parser.add_argument("--results-dir", default=str(ROOT.parent / "docs" / "benchmark" / "ergebnisse"),
                         help="Ablage von Ergebnissen und Metadaten (versionierbar)")
     args = parser.parse_args()
@@ -276,6 +317,11 @@ def main() -> None:
             prompt = prompt_file.read_text(encoding="utf-8")
             for variant in args.variants:
                 settings = load_config()  # frisch je Lauf, MAS verändert die Settings
+                if not wait_for_provider(settings, out_dir / "_health", args.max_provider_wait):
+                    meta["aborted"] = "Modell-Provider nicht erreichbar"
+                    meta["finished_at"] = datetime.now().isoformat(timespec="seconds")
+                    (results_dir / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+                    sys.exit(2)
                 started_at = datetime.now().isoformat(timespec="seconds")
                 started = time.monotonic()
                 if variant == "single":
@@ -285,6 +331,7 @@ def main() -> None:
                                    out_dir / "mas-projects")
                 duration = time.monotonic() - started
                 check = validator.validate(info["workspace"]) if info["workspace"] else None
+                provider_after, _ = provider_ok(settings, out_dir / "_health")
                 ref_passed, ref_detail = reference_check(
                     info["workspace"], prompt_file.stem, out_dir / "_refcheck", probe.ghdl.binary,
                 )
@@ -304,6 +351,10 @@ def main() -> None:
                     "started_at": started_at,
                     "workspace": info["workspace"],
                     "note": info["note"].replace("\n", " "),
+                    "provider_ok_after": provider_after,
+                    # Fehlgeschlagen und Provider danach nicht erreichbar: der
+                    # Lauf misst den Ausfall, nicht die Variante.
+                    "valid": provider_after or bool(check and check.passed) or ref_passed is True,
                 }
                 rows.append(row)
                 with open(csv_path, "a", newline="", encoding="utf-8") as f:
@@ -311,6 +362,7 @@ def main() -> None:
                 (results_dir / "summary.json").write_text(
                     json.dumps(_summary(rows, args.variants), indent=2, ensure_ascii=False))
                 print(f"R{rnd} {row['prompt']:<22} {variant:<11} {'PASS' if row['passed'] else 'FAIL'}  "
+                      f"{'' if row['valid'] else '[UNGÜLTIG: Provider-Ausfall] '}"
                       f"REF={'PASS' if ref_passed else '-' if ref_passed is None else 'FAIL'}  "
                       f"{row['duration_s']:>7}s  {row['failure_type'] or row['validator'][:60]}", flush=True)
 

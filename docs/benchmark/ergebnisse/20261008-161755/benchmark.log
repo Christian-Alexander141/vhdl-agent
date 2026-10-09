@@ -1,0 +1,177 @@
+R1 03_ampel               single      FAIL  REF=FAIL   1600.0s  GHDL simulation failed for ampel_tb (runtime error or failed
+OpenCode timed out after 3000s
+Failed to implement module ampel
+Traceback (most recent call last):
+  File "/home/alex/Dokumente/Github/vhdl-agent/Schaltungsagent/src/agents/hdl.py", line 179, in _implement_module
+    vhdl_code = await self._generate_module_vhdl(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/alex/Dokumente/Github/vhdl-agent/Schaltungsagent/src/agents/hdl.py", line 786, in _generate_module_vhdl
+    raise error
+  File "/home/alex/Dokumente/Github/vhdl-agent/Schaltungsagent/src/services/opencode_task_runner.py", line 299, in run
+    result = self._opencode.execute(
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/alex/Dokumente/Github/vhdl-agent/Schaltungsagent/src/services/opencode_service.py", line 305, in execute
+    return self._delegate.execute(project_path, instruction, timeout_seconds=timeout_seconds)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/alex/Dokumente/Github/vhdl-agent/Schaltungsagent/src/services/opencode_service.py", line 367, in execute
+    raise OpenCodeTimeoutError(
+src.domain.exceptions.OpenCodeTimeoutError: Modul 'ampel': OpenCode execution timed out after 3000s
+  Ursache: OpenCode hat innerhalb von 3000 s kein Ergebnis geliefert und wurde abgebrochen.
+  Hinweis: Zeitlimit in Einstellungen → OpenCode-Modelle erhöhen oder die Aufgabe verkleinern.
+  Phase: implement_module
+  Erwartete Dateien: src/ampel.vhd (nicht erzeugt)
+  Laufzeit: 3000.2 s
+  Ausführung: nativ (Testmodus)
+  Auftragsdatei: .opencode_tasks/ampel_e9edae5b_implement_module.md
+  Von OpenCode geänderte Dateien: keine
+  stderr (Ende):
+        Ursache: OpenCode hat innerhalb von 3000 s kein Ergebnis geliefert und wurde abgebrochen.
+        Hinweis: Zeitlimit in Einstellungen → OpenCode-Modelle erhöhen oder die Aufgabe verkleinern.
+        Modus: nativ (Testmodus)
+        Projekt: /home/alex/vhdl-agent-benchmark/20261008-161755/mas-projects/traffic-light-9c2acd
+        letzte Ausgabe:
+            file / "/home/alex/vhdl-agent-benchmark/20261008-161755/mas-projects/traffic-light-9c2acd/src/control.vhd" "dd4e313a8b776cc1d5b2bacb989c624cce6fe9b0" "20261008155703.039":
+              entity control at 1( 0) + 0 on 17;
+              architecture seq of control at 22( 466) + 0 on 18;
+            [0m
+            [0m$ [0mghdl -m --std=08 --work=lib ampel 2>&1
+            /usr/bin/ghdl-mcode:error: cannot find entity or configuration ampel
+            [0m
+            [0m$ [0mghdl -m --std=08 -P/home/alex/vhdl-agent-benchmark/20261008-161755/mas-projects/traffic-light-9c2acd/build/ghdl/ampel ampel 2>&1
+            /usr/bin/ghdl-mcode:error: cannot find entity or configuration ampel
+            [0m
+  Modus: nativ (Testmodus)
+  Projekt: /home/alex/vhdl-agent-benchmark/20261008-161755/mas-projects/traffic-light-9c2acd
+  letzte Ausgabe:
+      file / "/home/alex/vhdl-agent-benchmark/20261008-161755/mas-projects/traffic-light-9c2acd/src/control.vhd" "dd4e313a8b776cc1d5b2bacb989c624cce6fe9b0" "20261008155703.039":
+        entity control at 1( 0) + 0 on 17;
+        architecture seq of control at 22( 466) + 0 on 18;
+      [0m
+      [0m$ [0mghdl -m --std=08 --work=lib ampel 2>&1
+      /usr/bin/ghdl-mcode:error: cannot find entity or configuration ampel
+      [0m
+      [0m$ [0mghdl -m --std=08 -P/home/alex/vhdl-agent-benchmark/20261008-161755/mas-projects/traffic-light-9c2acd/build/ghdl/ampel ampel 2>&1
+      /usr/bin/ghdl-mcode:error: cannot find entity or configuration ampel
+      [0m
+R1 03_ampel               mas         PASS  REF=FAIL   6711.7s  infrastructure
+OpenCode timed out after 1200s
+R1 03_ampel               mas-single  FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 3000s
+R1 02_hamming_decoder     single      FAIL  REF=FAIL   3000.2s  No src directory found
+OpenCode timed out after 1200s
+R1 02_hamming_decoder     mas         FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 1200s
+R1 02_hamming_decoder     mas-single  FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 3000s
+R1 01_counter             single      FAIL  REF=FAIL   3000.2s  No src directory found
+OpenCode timed out after 1200s
+R1 01_counter             mas         FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 1200s
+R1 01_counter             mas-single  FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 3000s
+R2 03_ampel               single      FAIL  REF=FAIL   3000.2s  No src directory found
+OpenCode timed out after 1200s
+R2 03_ampel               mas         FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 1200s
+R2 03_ampel               mas-single  FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 3000s
+R2 02_hamming_decoder     single      FAIL  REF=FAIL   3000.1s  No src directory found
+OpenCode timed out after 1200s
+R2 02_hamming_decoder     mas         FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 1200s
+R2 02_hamming_decoder     mas-single  FAIL  REF=FAIL   1200.5s  infrastructure
+OpenCode timed out after 3000s
+R2 01_counter             single      FAIL  REF=FAIL   3000.2s  No src directory found
+OpenCode timed out after 1200s
+R2 01_counter             mas         FAIL  REF=FAIL   1200.5s  infrastructure
+Testbench generation failed:
+Generated testbench does not instantiate DUT 'counter4'
+  Ursache: Die erzeugte Testbench enthält keine Instanz von 'counter4' und würde das Modul nicht prüfen.
+  Hinweis: Die vorhandene Testbench bleibt unverändert; Auftrag erneut ausführen oder Testbench manuell ergänzen.
+IDENTICAL_ERROR detected: same failure repeating
+R2 01_counter             mas-single  PASS  REF=PASS   4391.2s  coverage_gap
+{
+  "single": {
+    "runs": 6,
+    "passed": 0,
+    "pass_rate": 0.0,
+    "ref_passed": 0,
+    "ref_pass_rate": 0.0,
+    "mean_duration_s": 2766.8,
+    "per_prompt": {
+      "03_ampel": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "02_hamming_decoder": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "01_counter": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      }
+    },
+    "mast": {}
+  },
+  "mas": {
+    "runs": 6,
+    "passed": 1,
+    "pass_rate": 0.167,
+    "ref_passed": 0,
+    "ref_pass_rate": 0.0,
+    "mean_duration_s": 2119.0,
+    "per_prompt": {
+      "03_ampel": {
+        "runs": 2,
+        "passed": 1,
+        "ref_passed": 0
+      },
+      "02_hamming_decoder": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "01_counter": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      }
+    },
+    "mast": {
+      "infrastructure": 5
+    }
+  },
+  "mas-single": {
+    "runs": 6,
+    "passed": 1,
+    "pass_rate": 0.167,
+    "ref_passed": 1,
+    "ref_pass_rate": 0.167,
+    "mean_duration_s": 1732.3,
+    "per_prompt": {
+      "03_ampel": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "02_hamming_decoder": {
+        "runs": 2,
+        "passed": 0,
+        "ref_passed": 0
+      },
+      "01_counter": {
+        "runs": 2,
+        "passed": 1,
+        "ref_passed": 1
+      }
+    },
+    "mast": {
+      "infrastructure": 5
+    }
+  }
+}
+Ergebnisse: /home/alex/Dokumente/Github/vhdl-agent/docs/benchmark/ergebnisse/20261008-161755
