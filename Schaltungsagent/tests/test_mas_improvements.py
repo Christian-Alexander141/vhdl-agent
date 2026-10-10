@@ -382,3 +382,193 @@ def test_parallel_prompt_checks_never_see_a_half_written_state(tmp_path):
         th.join()
     assert errors == []
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+# --- Vivado: Pfad aus der Konfiguration, Ursache in der Meldung ----------------
+
+def test_fpga_agent_gets_vivado_path_from_settings(tmp_path):
+    """Lauf gray-countdown 2026-10-10: die FPGA-Registry enthält keinen Vivado-Pfad,
+    der Agent rief den nackten Befehl 'vivado' auf und scheiterte sofort."""
+    from src.config import load_config
+    from src.orchestrator.agent_factory import build_supervisor_agent
+
+    settings = load_config()
+    settings.vivado.binary = "/opt/test/vivado"
+    supervisor = build_supervisor_agent(
+        filesystem_service=None, opencode_service=None, event_publisher=None, settings=settings,
+    )
+    assert supervisor._fpga_agent._bitstream_service._vivado_binary == "/opt/test/vivado"
+
+
+def test_vivado_failure_cause_is_reported_and_missing_binary_is_infrastructure():
+    from types import SimpleNamespace
+    from src.agents.fpga import vivado_failure_cause
+
+    missing = SimpleNamespace(details={"steps": [{"stdout": "", "stderr": "Vivado binary 'vivado' not found"}]})
+    cause, infra = vivado_failure_cause(missing)
+    assert infra and "nicht gefunden" in cause
+
+    design = SimpleNamespace(details={"steps": [{"stdout": "INFO: x\nERROR: [Place 30-58] IO placement is infeasible\n", "stderr": ""}]})
+    cause, infra = vivado_failure_cause(design)
+    assert not infra and "Place 30-58" in cause
+
+
+def test_missing_vivado_is_announced_at_the_start(tmp_path):
+    from types import SimpleNamespace
+    supervisor, _, events = make_supervisor(tmp_path)
+    supervisor._fpga_agent = SimpleNamespace(_bitstream_service=SimpleNamespace(
+        toolchain_available=lambda: False, _vivado_binary="vivado"))
+    supervisor._check_toolchain()
+    assert "TOOLCHAIN_WARNING" in events.types()
+    assert "Vivado nicht gefunden" in supervisor._design_state.metadata["toolchain_warning"]
+
+
+def test_all_events_emitted_by_supervisor_and_agents_exist_in_the_enum():
+    """_emit_event verwirft unbekannte Namen still; neue Ereignisse fehlten so im Dashboard."""
+    import re
+    from pathlib import Path
+    from src.domain.models.events import EventType
+
+    known = {e.value for e in EventType}
+    used = set()
+    for path in Path("src/agents").glob("*.py"):
+        used |= set(re.findall(r'(?:_emit_event|emit_event)\(\s*"([A-Z_]+)"', path.read_text()))
+    assert used - known == set()
+
+
+# --- Planung: korrigieren statt abbrechen ------------------------------------
+
+class _PlanRunner:
+    """Liefert nacheinander die vorgegebenen Manifeste und merkt sich die Aufträge."""
+
+    def __init__(self, manifests):
+        self.manifests = list(manifests)
+        self.instructions = []
+
+    def run(self, **kw):
+        from src.services.opencode_task_runner import OpenCodeDelivery
+        self.instructions.append(kw["task_instruction"])
+        text = json.dumps(self.manifests.pop(0))
+        plan = Path(kw["workspace"]) / "plan"
+        plan.mkdir(parents=True, exist_ok=True)
+        (plan / "manifest.json").write_text(text)
+        return OpenCodeDelivery(ok=True, stage="plan", files={"plan/manifest.json": text})
+
+
+def _manifest(deps_a, deps_b):
+    return {"project_name": "zyklus-test", "top_entity": "a", "modules": [
+        {"entity": "a", "file": "src/a.vhd", "depends_on": deps_a},
+        {"entity": "b", "file": "src/b.vhd", "depends_on": deps_b},
+    ]}
+
+
+def test_cyclic_plan_is_sent_back_for_correction_with_the_cycle(tmp_path):
+    from src.services.plan_service import PlanService
+
+    runner = _PlanRunner([_manifest(["b"], ["a"]), _manifest(["b"], [])])
+    manifest = PlanService(runner, name_resolver=None).plan(str(tmp_path), "x", task_id="t")
+    assert manifest["modules"][1]["depends_on"] == []
+    assert len(runner.instructions) == 2
+    assert "a -> b -> a" in runner.instructions[1] and "fix exactly these problems" in runner.instructions[1]
+
+
+def test_self_dependency_is_fixed_without_another_call(tmp_path):
+    from src.services.plan_service import PlanService
+
+    runner = _PlanRunner([_manifest(["a", "b", "b"], [])])
+    manifest = PlanService(runner, name_resolver=None).plan(str(tmp_path), "x", task_id="t")
+    assert manifest["modules"][0]["depends_on"] == ["b"] and len(runner.instructions) == 1
+
+
+def test_plan_gives_up_after_max_attempts_with_the_last_plan_in_the_error(tmp_path):
+    import pytest
+    from src.services.plan_service import PlanService, PlanValidationError
+
+    runner = _PlanRunner([_manifest(["b"], ["a"])] * 3)
+    with pytest.raises(PlanValidationError) as info:
+        PlanService(runner, name_resolver=None, max_attempts=3).plan(str(tmp_path), "x", task_id="t")
+    assert len(runner.instructions) == 3 and "a -> b -> a" in info.value.cause
+    assert "zyklus-test" in info.value.context["Letzter Plan (Auszug)"]
+
+
+# --- Eskalation statt Aufgeben (repair_policy = persistent) --------------------
+
+def test_escalation_ladder_for_a_repeating_failure(tmp_path):
+    from src.domain.agents.repair_routing import RepairTarget
+
+    switched = []
+    supervisor, _, events = make_supervisor(tmp_path, config={"repair_policy": "persistent"})
+    supervisor._model_switcher = lambda use: switched.append(use) or "fallback"
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+    steps = []
+    for _ in range(9):
+        diagnosis = {"suspected_modules": ["alu"]}
+        target, action = supervisor._escalate("functional_simulation_error", diagnosis, RepairTarget.HDL)
+        if action == "switch_model":
+            supervisor._switch_to_fallback_model()
+        steps.append((action, target))
+    assert [a for a, _ in steps] == [
+        "repair", "repair", "regenerate", "regenerate", "rearchitect",
+        "switch_model", "repair", "human", "human",
+    ]
+    assert steps[4][1] == RepairTarget.ARCHITECTURE and steps[7][1] == RepairTarget.HUMAN
+    assert switched == [True]
+    assert "ESCALATION" in events.types()
+    summary = diagnosis["recommended_action"]
+    assert "Nach 8 Versuchen" in summary and "Eingriff" not in summary
+    assert "Modul wird neu geschrieben" in summary and "Fallback-Modell" in summary
+
+
+def test_escalation_counts_each_failure_separately_and_keeps_human_targets(tmp_path):
+    from src.domain.agents.repair_routing import RepairTarget
+
+    supervisor, _, _ = make_supervisor(tmp_path, config={"repair_policy": "persistent"})
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+    for _ in range(2):
+        supervisor._escalate("syntax_error", {"suspected_modules": ["alu"]}, RepairTarget.HDL)
+    assert supervisor._escalate("syntax_error", {"suspected_modules": ["regfile"]}, RepairTarget.HDL)[1] == "repair"
+    assert supervisor._escalate("flash_error", {}, RepairTarget.HUMAN) == (RepairTarget.HUMAN, "human")
+
+
+def test_regenerate_rewrites_the_module_via_implement_module(tmp_path):
+    hdl = RecordingHDLAgent()
+    supervisor, _, _ = make_supervisor(tmp_path, hdl_agent=hdl, config={"repair_policy": "persistent"})
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+    supervisor._design_state.current_stage = DesignStage.DEBUGGING
+    result = run(supervisor._regenerate_module({
+        "suspected_modules": ["alu"], "failure_type": "functional_simulation_error", "evidence": ["y falsch"],
+    }))
+    assert result.status == AgentStatus.COMPLETED
+    task = hdl.calls[-1]
+    assert task.type == "implement_module" and task.inputs["module"]["name"] == "alu"
+    assert "vollständig neu" in task.inputs["change_request"] and "y falsch" in task.inputs["change_request"]
+    assert supervisor._design_state.current_stage == DesignStage.STATIC_CHECK
+
+
+def test_identical_error_stops_only_in_standard_mode(tmp_path):
+    failure = AgentResult(task_id="s", status=AgentStatus.FAILED, error_message="boom", diagnostics=[
+        {"failure_type": "syntax_error", "message": "alu.vhd:3: syntax error"}])
+    standard, _, _ = make_supervisor(tmp_path / "s")
+    set_architecture(standard, THREE_MODULES, "cpu")
+    standard._design_state.diagnostics.history.append({"failure_type": "syntax_error", "message": "alu.vhd:3: syntax error"})
+    standard._design_state.current_stage = DesignStage.STATIC_CHECK
+    assert "Identical error" in run(standard._handle_failure(DesignStage.STATIC_CHECK, failure)).error_message
+
+    hdl = RecordingHDLAgent()
+    persistent, _, _ = make_supervisor(tmp_path / "p", hdl_agent=hdl, debug_agent=__import__("src.agents.debug", fromlist=["DebugAgent"]).DebugAgent(),
+                                       config={"repair_policy": "persistent"})
+    set_architecture(persistent, THREE_MODULES, "cpu")
+    persistent._design_state.diagnostics.history.append({"failure_type": "syntax_error", "message": "alu.vhd:3: syntax error"})
+    persistent._design_state.current_stage = DesignStage.STATIC_CHECK
+    result = run(persistent._handle_failure(DesignStage.STATIC_CHECK, failure))
+    assert "Identical error" not in (result.error_message or "")
+    assert any(t.type == "fix_hdl" for t in hdl.calls)
+
+
+def test_fallback_model_is_restored_after_the_run(tmp_path):
+    calls = []
+    supervisor, _, _ = make_supervisor(tmp_path, config={"repair_policy": "persistent"})
+    supervisor._model_switcher = lambda use: calls.append(use) or "m"
+    supervisor._switch_to_fallback_model()
+    supervisor._restore_model()
+    assert calls == [True, False] and "fallback_model_active" not in supervisor._design_state.metadata

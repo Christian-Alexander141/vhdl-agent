@@ -85,10 +85,14 @@ def run_single(settings, prompt: str, workspace: Path) -> dict:
     return {"workspace": str(workspace), "stage": "", "failure_type": "", "note": note}
 
 
-def run_mas(settings, prompt: str, implementation_mode: str, projects_dir: Path) -> dict:
+def run_mas(settings, prompt: str, implementation_mode: str, projects_dir: Path,
+            repair_policy: str = "standard") -> dict:
     from src.main import create_orchestrator
 
     settings.workspace.base_dir = str(projects_dir)
+    # Benchmarks standardmäßig mit knappen Grenzen (Vergleichbarkeit); "persistent"
+    # misst das Verhalten echter Läufe mit Eskalation.
+    settings.opencode.repair_policy = repair_policy
     settings.opencode.test_mode = True
     settings.opencode.implementation_mode = implementation_mode
     settings.synthesis.enabled = False

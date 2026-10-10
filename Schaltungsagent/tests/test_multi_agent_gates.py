@@ -403,7 +403,8 @@ def test_interface_mismatch_with_contract_violation_stays_with_hdl():
     ("Coverage gap: not covered by any simulated testbench: alu", "coverage_gap", RepairTarget.VERIFICATION),
     ("no testbench found in tests/", "testbench_error", RepairTarget.VERIFICATION),
     ("Timing violation: WNS=-1.2 ns", "timing_error", RepairTarget.FPGA),
-    ("There are no user specified timing constraints", "constraint_error", RepairTarget.HUMAN),
+    # Seit der Eskalation (Doku #24) im Code behebbar, nicht mehr beim Benutzer.
+    ("There are no user specified timing constraints", "constraint_error", RepairTarget.FPGA),
     ("Resource limit exceeded: LUT 140%", "resource_error", RepairTarget.HUMAN),
     ("Flash failed: no cable found", "flash_error", RepairTarget.HUMAN),
     ("ghdl: command not found", "infrastructure", RepairTarget.HUMAN),

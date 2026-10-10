@@ -34,6 +34,9 @@ def build_supervisor_agent(
     hardware = getattr(settings, "hardware_test", None)
     limits = getattr(settings, "limits", None)
     synthesis = getattr(settings, "synthesis", None)
+    policy = getattr(getattr(settings, "opencode", None), "repair_policy", "standard")
+    persistent = policy == "persistent"
+    vivado = getattr(settings, "vivado", None)
     task_runner = OpenCodeTaskRunner(
         opencode_service,
         event_publisher=event_publisher,
@@ -44,6 +47,7 @@ def build_supervisor_agent(
             task_runner,
             timeout_seconds=plan_timeout_seconds,
             name_resolver=name_resolver,
+            max_attempts=3 if persistent else 1,
         ),
         event_publisher=event_publisher,
     )
@@ -67,8 +71,12 @@ def build_supervisor_agent(
     fpga_agent = FPGAAgent(
         filesystem_service=filesystem_service,
         event_publisher=event_publisher,
-        vivado_binary=registry.get("vivado_binary", "vivado"),
-        vivado_settings=registry.get("vivado_settings", ""),
+        # Früher registry.get("vivado_binary", "vivado"): die FPGA-Registry
+        # enthält nur Board-Profile, der Pfad aus config.yaml kam nie an und
+        # die Synthese scheiterte sofort ("vivado" nicht im PATH).
+        vivado_binary=getattr(vivado, "binary", "") or registry.get("vivado_binary", "vivado"),
+        vivado_settings=getattr(vivado, "settings_script", "") or registry.get("vivado_settings", ""),
+        vivado_timeout=getattr(vivado, "timeout_seconds", 600),
         require_timing_closure=getattr(gates, "require_timing_closure", True),
     )
     # Echte Hardwaretests nur mit konfiguriertem UART-Port; sonst Mock, der
@@ -98,10 +106,13 @@ def build_supervisor_agent(
         approval_handler=approval_handler,
         validation_service=validation_service,
         fpga_registry=registry or None,
+        model_switcher=_model_switcher(opencode_service, settings),
         config={
-            "max_iterations": 20,
-            "max_repairs_per_stage": max_repair_iterations,
-            "max_simulation_failures": 10,
+            "repair_policy": policy,
+            # Persistent: genug Spielraum für alle Eskalationsstufen.
+            "max_iterations": 80 if persistent else 20,
+            "max_repairs_per_stage": max(max_repair_iterations, 15) if persistent else max_repair_iterations,
+            "max_simulation_failures": 40 if persistent else 10,
             "max_hardware_failures": 5,
             "min_module_coverage": getattr(gates, "min_module_coverage", 1.0),
             "enforce_contracts": getattr(gates, "enforce_contracts", True),
@@ -114,3 +125,23 @@ def build_supervisor_agent(
             "implementation_mode": getattr(getattr(settings, "opencode", None), "implementation_mode", "modular"),
         },
     )
+
+
+def _model_switcher(opencode_service, settings):
+    """Schaltet für einen Lauf auf das Fallback-Modell um (True) bzw. zurück (False).
+
+    Nur mit umschaltbarem OpenCode-Dienst (ReconfigurableOpenCodeService); sonst None.
+    """
+    if settings is None or not hasattr(opencode_service, "reconfigure"):
+        return None
+
+    def switch(use_fallback: bool) -> str:
+        import copy
+
+        cfg = copy.deepcopy(settings)
+        if use_fallback:
+            cfg.opencode.model = settings.opencode.fallback_model or settings.opencode.model
+        opencode_service.reconfigure(cfg)
+        return cfg.opencode.model
+
+    return switch

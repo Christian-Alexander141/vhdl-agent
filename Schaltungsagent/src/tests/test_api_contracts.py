@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pytest
+from src.config import Settings
 from src.domain.event_bus import EventBus
 from src.services.filesystem_service import LocalFileSystemService
 from src.services.artifact_generator import VHDLArtifactGenerator
@@ -61,7 +62,12 @@ class MockOpenCodeService(OpenCodeService):
 
 
 def make_orchestrator(base_dir):
+    # Vertragstests prüfen das Antwortschema, nicht die Ausdauer: "standard"
+    # hält die Reparaturschleife kurz (persistent wäre bis zu 80 Iterationen).
+    settings = Settings()
+    settings.opencode.repair_policy = "standard"
     return SupervisorOrchestrator(
+        settings=settings,
         artifact_generator=VHDLArtifactGenerator(),
         filesystem_service=LocalFileSystemService(base_dir=base_dir),
         opencode_service=MockOpenCodeService(),
@@ -173,7 +179,7 @@ class TestWebSocketContract:
         result = orch.execute("Test")
         assert "task_id" in result
         assert "status" in result
-        assert result["status"] in ("COMPLETED", "FAILED", "RUNNING")
+        assert result["status"] in ("COMPLETED", "FAILED", "RUNNING", "BLOCKED")
 
     def test_error_response_schema(self):
         """Fehler-Antwort muss ein definiertes Schema haben."""

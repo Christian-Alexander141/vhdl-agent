@@ -19,6 +19,7 @@ opencode:
   # danach wieder Docker-Isolation (test_mode: false) für den Produktivbetrieb.
   test_mode: true
   implementation_mode: modular   # modular | single_session
+  repair_policy: persistent   # persistent | standard
   docker_isolation: per_task
   docker_image: ghcr.io/anomalyco/opencode:latest
   docker_binary: opencode

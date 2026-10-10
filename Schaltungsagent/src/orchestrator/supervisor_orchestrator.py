@@ -85,6 +85,7 @@ class SupervisorOrchestrator:
             ),
             timeout_seconds=plan_timeout_seconds,
             name_resolver=name_resolver,
+            max_attempts=3 if getattr(getattr(settings, "opencode", None), "repair_policy", "standard") == "persistent" else 1,
         )
         self._settings = settings or Settings()
         self._knowledge_provisioner = KnowledgeProvisioner(self._settings)

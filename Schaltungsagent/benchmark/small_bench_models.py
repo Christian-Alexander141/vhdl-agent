@@ -112,14 +112,14 @@ def run_task_single(model: str, task_id: str, workspace: Path) -> dict:
             "final_stage": "", "failure_type": "", "note": note}
 
 
-def run_task_mas(model: str, task_id: str, projects_dir: Path) -> dict:
+def run_task_mas(model: str, task_id: str, projects_dir: Path, repair_policy: str = "standard") -> dict:
     from benchmark.mas_vs_single import run_mas
     from src.config import load_config
 
     settings = load_config()
     settings.opencode.model = model
     settings.opencode.fallback_model = model
-    info = run_mas(settings, get_prompt(task_id), "modular", projects_dir)
+    info = run_mas(settings, get_prompt(task_id), "modular", projects_dir, repair_policy)
     workspace = Path(info["workspace"]) if info["workspace"] else None
     vhdl, xdc, source = {}, "", ""
     if workspace and workspace.is_dir():
@@ -132,7 +132,7 @@ def run_task_mas(model: str, task_id: str, projects_dir: Path) -> dict:
             "final_stage": info["stage"], "failure_type": info["failure_type"], "note": info["note"]}
 
 
-def run_model(model: str, run_id: str, tasks: list[str], variant: str = "single") -> None:
+def run_model(model: str, run_id: str, tasks: list[str], variant: str = "single", repair_policy: str = "standard") -> None:
     short = model.split("/")[-1]
     out_dir = RESULTS_ROOT / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -155,7 +155,7 @@ def run_model(model: str, run_id: str, tasks: list[str], variant: str = "single"
         started_at = datetime.now().isoformat(timespec="seconds")
         started = time.monotonic()
         if variant == "mas":
-            info = run_task_mas(model, task_id, work / "mas-projects")
+            info = run_task_mas(model, task_id, work / "mas-projects", repair_policy)
         else:
             info = run_task_single(model, task_id, work / task_id)
         duration = time.monotonic() - started
@@ -205,6 +205,8 @@ def main() -> None:
     parser.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d-%H%M%S") + "-small_vhdl_bench")
     parser.add_argument("--summarize", action="store_true")
     parser.add_argument("--variant", choices=["single", "mas"], default="single")
+    parser.add_argument("--repair-policy", choices=["standard", "persistent"], default="standard",
+                        help="MAS: standard = knappe Grenzen (Vergleichbarkeit), persistent = Eskalation wie in echten Läufen")
     parser.add_argument("--compare-with", default="", help="Lauf-ID der Vergleichsbasis (z. B. Einzel-OpenCode)")
     args = parser.parse_args()
     if args.summarize:
@@ -229,13 +231,14 @@ def main() -> None:
             "code_state": _code_state(),
             "python": sys.version.split()[0],
             "compare_with": args.compare_with,
+            "repair_policy": args.repair_policy,
             "order": "Modelle nacheinander (eines zur Zeit), Aufgaben task01..task10; schont das Gratis-Kontingent",
             "workspaces": str(WORK_ROOT / args.run_id),
             "testbench_mapping": "Dateien unter tests/ oder mit '_tb' im Namen gehen als 'tb_<name>' an evaluate()",
         }
         meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     for model in args.models:
-        run_model(model, args.run_id, args.tasks, args.variant)
+        run_model(model, args.run_id, args.tasks, args.variant, args.repair_policy)
 
 
 if __name__ == "__main__":

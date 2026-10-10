@@ -27,6 +27,7 @@ class FPGAAgent(BaseAgent):
         vivado_binary: str = "vivado",
         vivado_settings: str = "",
         require_timing_closure: bool = True,
+        vivado_timeout: int = 600,
     ):
         super().__init__("FPGAAgent", event_publisher)
         self._fs = filesystem_service
@@ -36,6 +37,7 @@ class FPGAAgent(BaseAgent):
         self._bitstream_service = VivadoBitstreamService(
             vivado_binary=vivado_binary,
             settings_script=vivado_settings,
+            timeout_seconds=vivado_timeout,
         )
         self._vivado_flash = VivadoFlashService(
             vivado_binary=vivado_binary,
@@ -120,15 +122,18 @@ class FPGAAgent(BaseAgent):
                 "message": bitstream_result.message,
             })
             
+            cause, infrastructure = vivado_failure_cause(bitstream_result)
+            message = f"{bitstream_result.message}: {cause}" if cause else bitstream_result.message
             return AgentResult(
                 task_id=task.id,
                 status=AgentStatus.FAILED,
-                error_message=f"Vivado bitstream generation failed: {bitstream_result.message}",
+                error_message=f"Vivado bitstream generation failed: {message}",
                 diagnostics=[{
                     "type": "synthesis_failure",
                     "stage": "vivado_bitstream",
-                    "message": bitstream_result.message,
+                    "message": message,
                     "details": bitstream_result.details,
+                    **({"failure_type": "infrastructure"} if infrastructure else {}),
                 }],
             )
         
@@ -472,3 +477,20 @@ class FPGAAgent(BaseAgent):
             status=AgentStatus.COMPLETED,
             outputs=util,
         )
+
+def vivado_failure_cause(result) -> tuple[str, bool]:
+    """Eigentliche Ursache eines Vivado-Fehlschlags und ob es ein Werkzeugproblem ist.
+
+    Früher stand nur "bitstream generation failed" in der Meldung; die Ursache
+    (z. B. "Vivado binary 'vivado' not found") lag ungelesen in den Details,
+    und die Diagnose machte daraus einen Designfehler.
+    """
+    steps = (result.details or {}).get("steps", []) if isinstance(result.details, dict) else []
+    text = "\n".join(f"{s.get('stdout', '')}\n{s.get('stderr', '')}" for s in steps)
+    text += "\n" + str((result.details or {}).get("error", "") if isinstance(result.details, dict) else "")
+    if re.search(r"binary '.*' not found|command not found|No such file or directory: '.*vivado", text, re.I):
+        return "Vivado wurde nicht gefunden (vivado.binary in config.yaml prüfen)", True
+    if re.search(r"timed out after", text, re.I):
+        return "Vivado hat das Zeitlimit überschritten (vivado.timeout_seconds)", False
+    errors = [line.strip() for line in text.splitlines() if line.strip().startswith(("ERROR:", "CRITICAL WARNING:"))]
+    return "; ".join(dict.fromkeys(errors))[:1500], False

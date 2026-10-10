@@ -49,6 +49,10 @@ class OpenCodeConfig:
     #   mit gemeinsamem Kontext; die Gates, Reparatur und Hardware-Stufen des
     #   MAS bleiben unverändert.
     implementation_mode: str = "modular"
+    # "persistent": echte Läufe – bei Fehlern eskalieren (reparieren → Modul neu
+    #   schreiben → Architektur überarbeiten → Fallback-Modell) statt aufzugeben.
+    # "standard": knappe Grenzen wie bisher (Benchmarks, Vergleichbarkeit).
+    repair_policy: str = "persistent"
     # Veraltet: wird ignoriert; Docker gilt immer, wenn test_mode false ist.
     use_docker: bool = True
     # "per_task": eigener Container je Auftrag (docker run --rm), nur das

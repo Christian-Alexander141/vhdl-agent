@@ -4,7 +4,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.services.filesystem_service import LocalFileSystemService
-from src.services.llm_service import StubLLMService
 from src.services.artifact_generator import VHDLArtifactGenerator
 from src.domain.ports import OpenCodeService, OpenCodeResult
 from src.domain.event_bus import EventBus
@@ -22,7 +21,6 @@ def make_agent(opencode_result=None):
     event_bus = EventBus()
     opencode = MockOpenCodeService()
     return SupervisorOrchestrator(
-        llm_service=StubLLMService(),
         artifact_generator=VHDLArtifactGenerator(),
         filesystem_service=LocalFileSystemService(base_dir=settings.workspace.base_dir),
         opencode_service=opencode,

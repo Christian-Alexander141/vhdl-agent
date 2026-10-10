@@ -174,6 +174,14 @@ function handleServerMessage(msg) {
     case 'REPAIR_FAILED':
     case 'NO_PROGRESS':
     case 'IDENTICAL_ERROR':
+    case 'REFERENCE_MODEL':
+    case 'MUTATION_ANALYSIS':
+    case 'MUTATION_WARNING':
+    case 'TOOLCHAIN_WARNING':
+    case 'PROJECT_IMPLEMENTED':
+    case 'FALLBACK_USED':
+    case 'ESCALATION':
+    case 'IMPLEMENTATION_GRAPH_FAILED':
     case 'STAGE_STARTED':
     case 'STAGE_FINISHED':
     case 'AUTONOMOUS_LOOP_STARTED':
@@ -666,6 +674,10 @@ const EVENT_TITLES = {
   REPAIR_ASSIGNED: 'Reparatur zugewiesen', REPAIR_STARTED: 'Reparatur gestartet',
   REPAIR_COMPLETED: 'Reparatur abgeschlossen', REPAIR_FAILED: 'Reparatur fehlgeschlagen', REPAIR_FINISHED: 'Reparatur beendet',
   NO_PROGRESS: 'Kein Fortschritt', IDENTICAL_ERROR: 'Gleicher Fehler wiederholt',
+  REFERENCE_MODEL: 'Referenzmodell', MUTATION_ANALYSIS: 'Mutationsanalyse', MUTATION_WARNING: 'Testbench-Güte niedrig',
+  TOOLCHAIN_WARNING: 'Werkzeug fehlt', PROJECT_IMPLEMENTED: 'Projekt implementiert',
+  FALLBACK_USED: 'Vorlage statt OpenCode-Ergebnis', ESCALATION: 'Eskalation', TOP_INTEGRATED: 'Top-Level integriert',
+  IMPLEMENTATION_GRAPH_COMPLETED: 'Implementierung abgeschlossen', IMPLEMENTATION_GRAPH_FAILED: 'Implementierung fehlgeschlagen',
   SYNTHESIS_STARTED: 'Synthese gestartet', SYNTHESIS_FINISHED: 'Synthese beendet',
   FLASH_STARTED: 'Flash gestartet', FLASH_FINISHED: 'Flash beendet',
   HARDWARE_TEST_STARTED: 'Hardwaretest gestartet', HARDWARE_TEST_PASSED: 'Hardwaretest bestanden',

@@ -69,8 +69,10 @@ class SupervisorAgent(BaseAgent):
         validation_service=None,
         config: dict | None = None,
         fpga_registry: dict | None = None,
+        model_switcher: Callable[[bool], str] | None = None,
     ):
         super().__init__("SupervisorAgent", event_publisher)
+        self._model_switcher = model_switcher
         self._fs = filesystem_service
         self._memory = project_memory
         self._validation_service = validation_service
@@ -91,6 +93,8 @@ class SupervisorAgent(BaseAgent):
         self._max_iterations = self._config.get("max_iterations", 20)
         self._max_repairs_per_stage = self._config.get("max_repairs_per_stage", 5)
         self._max_simulation_failures = self._config.get("max_simulation_failures", 10)
+        # "persistent": bei Fehlern eskalieren statt aufzugeben (siehe _escalate).
+        self._persistent = self._config.get("repair_policy", "standard") == "persistent"
         self._max_hardware_failures = self._config.get("max_hardware_failures", 5)
         self._heartbeat_interval_seconds = max(
             float(self._config.get("heartbeat_interval_seconds", 20)), 0.1
@@ -243,6 +247,13 @@ class SupervisorAgent(BaseAgent):
             logger.warning(f"Failed to save design state: {e}")
 
     async def _run_autonomous_loop(self) -> AgentResult:
+        """Hauptschleife; schaltet ein per Eskalation gewähltes Fallback-Modell danach zurück."""
+        try:
+            return await self._run_autonomous_loop_inner()
+        finally:
+            self._restore_model()
+
+    async def _run_autonomous_loop_inner(self) -> AgentResult:
         """Hauptschleife für autonomes Entwickeln."""
         self._emit_event("AUTONOMOUS_LOOP_STARTED", {"project_id": self._current_task.project_id})
 
@@ -511,6 +522,7 @@ class SupervisorAgent(BaseAgent):
         )
         
         self._design_state.metadata["analysis"] = analysis
+        self._check_toolchain()
 
         target_result = self._resolve_target(request)
         if target_result is not None:
@@ -577,6 +589,27 @@ class SupervisorAgent(BaseAgent):
             or self._current_task.inputs.get("target_fpga")
             or self._default_fpga
         )
+
+    def _check_toolchain(self) -> None:
+        """Fehlt Vivado bei eingeschalteter Synthese, gleich zu Beginn melden.
+
+        Früher fiel das erst nach Implementierung und Simulation auf (eine
+        Stunde später) und wurde als Designfehler gemeldet.
+        """
+        if not self._config.get("synthesis_enabled", True) or not self._fpga_agent:
+            return
+        service = getattr(self._fpga_agent, "_bitstream_service", None)
+        if service is None or not hasattr(service, "toolchain_available"):
+            return
+        if service.toolchain_available():
+            return
+        message = (
+            f"Vivado nicht gefunden ('{getattr(service, '_vivado_binary', 'vivado')}'). Entwurf und Simulation "
+            "laufen, die Synthese wird aber scheitern; vivado.binary in den Einstellungen prüfen."
+        )
+        self._design_state.metadata["toolchain_warning"] = message
+        self._emit_event("TOOLCHAIN_WARNING", {"project_id": self._current_task.project_id, "message": message})
+
 
     async def _run_architecture(self) -> AgentResult:
         """Startet den ArchitectureAgent."""
@@ -1681,6 +1714,126 @@ class SupervisorAgent(BaseAgent):
     # Differentieller Test gegen das Python-Referenzmodell (Doku Abschnitt 16, Maßnahme A)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Eskalation statt Aufgeben (repair_policy = "persistent")
+    # ------------------------------------------------------------------
+
+    # Versuchszahl je Fehler (Fehlerklasse + Modul) -> Maßnahme
+    _ESCALATION_LADDER = (
+        (2, "repair"),        # gezielte Reparatur
+        (4, "regenerate"),    # Modul vollständig neu schreiben
+        (5, "rearchitect"),   # Architektur/Plan dieses Teils überarbeiten
+        (7, "switch_model"),  # Fallback-Modell, dann wieder reparieren
+    )
+
+    def _escalate(self, failure_type: str, diagnosis: dict, target: RepairTarget) -> tuple[RepairTarget, str]:
+        """Wählt je nach bisherigen Versuchen für denselben Fehler die nächste Maßnahme.
+
+        Früher: nach 3 Reparaturen insgesamt Abbruch, bei gleichem Fehler sofort.
+        Jetzt wird bei wiederholtem Scheitern die Maßnahme gewechselt; erst nach
+        allen Stufen geht der Fehler mit einer Zusammenfassung an den Benutzer.
+        Werkzeug-, Board- und Ressourcenprobleme (Ziel HUMAN) bleiben unverändert.
+        """
+        if target == RepairTarget.HUMAN:
+            return target, "human"
+        module = (diagnosis.get("suspected_modules") or [""])[0]
+        key = f"{failure_type}|{module}"
+        counts = self._design_state.metadata.setdefault("escalation", {})
+        attempt = int(counts.get(key, 0)) + 1
+        counts[key] = attempt
+        action = next((a for limit, a in self._ESCALATION_LADDER if attempt <= limit), "human")
+        if diagnosis.get("regenerate_model"):
+            action = "repair"  # Modellprüfung (Maßnahme A) hat Vorrang
+        if action == "regenerate" and target not in (RepairTarget.HDL, RepairTarget.FPGA):
+            action = "repair"
+        if action == "switch_model" and (self._model_switcher is None or self._design_state.metadata.get("fallback_model_active")):
+            action = "repair"
+        if action == "rearchitect":
+            target = RepairTarget.ARCHITECTURE
+        if action == "human":
+            target = RepairTarget.HUMAN
+            log = self._design_state.metadata.get("escalation_log", [])
+            diagnosis["recommended_action"] = (
+                f"Nach {attempt - 1} Versuchen für '{failure_type}' ({module or 'Gesamtentwurf'}) nicht gelöst. "
+                f"Versucht: {', '.join(dict.fromkeys(self._ESCALATION_LABELS[e['action']] for e in log if e['key'] == key and e['action'] != 'human')) or 'gezielte Reparatur'}."
+            )
+        self._design_state.metadata.setdefault("escalation_log", []).append(
+            {"key": key, "attempt": attempt, "action": action, "at": datetime.now(timezone.utc).isoformat()}
+        )
+        self._emit_event("ESCALATION", {
+            "project_id": self._current_task.project_id,
+            "failure_type": failure_type, "module": module, "attempt": attempt, "action": action,
+            "message": f"{failure_type} ({module or 'Entwurf'}), Versuch {attempt}: {self._ESCALATION_LABELS[action]}",
+        })
+        return target, action
+
+    _ESCALATION_LABELS = {
+        "repair": "gezielte Reparatur",
+        "regenerate": "Modul wird neu geschrieben",
+        "rearchitect": "Architektur wird überarbeitet",
+        "switch_model": "Wechsel auf das Fallback-Modell",
+        "human": "Eingriff erforderlich",
+    }
+
+    def _switch_to_fallback_model(self) -> None:
+        if self._model_switcher is None or self._design_state.metadata.get("fallback_model_active"):
+            return
+        try:
+            model = self._model_switcher(True)
+        except Exception:
+            logger.exception("Switching to fallback model failed")
+            return
+        self._design_state.metadata["fallback_model_active"] = model
+        logger.info("Escalation: switched OpenCode to fallback model %s", model)
+
+    def _restore_model(self) -> None:
+        if self._model_switcher is None or not self._design_state or not self._design_state.metadata.get("fallback_model_active"):
+            return
+        try:
+            self._model_switcher(False)
+        finally:
+            self._design_state.metadata.pop("fallback_model_active", None)
+
+    async def _regenerate_module(self, diagnosis: dict) -> AgentResult:
+        """Modul vollständig neu schreiben statt weiter zu flicken (Eskalationsstufe 2)."""
+        architecture = self._design_state.architecture
+        by_name = {m.name: m for m in architecture.modules}
+        name = next((m for m in diagnosis.get("suspected_modules", []) if m in by_name), architecture.top_module)
+        if not self._hdl_agent or name not in by_name:
+            return await self._run_repair(diagnosis, RepairTarget.HDL)
+        workspace = self._fs.workspace_path(self._current_task.project_id)
+        request = self._design_state.metadata.get(
+            "request_full", self._current_task.inputs.get("request_full", self._current_task.inputs.get("request", "")),
+        )
+        evidence = " | ".join(str(e)[:600] for e in diagnosis.get("evidence", [])[:3])
+        change = (
+            f"Schreibe das Modul '{name}' vollständig neu, nicht als Flicken des bestehenden Codes. "
+            f"Mehrere gezielte Reparaturen sind gescheitert ({diagnosis.get('failure_type')}). "
+            f"Letzte Fehlermeldungen: {evidence}"
+        )
+        self._emit_event("REPAIR_STARTED", {
+            "project_id": self._current_task.project_id, "task_type": "regenerate_module",
+            "repair_target": RepairTarget.HDL.value, "failed_module": [name],
+            "failure_type": diagnosis.get("failure_type"),
+        })
+        task = AgentTask(
+            id=f"regenerate_{name}_{uuid.uuid4().hex[:6]}", type="implement_module",
+            project_id=self._current_task.project_id,
+            inputs={
+                "module": by_name[name].model_dump(), "architecture": architecture.model_dump(),
+                "workspace": workspace, "domain": self._current_task.inputs.get("domain", "vhdl"),
+                "request": request, "request_full": request, "change_request": change,
+                "analysis": self._design_state.metadata.get("analysis", ""),
+                "uart_required": bool(self._design_state.metadata.get("uart_required")),
+                "uart_template": VHDLTemplates.render("uart", "vhdl"),
+                "uart_testbench": VHDLTemplates.render("uart", "testbench"),
+            },
+        )
+        result = await self._hdl_agent.execute(task)
+        self._safe_transition_to(DesignStage.STATIC_CHECK)
+        await self._save_design_state()
+        return result
+
     _MODEL_MISMATCH_HDL_ATTEMPTS = 2
 
     def _model_agent(self):
@@ -2283,7 +2436,7 @@ class SupervisorAgent(BaseAgent):
         self._design_state.diagnostics.history.extend(diagnostics)
         result.diagnostics = diagnostics
 
-        if self._detect_identical_error(result):
+        if self._detect_identical_error(result) and not self._persistent:
             logger.warning("IDENTICAL_ERROR detected: same failure repeating")
             self._emit_event("IDENTICAL_ERROR", {
                 "project_id": self._current_task.project_id,
@@ -2312,6 +2465,9 @@ class SupervisorAgent(BaseAgent):
         target = RepairTarget(diagnosis.get("repair_target", RepairTarget.HDL.value))
         if failure_type == "model_mismatch":
             target = self._model_mismatch_target(diagnosis, target)
+        action = "repair"
+        if self._persistent and failure_type != "infrastructure":
+            target, action = self._escalate(failure_type, diagnosis, target)
         logger.info(
             "DEBUG_COMPLETED suspected_modules=%s failure_type=%s repair_target=%s",
             diagnosis.get("suspected_modules", []), failure_type, target.value,
@@ -2358,7 +2514,11 @@ class SupervisorAgent(BaseAgent):
                 },
             )
         self._design_state.increment_repairs()
-        if target == RepairTarget.ARCHITECTURE:
+        if action == "switch_model":
+            self._switch_to_fallback_model()
+        if action == "regenerate":
+            repair = await self._regenerate_module(diagnosis)
+        elif target == RepairTarget.ARCHITECTURE:
             repair = await self._run_architecture_repair(diagnosis)
         elif target == RepairTarget.VERIFICATION:
             repair = await self._run_testbench_repair(diagnosis)

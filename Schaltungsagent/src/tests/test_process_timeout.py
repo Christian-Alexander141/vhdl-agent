@@ -81,7 +81,6 @@ class TestThreadSafety:
         from src.services.filesystem_service import LocalFileSystemService
 
         agent = SupervisorAgent(
-            llm_service=None,
             filesystem_service=LocalFileSystemService(),
             event_publisher=None,
             project_memory=ProjectMemoryService(LocalFileSystemService()),
@@ -96,7 +95,6 @@ class TestThreadSafety:
         from src.services.filesystem_service import LocalFileSystemService
 
         agent = SupervisorAgent(
-            llm_service=None,
             filesystem_service=LocalFileSystemService(),
             event_publisher=None,
             project_memory=ProjectMemoryService(LocalFileSystemService()),
@@ -111,7 +109,6 @@ class TestThreadSafety:
         from src.services.filesystem_service import LocalFileSystemService
 
         agent = SupervisorAgent(
-            llm_service=None,
             filesystem_service=LocalFileSystemService(),
             event_publisher=None,
             project_memory=ProjectMemoryService(LocalFileSystemService()),

@@ -54,7 +54,6 @@ class CapturingHDLAgent:
 def make_supervisor(tmp_path, modules, top_module="counter", hdl_agent=None):
     filesystem = FileSystem(tmp_path)
     supervisor = SupervisorAgent(
-        llm_service=None,
         filesystem_service=filesystem,
         event_publisher=None,
         project_memory=None,

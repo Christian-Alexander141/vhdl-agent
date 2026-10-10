@@ -463,17 +463,46 @@
           <td><span class="ok">Gelöst</span></td>
           <td><code>atomic_write_text</code> und Sperre in <code>opencode_task_runner.py</code>; <code>LocalFileSystemService.write_file</code> schreibt atomar. Regressionstest mit parallelen Lesern und Schreibern in <code>test_mas_improvements.py</code>: schlägt mit dem alten Code fehl, besteht mit der Korrektur.</td>
         </tr>
+        <tr>
+          <td>24</td>
+          <td>Vivado nicht gefunden, Lauf endete ohne Ursache: Die <code>agent_factory</code> nahm den Vivado-Pfad aus der FPGA-Registry, die nur Board-Profile enthält. Der FPGA-Agent rief deshalb den nackten Befehl <code>vivado</code> auf, der nicht im <code>PATH</code> liegt. Der Lauf <code>gray-countdown</code> (2026-10-10) endete mit <code>bitstream_error</code> und „Eingriff erforderlich“, ohne Hinweis auf die eigentliche Ursache.</td>
+          <td>Pfad, Settings-Skript und Timeout aus <code>config.yaml</code> (<code>vivado.*</code>) übergeben. Die Ursache (fehlendes Werkzeug, Timeout, <code>ERROR</code>-/<code>CRITICAL WARNING</code>-Zeilen) in die Diagnose übernehmen, ein fehlendes Werkzeug als <code>infrastructure</code> einstufen. Die Toolchain schon in der Analysephase prüfen und mit <code>TOOLCHAIN_WARNING</code> melden.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>agent_factory.py</code>, <code>vivado_failure_cause</code> in <code>fpga.py</code>, <code>_check_toolchain</code> in <code>supervisor.py</code>. Gegenprobe: direkter Build des Projekts erzeugt einen Bitstream (2,2&nbsp;MB). Tests in <code>test_mas_improvements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>25</td>
+          <td>Stillschweigend verworfene Ereignisse: <code>_emit_event</code> verwirft Ereignistypen, die nicht in <code>EventType</code> stehen. Mehrere neuere Ereignisse (z.&nbsp;B. Referenzmodell, Mutationsanalyse, Fallback, Top-Level-Integration) erschienen deshalb nie im Dashboard.</td>
+          <td>Fehlende Typen in die Aufzählung aufnehmen, Dashboard-Bezeichnungen ergänzen. Ein Test vergleicht alle im Code ausgelösten Ereignisnamen mit der Aufzählung.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>domain/models/events.py</code>, <code>dashboard/app.js</code>; Test in <code>test_mas_improvements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>26</td>
+          <td>Abbruch bei fehlerhaftem Plan: Lieferte OpenCode einen Plan mit zyklischen Modulabhängigkeiten, ungültigem JSON oder anderen Regelverstößen, brach der Lauf sofort mit <code>PlanValidationError</code> ab („Module dependencies contain a cycle“). Ein erneuter Planungsversuch hätte genügt.</td>
+          <td>Bis zu drei Planungsversuche. Jeder Versuch erhält die konkreten Verstöße als Korrekturauftrag, bei Zyklen mit dem Zyklus selbst (<code>a -&gt; b -&gt; a</code>). Selbst- und Doppelabhängigkeiten werden deterministisch entfernt. Die abschließende Fehlermeldung nennt alle Verstöße und einen Auszug des letzten Plans.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>PlanValidator.find_cycle</code>, <code>_autofix</code>, <code>_correction</code> und die Versuchsschleife in <code>plan_service.py</code>. Mit <code>repair_policy: standard</code> bleibt es bei einem Versuch (Benchmark-Vergleichbarkeit). Tests in <code>test_mas_improvements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>27</td>
+          <td>Aufgeben statt dranbleiben: Synthese- und Constraint-Fehler gingen direkt an den Benutzer. Wiederholte gleiche Fehler beendeten den Lauf („identischer Fehler“). Für echte Läufe soll das System selbstständig weiterarbeiten, bis die Aufgabe gelöst ist.</td>
+          <td>Eskalationsleiter je Fehlerklasse und Modul: zweimal reparieren, dann das Modul neu schreiben, dann die Architektur neu entwerfen, dann auf das Fallback-Modell wechseln. Erst danach der Mensch, mit einer Zusammenfassung aller Versuche. <code>constraint_error</code> und <code>bitstream_error</code> gehen an die FPGA-Reparatur statt an den Benutzer. Neue Einstellung <code>opencode.repair_policy</code>: <code>persistent</code> (Standard für echte Läufe, höhere Iterationsgrenzen, kein Abbruch bei identischem Fehler) oder <code>standard</code> (bisheriges Verhalten; der Benchmark nutzt es fest).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_escalate</code>, <code>_ESCALATION_LADDER</code>, <code>_regenerate_module</code>, <code>_switch_to_fallback_model</code>/<code>_restore_model</code> in <code>supervisor.py</code>; <code>_model_switcher</code> und Grenzwerte in <code>agent_factory.py</code>; <code>repair_routing.py</code>; Ereignis <code>ESCALATION</code>. Das Fallback-Modell gilt nur bis zum Ende des Laufs. Tests in <code>test_mas_improvements.py</code> und <code>test_multi_agent_gates.py</code>.</td>
+        </tr>
       </tbody>
     </table>
     </div>
 
     <h3>15.2 Neue Einstellungen</h3>
-    <p>Alle drei Schalter sind im Dashboard unter <em>Einstellungen</em> verfügbar und gelten ab dem nächsten Start (⟳).</p>
+    <p>Alle Schalter sind im Dashboard unter <em>Einstellungen</em> verfügbar und gelten ab dem nächsten Start (⟳).</p>
     <table>
       <thead><tr><th>Schlüssel</th><th>Werte</th><th>Wirkung</th></tr></thead>
       <tbody>
         <tr><td><code>opencode.implementation_mode</code></td><td><code>modular</code> (Standard) · <code>single_session</code></td><td>Ein Worker je Modul (TaskGraph, parallel) oder ein OpenCode-Lauf für das ganze Projekt. Gates, Reparatur und Hardware-Stufen bleiben gleich.</td></tr>
         <tr><td><code>hardware_test.uart_integration</code></td><td><code>auto</code> (Standard) · <code>always</code> · <code>off</code></td><td>UART-Echo-Brücke nur bei Bedarf, immer oder nie.</td></tr>
+        <tr><td><code>opencode.repair_policy</code></td><td><code>persistent</code> (Standard) · <code>standard</code></td><td>Eskalation statt Abbruch, bis zu drei Planungsversuche und höhere Iterationsgrenzen (80 statt 20) oder das bisherige, kürzere Verhalten (#26, #27). Benchmarks laufen mit <code>standard</code>.</td></tr>
         <tr><td><code>synthesis.enabled</code></td><td><code>true</code> · <code>false</code></td><td>Ausgeschaltet endet der Lauf nach bestandener Validierung (Simulation).</td></tr>
       </tbody>
     </table>
@@ -629,7 +658,8 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
         <tr><td>#9 Zustandsausgaben an Prüfpunkten der Testbench</td><td>Präzises Debug-Feedback über Zustandsprüfpunkte statt pauschaler Fehlermeldung.</td><td>[MAGE]; Ausblick [SeqFeed]</td><td>Übernommen: Idee der Prüfpunkte, hier vereinfacht als <code>report "CHECK …"</code>-Anweisungen. Abfrage von Signalverläufen nach SeqFeed ist nicht umgesetzt.</td></tr>
         <tr><td>#12 Benchmark, Fehlerkategorien</td><td>Fehlschläge von Multi-Agenten-Systemen nach Spezifikation, Abstimmung zwischen Agenten und Verifikation einordnen.</td><td>[MAST]</td><td>Übernommen: Kategorien der Taxonomie. Angepasst: automatische, grobe Zuordnung über die MAS-Fehlerklasse (keine manuelle Annotation).</td></tr>
         <tr><td>Benchmark: unabhängige Referenz-Testbench je Aufgabe</td><td>Bewertung über verborgene Referenzprüfung statt über die systemeigenen Tests.</td><td>Prinzip wie bei [VerilogEval]; Prüfung der Referenzen über Mutanten nach [DeMillo et al. 1978]</td><td>Eigen: Aufgaben, Referenz-Testbenches, Toleranzregeln und Methodik (<code>docs/benchmark/METHODIK.md</code>).</td></tr>
-        <tr><td>#2, #3, #5–#8, #11, #13–#23, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen.</td></tr>
+        <tr><td>#27 Eskalationsleiter</td><td>Bei wiederholtem Fehler stufenweise eskalieren (Reparatur → Modul neu → Architektur neu → stärkeres/anderes Modell → Mensch) statt abzubrechen.</td><td>[VeriRefine], [HDLFORGE]</td><td>Eigene Entwicklung (Stufen, Zähler je Fehlerklasse und Modul, Grenzwerte, Richtlinie <code>persistent</code>/<code>standard</code>). Angelehnt: die Unterscheidung, ob ein Fehler im Code oder im Verständnis bzw. Entwurf liegt (Modul neu vs. Architektur neu), an [VeriRefine]; der Modellwechsel erst bei Bedarf an die Eskalation zu größeren Modellen bei [HDLFORGE]. Anders als dort wird nicht zu einem größeren, sondern zum konfigurierten Fallback-Modell gewechselt.</td></tr>
+        <tr><td>#2, #3, #5–#8, #11, #13–#26, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands, Vivado-Pfad und Fehlerursache, verworfene Ereignisse, Planwiederholung mit Korrekturauftrag)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen.</td></tr>
       </tbody>
     </table>
     </div>
@@ -644,6 +674,7 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
       <li>[AutoBench] <em>AutoBench: Automatic Testbench Generation and Evaluation Using LLMs for HDL Design.</em> 2024. Bibliografische Angaben (Autoren, Tagung) nicht geprüft, bitte aus der Originalquelle übernehmen.</li>
       <li>[CorrectBench] <em>CorrectBench: Automatic Testbench Generation with Functional Self-Correction using LLMs for HDL Design.</em> arXiv:2411.08510.</li>
       <li>[VeriRefine] <em>A Progressive Approach to Synthesizable RTL Design Generation Using LLMs.</em> arXiv:2607.18519.</li>
+      <li>[HDLFORGE] <em>HDLFORGE</em>, arXiv:2603.04646 (Eskalation zu größeren Modellen nur bei Bedarf). Vollständiger Titel und Autoren nicht geprüft, bitte aus der arXiv-Seite übernehmen.</li>
       <li>[VerilogEval] M. Liu, N. Pinckney, B. Khailany, H. Ren: <em>VerilogEval: Evaluating Large Language Models for Verilog Code Generation.</em> arXiv:2309.07544.</li>
       <li>[VerilogCoder] <em>VerilogCoder: Autonomous Verilog Coding Agents with Graph-based Planning and Abstract Syntax Tree (AST)-based Waveform Tracing Tool.</em> arXiv:2408.08927.</li>
       <li>[MAGE] <em>MAGE: A Multi-Agent Engine for Automated RTL Code Generation.</em> arXiv:2412.07822.</li>

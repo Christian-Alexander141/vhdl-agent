@@ -40,10 +40,14 @@ _ROUTES: dict[str, RepairTarget] = {
     # Hardwarekontext zeigt (CDC, Reset-Annahmen, Initialwerte) - gehört damit
     # zur selben Reparaturklasse wie Synthese-/Timing-Fehler, nicht zu HUMAN.
     "simulation_hardware_divergence": RepairTarget.FPGA,
+    # Synthese-/Implementierungsfehler mit Vivado-Log (z. B. Pins, IO-Standard,
+    # nicht synthetisierbare Konstrukte) sind im Code bzw. in den Ports
+    # behebbar; früher gingen sie direkt an den Benutzer. Fehlende Werkzeuge
+    # sind dagegen "infrastructure".
+    "constraint_error": RepairTarget.FPGA,
+    "bitstream_error": RepairTarget.FPGA,
     # Nicht durch Code-Agenten reparierbar
     "resource_error": RepairTarget.HUMAN,
-    "constraint_error": RepairTarget.HUMAN,
-    "bitstream_error": RepairTarget.HUMAN,
     "flash_error": RepairTarget.HUMAN,
     "hardware_error": RepairTarget.HUMAN,
     "infrastructure": RepairTarget.HUMAN,

@@ -401,6 +401,13 @@
                                     <option value="single_session">Single-Session – ein Lauf für das ganze Projekt</option>
                                 </select>
                             </div>
+                            <div class="settings-field">
+                                <label for="set-repair-policy">Bei Fehlern ⟳</label>
+                                <select id="set-repair-policy" data-setting="opencode.repair_policy">
+                                    <option value="persistent">Dranbleiben – eskalieren bis zur Lösung</option>
+                                    <option value="standard">Standard – nach wenigen Versuchen aufgeben</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="toggle-list">
                             <label class="toggle"><input type="checkbox" data-setting="gates.enforce_contracts"><span>Port-Verträge erzwingen (Richtung, Typ, Bitbreite) ⟳</span></label>

@@ -27,6 +27,7 @@ CHOICES = {
     ("opencode", "docker_network"): ("bridge", "none", "host"),
     ("flash", "method"): ("vivado", "openfpgaloader"),
     ("opencode", "implementation_mode"): ("modular", "single_session"),
+    ("opencode", "repair_policy"): ("persistent", "standard"),
     ("hardware_test", "uart_integration"): ("auto", "always", "off"),
 }
 

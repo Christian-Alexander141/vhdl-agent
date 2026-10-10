@@ -10,6 +10,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from src.config import Settings
 from src.domain.event_bus import EventBus
 from src.domain.ports import OpenCodeService, OpenCodeResult
 from src.services.chat_router import ChatRouter
@@ -88,7 +89,12 @@ HARDWARE_E2E_REASON = (
 
 
 def make_agent(base_dir):
+    # Kurze Reparaturschleife; "persistent" (Standard für echte Läufe) würde
+    # hier bis zu 80 Iterationen gegen den Mock laufen.
+    settings = Settings()
+    settings.opencode.repair_policy = "standard"
     return SupervisorOrchestrator(
+        settings=settings,
         artifact_generator=VHDLArtifactGenerator(),
         filesystem_service=LocalFileSystemService(base_dir=base_dir),
         opencode_service=MockOpenCodeService(),
