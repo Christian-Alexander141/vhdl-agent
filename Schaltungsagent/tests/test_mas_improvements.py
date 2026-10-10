@@ -62,11 +62,20 @@ def test_generics_get_vhdl_types_that_accept_their_values():
     assert "ENABLE : boolean := true" in generics
 
 
-def test_manifest_validator_checks_type_and_parameters():
+def test_unknown_module_type_is_inferred_not_rejected():
+    """Benchmark 20261009-133223, Lightning/task03: Typ 'top' ließ den ganzen Plan scheitern."""
     base = {"entity": "m", "file": "src/m.vhd"}
-    manifest = {"project_name": "type-check", "top_entity": "m", "modules": [{**base, "type": "magic"}]}
-    assert any("type for m" in e for e in PlanValidator.validate(manifest))
-    manifest["modules"] = [{**base, "parameters": [1, 2]}]
+    manifest = {"project_name": "type-check", "top_entity": "m", "modules": [{**base, "type": "top"}]}
+    assert PlanValidator.validate(manifest) == []
+    clocked = module_from_manifest({**base, "type": "top", "ports": [{"name": "clk", "direction": "in", "type": "std_logic"}]})
+    combinational = module_from_manifest({**base, "type": "magic"})
+    assert clocked.type == "sequential" and combinational.type == "combinational"
+    assert module_from_manifest({**base, "type": "FSM"}).type == "fsm"
+
+
+def test_manifest_validator_checks_parameters():
+    base = {"entity": "m", "file": "src/m.vhd"}
+    manifest = {"project_name": "type-check", "top_entity": "m", "modules": [{**base, "parameters": [1, 2]}]}
     assert any("parameters for m" in e for e in PlanValidator.validate(manifest))
 
 
@@ -296,3 +305,80 @@ def test_rate_limit_is_not_retried(tmp_path):
     service = _ScriptedOpenCode(["ratelimit", "write"])
     _run(tmp_path, service)
     assert service.calls == 1
+
+
+
+def test_generated_xdc_uses_sstl135_for_bank_34_pins(tmp_path):
+    """Offizielle Arty-S7-XDC: CLK100MHZ (R2) und sw[3] (M5) sind SSTL135."""
+    from src.infrastructure.synthesis.vivado_synthesis import VivadoBitstreamService
+
+    src = tmp_path / "top.vhd"
+    src.write_text(
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity top is port (clk : in std_logic; sw : in std_logic_vector(3 downto 0); "
+        "led : out std_logic_vector(3 downto 0)); end entity;\n"
+        "architecture rtl of top is begin led <= sw; end architecture;\n"
+    )
+    xdc = VivadoBitstreamService(vivado_binary="vivado")._generatexdc_for_board("top", [src], "arty_s7_50", 100_000_000)
+    lines = xdc.splitlines()
+    for pin in ("R2", "M5"):
+        pin_lines = [l for l in lines if f"PACKAGE_PIN {pin} " in l]
+        assert pin_lines and all("SSTL135" in l for l in pin_lines), pin
+    assert all("LVCMOS33" in l for l in lines if "PACKAGE_PIN E18 " in l)
+    assert "set_property INTERNAL_VREF 0.675 [get_iobanks 34]" in lines
+    # Board-Namen bitweise auf die offiziellen Pins (Benchmark 20261009: sw/led fehlten ganz)
+    for pin, port in (("H14", "sw[0]"), ("M5", "sw[3]"), ("E18", "led[0]"), ("H15", "led[3]")):
+        assert any(f"PACKAGE_PIN {pin} " in l and port in l for l in lines), port
+
+
+def test_port_extraction_survives_vector_ports_and_generics(tmp_path):
+    from src.infrastructure.synthesis.vivado_synthesis import VivadoBitstreamService
+
+    src = tmp_path / "top.vhd"
+    src.write_text(
+        "entity top is generic (W : natural := 4); port (clk : in std_logic; "
+        "a : in std_logic_vector(W-1 downto 0); b : in std_logic_vector(3 downto 0); "
+        "y : out std_logic_vector(4 downto 0)); end entity;\narchitecture r of top is begin end;\n"
+    )
+    ports = VivadoBitstreamService._extract_entity_ports(src)
+    assert {n: (p["direction"], p["width"]) for n, p in ports.items()} == {
+        "clk": ("in", 1), "a": ("in", 4), "b": ("in", 4), "y": ("out", 5),
+    }
+
+
+# --- design_state.yaml: parallele Leser und Schreiber --------------------------
+
+def test_parallel_prompt_checks_never_see_a_half_written_state(tmp_path):
+    """Benchmark 20261010-091252: parallele Worker lasen ein halb geschriebenes
+    design_state.yaml (PromptIntegrityError: Could not read state metadata)."""
+    import threading
+    import yaml
+    from src.services.filesystem_service import LocalFileSystemService
+    from src.services.opencode_task_runner import PromptStore
+
+    store = PromptStore()
+    store.save(str(tmp_path), "Baue einen Zähler")
+    fs = LocalFileSystemService(base_dir=str(tmp_path))
+    big_state = {"metadata": {"prompt_sha256": store.verify(str(tmp_path))},
+                 "history": [{"step": i, "text": "x" * 200} for i in range(150)]}
+    errors = []
+
+    def writer():
+        for _ in range(40):
+            fs.write_file(str(tmp_path / "design_state.yaml"), yaml.safe_dump(big_state))
+
+    def checker():
+        try:
+            for _ in range(40):
+                store.save(str(tmp_path), "Baue einen Zähler")
+                store.verify(str(tmp_path))
+        except Exception as exc:  # pragma: no cover - genau das darf nicht passieren
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer)] + [threading.Thread(target=checker) for _ in range(3)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert errors == []
+    assert not list(tmp_path.glob(".*.tmp"))

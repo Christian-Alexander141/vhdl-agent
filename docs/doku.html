@@ -25,7 +25,7 @@
 </head>
 <body>
   <h1>Softwaredokumentation</h1>
-  <p>Historische Übersicht: Die frühere RAG-Pipeline wurde entfernt. Aktuell erzeugt OpenCode HDL-Dateien; Ollama wird nur für Textaufgaben verwendet.</p>
+  <p>Historische Übersicht: Die frühere RAG-Pipeline wurde entfernt. Alle Sprachmodell-Aufgaben laufen über OpenCode (Planung samt Namensvergabe, HDL, Testbenches, Referenzmodelle, Reparaturen, Chat-Antworten). Die frühere Ollama-Anbindung wurde am 2026-10-10 entfernt (Abschnitt 15, #22).</p>
 
   <section>
     <h2>1. Architekturüberblick</h2>
@@ -143,19 +143,12 @@
 
   <section>
     <h2>6. Service Layer</h2>
-    <h3>6.1 LLM-Service</h3>
-    <p><code>Schaltungsagent/src/services/llm_service.py</code> implementiert zwei LLM-Dienste:</p>
+    <h3>6.1 Sprachmodell-Aufgaben (OpenCode)</h3>
+    <p>Es gibt keinen eigenen LLM-Dienst mehr. Sprachmodell-Aufgaben laufen über den <code>OpenCodeService</code> (Abschnitt 6.5):</p>
     <ul>
-      <li><code>StubLLMService</code>: Platzhalter ohne echte LLM-Anbindung.</li>
-      <li><code>OllamaLLMService</code>: Verwendet <code>langchain_ollama</code> zur Anbindung an Ollama.</li>
+      <li><strong>Planung und Namen:</strong> OpenCode schreibt <code>plan/manifest.json</code> einschließlich <code>project_name</code> und Entity-Namen. <code>Schaltungsagent/src/services/name_resolver.py</code> bereinigt ungültige Namen nur noch deterministisch (z.&nbsp;B. <code>task04-sram</code> → <code>sram</code>) und leitet notfalls einen Ersatznamen ab; ein Lauf scheitert nicht mehr an der Namensvergabe.</li>
+      <li><strong>Projektfragen im Chat:</strong> <code>Schaltungsagent/src/services/project_chat.py</code> (<code>OpenCodeProjectChat</code>) lässt OpenCode die Frage im Projektordner beantworten. Es liest dabei den echten Code und den Zustand; der Auftrag ist lesend, Dateiänderungen werden gemeldet.</li>
     </ul>
-    <p><strong>Funktionsweise:</strong></p>
-    <ul>
-      <li><code>analyze_request()</code>: Baut ein Prompt für die Domain und ruft <code>OllamaLLM.invoke()</code> auf.</li>
-      <li><code>generate_code()</code>: Erzeugt Code aus Prompt und optionalem Kontext.</li>
-      <li><code>summarize_result()</code>: Erzeugt eine Abschlusszusammenfassung.</li>
-    </ul>
-    <p>Die API-Key-Lokalisierung sucht eine Datei mit dem Prefix <code>OLLAMA_API_KEY=</code>.</p>
 
     <h3>6.2 RAG-Service</h3>
     <p><code>Schaltungsagent/src/services/rag_service.py</code> bietet die Domänen-gestützte Wissensrecherche über <code>VHDLRAGService</code>.</p>
@@ -378,7 +371,7 @@
           <td>Mehr und strengere Gates als beim Einzellauf (Contract, Coverage, Golden-Vektoren), dazu Testbenches aus einer anderen Sitzung. Der Vergleich „MAS vs. OpenCode“ war bisher unfair, weil der Einzellauf nur von Hand beurteilt wurde.</td>
           <td>Gleiches Abnahmekriterium für beide Varianten; Testbench-Erwartungen aus der Spezifikation statt aus der Implementierung; perspektivisch eine eigene, kontext-isolierte Verifikationsrolle.</td>
           <td><span class="part">Teilweise</span></td>
-          <td>Benchmark bewertet alle Varianten mit demselben <code>GHDLValidator</code>; Regel „Erwartungswerte aus PROMPT.md/Golden-Vektoren“ in <code>TESTBENCH_RULES</code>. <span class="open">Offen:</span> eigene Verifikationsrolle mit isoliertem Kontext.</td>
+          <td>Benchmark bewertet alle Varianten mit demselben <code>GHDLValidator</code>; Regel „Erwartungswerte aus PROMPT.md/Golden-Vektoren“ in <code>TESTBENCH_RULES</code>. Teilweise umgesetzt durch Maßnahme A (Abschnitt 16): Der Modell-Agent legt die Spezifikation vor der Implementierung und ohne Einblick in den Entwurf aus; Maßnahme B misst die Güte der Testbenches.</td>
         </tr>
         <tr>
           <td>12</td>
@@ -436,6 +429,40 @@
           <td><span class="ok">Gelöst</span></td>
           <td><code>_ended_prematurely</code> im <code>OpenCodeTaskRunner</code>: Exit 0, keine geschriebene Datei, Laufzeit unter 180&nbsp;s, kein Provider-Fehler → einmal wiederholen. Rate-Limits werden nicht wiederholt. Tests in <code>test_mas_improvements.py</code>.</td>
         </tr>
+        <tr>
+          <td>20</td>
+          <td>Zu strenge Planprüfung, durch #3 selbst eingeführt: Ein Modultyp außerhalb von <code>combinational/sequential/structural/fsm</code> (z.&nbsp;B. <code>top</code>) ließ den ganzen Plan scheitern. Im Benchmark <code>20261009-133223-small_vhdl_bench</code> erhielt Nemotron 3.5 Lightning bei Aufgabe 03 dadurch 0 Punkte statt eines Ergebnisses.</td>
+          <td>Unbekannte Typangaben nicht ablehnen, sondern wie fehlende aus den Ports ableiten; der Typ ist nur ein Hinweis.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_module_type</code> in <code>architecture.py</code>; Prüfung in <code>plan_service.py</code> entfernt; Test in <code>test_mas_improvements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>21</td>
+          <td>Fehlerhafte automatische XDC-Erzeugung des MAS (Synthesephase), entdeckt bei der Auswertung mit <code>small_vhdl_bench</code>. Drei Fehler:
+            <ul>
+              <li>Takt-Pin R2 und <code>sw[3]</code>/M5 mit <code>LVCMOS33</code> statt <code>SSTL135</code> (Bank 34).</li>
+              <li>Der Port-Parser beendete den Port-Block beim ersten Vektor-Port; alle folgenden Ports fehlten.</li>
+              <li>Ports mit den Board-Namen <code>sw</code>, <code>btn</code>, <code>led</code> wurden nicht zugeordnet.</li>
+            </ul>
+            Folge: XDC nur mit dem Takt, Schalter und LEDs fehlten.</td>
+          <td>IO-Standard nach offizieller Digilent-XDC (Rev.&nbsp;E); robusten Entity-Parser des Contract-Checkers verwenden; Board-Namen bitweise auf die offiziellen Pins legen.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_generatexdc_for_board</code> und <code>_extract_entity_ports</code> in <code>vivado_synthesis.py</code>; Tests in <code>test_mas_improvements.py</code>. Gegenprobe mit den 10 Referenzlösungen von <code>small_vhdl_bench</code>: 8 von 10 erreichen mit der MAS-XDC dieselbe Punktzahl wie mit der offiziellen XDC. Bei Addierer und Ampel gibt es mehr Ausgänge als LEDs; das MAS legt die überzähligen auf den PMOD-Header JA (z.&nbsp;B. G13). Der Benchmark wertet das als nicht erlaubten Pin (Vorgabe: auf <code>led[0..3]</code> abbilden). Bewusst nicht geändert.</td>
+        </tr>
+        <tr>
+          <td>22</td>
+          <td>Ollama als zweites Sprachmodell (Relikt der RAG-Pipeline): Namensvergabe und Chat-Antworten hingen an einem separaten Ollama-LLM. War es nicht erreichbar, scheiterte ein MAS-Lauf an <code>BLOCKED_NEEDS_NAME</code> (Benchmark <code>20261010-091252-small_vhdl_bench_mas</code>, Muse/task04), obwohl OpenCode im Plan bereits einen Namen vergeben hatte. Zusätzlich waren gängige Entity-Namen wie <code>alu</code>, <code>top</code> oder <code>design</code> gesperrt.</td>
+          <td>Ollama vollständig entfernen. OpenCode legt die Namen im Plan fest, ungültige werden nur deterministisch bereinigt. Chat-Fragen beantwortet OpenCode im Projektordner. Entity-Namen nur auf VHDL-Gültigkeit prüfen.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td>Gelöscht: <code>llm_service.py</code>, <code>ollama_gateway.py</code>, LLM-Port, LLM-Konfiguration und Dashboard-Karte, LangChain-Anbindung der Tool-Schicht, Ollama in <code>start.py</code>, Installer und <code>pyproject.toml</code>. Neu: <code>name_resolver.py</code> (ohne LLM), <code>project_chat.py</code>; Namensregeln im Planungsauftrag. Tests: <code>test_naming_order.py</code>, <code>test_project_chat.py</code>.</td>
+        </tr>
+        <tr>
+          <td>23</td>
+          <td>Race Condition auf <code>design_state.yaml</code>: Der Supervisor speichert den Zustand, und <code>PromptStore</code> las und schrieb dieselbe Datei bei jedem OpenCode-Auftrag (Prompt-Prüfsumme), beides nicht atomar. Mit parallelen Workern las ein Auftrag eine halb geschriebene Datei und brach mit <code>PromptIntegrityError: Could not read state metadata</code> ab (Benchmark <code>20261010-091252-small_vhdl_bench_mas</code>, Muse/task06). Betrifft nur das MAS, nicht den Einzellauf.</td>
+          <td>Atomar schreiben (Temporärdatei + <code>os.replace</code>), Lesen und Schreiben im <code>PromptStore</code> pro Datei serialisieren, nur schreiben, wenn sich die Prüfsumme ändert.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>atomic_write_text</code> und Sperre in <code>opencode_task_runner.py</code>; <code>LocalFileSystemService.write_file</code> schreibt atomar. Regressionstest mit parallelen Lesern und Schreibern in <code>test_mas_improvements.py</code>: schlägt mit dem alten Code fehl, besteht mit der Korrektur.</td>
+        </tr>
       </tbody>
     </table>
     </div>
@@ -481,9 +508,159 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
     <h3>15.5 Empfohlene nächste Schritte</h3>
     <ol>
       <li>Benchmark mit mindestens 3 Wiederholungen je Variante laufen lassen und die MAST-Verteilung auswerten.</li>
-      <li>Je nach Ergebnis: deterministischer UART-Wrapper (#5), Reparatur über den Task-Runner und ein Trace-Werkzeug (#9), eine kontext-isolierte Verifikationsrolle (#11).</li>
+      <li>Je nach Ergebnis: deterministischer UART-Wrapper (#5), Reparatur über den Task-Runner und ein Trace-Werkzeug (#9); Verifikation siehe Abschnitt 16 (A und B umgesetzt), Spezifikationsverfeinerung/Verdrahtungsprüfung (Vorschlag C) offen.</li>
       <li>Erst wenn das MAS einen einzelnen OpenCode-Lauf messbar übertrifft: Docker-Isolation wieder aufnehmen (#15).</li>
     </ol>
+  </section>
+
+  <section id="verifikation-a-b">
+    <h2>16. Verifikation mit Referenzmodell und Mutationsanalyse (Maßnahmen A und B, Stand 2026-10-09)</h2>
+    <p>Dieser Abschnitt beschreibt zwei Erweiterungen der Verifikation. Anlass waren Beobachtungen aus den Benchmark-Läufen (<code>docs/benchmark/</code>). Herkunft der Ideen und Eigenanteil sind in Abschnitt&nbsp;17 einzeln belegt.</p>
+
+    <h3>16.1 Ausgangslage aus den Benchmark-Läufen</h3>
+    <table>
+      <thead><tr><th>Beobachtung</th><th>Beleg</th><th>Folgerung</th></tr></thead>
+      <tbody>
+        <tr><td>Vom Planer geschätzte Golden-Vektoren waren widersprüchlich (z.&nbsp;B. „nach 2 Takten <code>0011</code>“ statt <code>0010</code>). Das Coverage-Gate verwarf deshalb einen korrekten Entwurf; der Worker verbrachte 44&nbsp;min (96 Schritte) mit unerfüllbaren Erwartungen.</td><td>Lauf <code>20261008-161755</code>, Projekt <code>counter4-5347ce</code>: Referenz-Testbench bestanden, MAS-Ergebnis „Coverage gap“</td><td>Erwartungswerte müssen <em>berechnet</em> werden, nicht geschätzt (Maßnahme A).</td></tr>
+        <tr><td>Beide Ampel-Entwürfe (Einzel-OpenCode und MAS) bleiben dauerhaft auf Haupt-Grün stehen; die eigene Testsuite des MAS bestand trotzdem.</td><td>Aufgezeichnete Lampenfolge <code>001100</code> über 200 Takte; Referenz-Testbench: „kein vollständiger Zyklus“</td><td>Die Testbenches prüfen das Wesentliche nicht. Ihre Güte muss gemessen werden (Maßnahme B), und ein zeitlich durchlaufender Vergleich mit einem Modell hätte den Fehler gefunden (A).</td></tr>
+      </tbody>
+    </table>
+
+    <h3>16.2 Maßnahme A: Differentieller Test gegen ein ausführbares Python-Referenzmodell</h3>
+    <p><strong>Idee:</strong> Neben der VHDL-Implementierung entsteht eine zweite, unabhängige Auslegung der Spezifikation als kleines Python-Programm. Beide werden mit denselben Eingangsfolgen betrieben und Takt für Takt verglichen. Sprachmodelle sind in Python deutlich sicherer als in VHDL; die Erwartungswerte entstehen durch Ausführen des Modells statt durch Schätzen.</p>
+    <p><strong>Ablauf im MAS:</strong></p>
+    <ol>
+      <li><strong>Modell erzeugen, bevor VHDL existiert</strong> (Beginn der Phase <code>IMPLEMENTING</code>). Der VerificationAgent beauftragt OpenCode, aus <code>PROMPT.md</code> und dem typisierten Port-Contract des Top-Levels <code>model/reference_model.py</code> und <code>model/test_reference_model.py</code> zu schreiben. Weil zu diesem Zeitpunkt kein Entwurf vorliegt und der Auftrag das Lesen von <code>src/</code> untersagt, ist das Modell unabhängig vom Entwurf. Der Selbsttest (mindestens drei <code>test_</code>-Funktionen aus der Spezifikation) muss bestehen.</li>
+      <li><strong>Schnittstelle (fest vorgegeben):</strong> <code>class ReferenceModel</code> mit <code>reset()</code> und <code>step(inputs) -&gt; outputs</code>; optional <code>SUGGESTED_CYCLES</code>. Getaktet: <code>step()</code> erhält die Eingänge vor einer steigenden Flanke (ohne Takt, mit Reset) und liefert alle Ausgänge unmittelbar danach. Kombinatorisch: Ausgänge zu den Eingängen. Bits als 0/1, Vektoren als ganze Zahl.</li>
+      <li><strong>Vergleichs-Testbench vor jedem Static Check</strong> (deterministisch, ohne Sprachmodell): Ports aus der tatsächlichen Entity, Breiten mit aufgelösten Generics. Dann eine Reizfolge:
+        <ul>
+          <li>getaktet: Reset in den ersten beiden Takten und bei 60&nbsp;%; die übrigen Eingänge werden über zufällig lange Abschnitte gehalten, damit Zähler und Zeitgeber ihre Endwerte erreichen;</li>
+          <li>kombinatorisch: bis 12 Eingangsbits vollständig, sonst zufällig.</li>
+        </ul>
+        Das Modell läuft in einem eigenen Prozess mit Zeitlimit und berechnet die Erwartungswerte. Daraus entsteht <code>tests/&lt;top&gt;_model_tb.vhd</code> mit eingebetteten Vektoren (keine Datei-Ein-/Ausgabe, keine Pfadabhängigkeit). Abtastung wie bei den gegen Mutanten geprüften Referenz-Testbenches des Benchmarks: Eingänge setzen, <code>wait until rising_edge</code>, 1&nbsp;ns warten, vergleichen.</li>
+      <li><strong>Auswertung durch die bestehenden Gates:</strong> Der GHDL-Validator führt die Vergleichs-Testbench wie jede andere aus. Eine Abweichung meldet <code>MODEL_MISMATCH cycle=&lt;n&gt; port=&lt;p&gt; expected=&lt;soll&gt; got=&lt;ist&gt; inputs=&lt;…&gt;</code> und wird als Fehlerklasse <code>model_mismatch</code> an die HDL-Reparatur gegeben. Die Meldung nennt Takt, Port, Soll- und Ist-Wert und ist damit präziser als „assertion failed“.</li>
+      <li><strong>Weiterleitung bei Verdacht auf ein falsches Modell:</strong> Bleibt die Abweichung nach zwei HDL-Reparaturen bestehen, wird einmalig das Modell mit der Abweichung als Hinweis überprüft und gegebenenfalls neu erzeugt (Verständnis- statt Codierungsfehler).</li>
+    </ol>
+    <p><strong>Was entfällt:</strong> Der Planer erzeugt keine Golden-Vektoren mehr (<code>simulation_vectors</code>). Vorhandene Vektoren werden nur noch informativ ausgewertet und blockieren die Abdeckung nicht. Das Feld bleibt im Schema erhalten, damit bestehende Projekte gültig bleiben.</p>
+    <p><strong>Grenzen:</strong></p>
+    <ul>
+      <li>Der Vergleich ist taktgenau. Lässt die Spezifikation etwas offen (z.&nbsp;B. 30 oder 31 Takte Grünphase), legt das Modell eine Auslegung fest, die der Entwurf dann übernehmen muss. Das ist gewollt (eine verbindliche Auslegung), aber keine Prüfung gegen „die“ Spezifikation.</li>
+      <li>Ein falsches Modell kann einen korrekten Entwurf in die Reparatur schicken. Selbsttest und einmalige Modellprüfung mildern das, schließen es nicht aus.</li>
+      <li>Unterstützt werden <code>std_logic</code>, <code>std_logic_vector</code>, <code>unsigned</code> und <code>signed</code> mit Richtung <code>in</code>/<code>out</code>; sonst entfällt der Test (kein Fehler). Bei aktiver UART-Echo-Brücke entfällt er ebenfalls, da die serielle Brücke nicht modelliert wird.</li>
+      <li>Ohne Reset-Port müssen Modell und Entwurf denselben Anfangszustand haben.</li>
+      <li>Ein fehlendes oder ungültiges Modell blockiert den Lauf nie; es fehlt dann nur dieser Test.</li>
+      <li>Die Modellerzeugung kostet einen zusätzlichen OpenCode-Aufruf; mit dem Gratis-Modell im Probelauf über 10&nbsp;min.</li>
+    </ul>
+    <p><strong>Dateien:</strong> <code>Schaltungsagent/src/domain/agents/reference_model.py</code> (Stimulus, Modell-Ausführung, Testbench), <code>agents/verification.py</code> (Auftrag <code>reference_model</code>), <code>agents/supervisor.py</code> (<code>_ensure_reference_model</code>, <code>_refresh_model_testbench</code>, <code>_classify_model_mismatch</code>, <code>_model_mismatch_target</code>), Fehlerklasse in <code>agents/debug.py</code> und <code>repair_routing.py</code>.</p>
+
+    <h3>16.3 Maßnahme B: Mutationsanalyse der Testbenches</h3>
+    <p><strong>Idee:</strong> Ob eine Testsuite etwas taugt, zeigt sich daran, ob sie absichtlich eingebaute Fehler findet. Aus dem Entwurf werden deterministisch kleine Fehlervarianten (Mutanten) erzeugt, je eine Änderung. Jeder Mutant läuft gegen alle Testbenches, auch die Vergleichs-Testbench aus A.</p>
+    <table>
+      <thead><tr><th>Operator</th><th>Änderung</th><th>bildet nach</th></tr></thead>
+      <tbody>
+        <tr><td><code>bit_flip</code></td><td><code>x &lt;= '0'</code> ↔ <code>'1'</code></td><td>falscher Ausgangs-/Steuerwert, z.&nbsp;B. Lampe dauerhaft an</td></tr>
+        <tr><td><code>negate_condition</code></td><td><code>if c then</code> → <code>if not (c) then</code></td><td>vertauschte Verzweigung</td></tr>
+        <tr><td><code>swap_relation</code></td><td><code>=</code> ↔ <code>/=</code> in einer Bedingung</td><td>falscher Vergleich</td></tr>
+        <tr><td><code>change_constant</code></td><td><code>± 1</code> → <code>± 2</code> in einer Zuweisung</td><td>falsche Zähl-/Rechenschritte</td></tr>
+        <tr><td><code>drop_transition</code></td><td><code>state &lt;= X;</code> → <code>null;</code></td><td>fehlender Zustandsübergang, z.&nbsp;B. Automat bleibt hängen</td></tr>
+      </tbody>
+    </table>
+    <p>Nur Code im Architekturrumpf wird verändert; Kommentare, Deklarationen und Taktflanken-Bedingungen bleiben unangetastet. Die Auswahl ist deterministisch und reihum über die Operatoren verteilt (Standard: höchstens 10 Mutanten). Mutanten, die schon an Analyse oder Elaboration scheitern, zählen nicht. Kennzahl: <em>Mutationsquote</em> = getötete / (getötete + überlebende) Mutanten.</p>
+    <p><strong>Gate im MAS (Phase <code>VALIDATING</code>, nach Simulation, Contracts und Abdeckung):</strong></p>
+    <ul>
+      <li>Quote unter <code>gates.min_mutation_score</code> (Standard 0,6): Fehlerklasse <code>weak_testbench</code>, Weiterleitung an den VerificationAgent. Dieser erhält die überlebenden Mutanten je Modul im Auftrag („erkennt folgende fehlerhafte Varianten NICHT …“) und ergänzt gezielt Prüfungen.</li>
+      <li>Genau ein solcher Nachbesserungsversuch. Ist die Quote danach immer noch zu niedrig, läuft der Lauf mit Warnung weiter (<code>MUTATION_WARNING</code>). Grund: Äquivalente Mutanten (Änderung ohne beobachtbare Wirkung) sind nie erkennbar, und ein Gate, das einen korrekten Entwurf endlos blockiert, hatte sich bei den Golden-Vektoren als schädlich erwiesen.</li>
+    </ul>
+    <p><strong>Dateien:</strong> <code>Schaltungsagent/src/domain/agents/mutation.py</code>, <code>agents/supervisor.py</code> (<code>_mutation_gate</code>, Hinweise an die Testbench-Reparatur), <code>agents/verification.py</code> (Hinweise im Testbench-Auftrag), Einstellungen <code>gates.min_mutation_score</code>, <code>gates.max_mutants</code> (Dashboard).</p>
+
+    <h3>16.4 Validierung</h3>
+    <p>Geprüft an echten Entwürfen aus den Benchmark-Läufen und an eigenen Mutanten:</p>
+    <table>
+      <thead><tr><th>Fall</th><th>Erwartet</th><th>Ergebnis</th></tr></thead>
+      <tbody>
+        <tr><td>A: korrekter Zähler (Einzel-OpenCode, Lauf 1) gegen Zählermodell</td><td>bestanden</td><td>bestanden</td></tr>
+        <tr><td>A: defekter Zähler (Einzel-OpenCode, Lauf 2)</td><td>Abweichung</td><td><code>MODEL_MISMATCH cycle=14 port=count expected=0001 got=0000</code></td></tr>
+        <tr><td>A: hängende MAS-Ampel gegen Ampelmodell</td><td>Abweichung</td><td><code>MODEL_MISMATCH cycle=32 port=main_yellow expected='1' got='0'</code></td></tr>
+        <tr><td>A: korrekte Ampel (eigene Implementierung)</td><td>bestanden</td><td>bestanden</td></tr>
+        <tr><td>B: Testsuite der „bestandenen“ MAS-Ampel (nur <code>timer_tb</code>)</td><td>niedrige Quote</td><td>2 von 10 getötet (0,2); überlebend u.&nbsp;a. <code>side_green &lt;= '1'</code></td></tr>
+        <tr><td>B: Zähler mit eigener Testbench bzw. mit Vergleichs-Testbench aus A</td><td>hohe Quote</td><td>5 von 5 getötet (1,0)</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Probelauf mit dem eingesetzten Gratis-Modell</strong> (<code>opencode/nemotron-3.5-lightning-free</code>, Ampel-Aufgabe, Zeitlimit 900&nbsp;s):</p>
+    <ul>
+      <li>Der Modell-Agent schrieb <code>reference_model.py</code> und drei Selbsttests, arbeitete dann aber bis zum Zeitlimit weiter.</li>
+      <li>Das Modell bestand seinen eigenen Selbsttest nicht: Die Phasenlogik war fehlerhaft („main should be yellow after 30 green cycles“).</li>
+      <li>Die Absicherung griff wie vorgesehen: Ohne bestandenen Selbsttest entsteht keine Vergleichs-Testbench, ein fehlerhaftes Modell kann also keinen Entwurf in die falsche Richtung reparieren lassen.</li>
+      <li><strong>Folgerung:</strong> Maßnahme A wirkt nur so gut, wie das eingesetzte Sprachmodell ein korrektes Python-Modell schreiben kann. Mit diesem Modell ist ihr Nutzen bei der Ampel nicht nachgewiesen.</li>
+      <li>Ergänzt wurde danach: Liegen nach einem Zeitlimit beide Dateien vor und besteht der Selbsttest, wird das Modell übernommen statt verworfen.</li>
+    </ul>
+    <p>Automatisierte Tests: <code>Schaltungsagent/tests/test_reference_model_and_mutation.py</code> (20 Tests mit echtem GHDL: Stimulus, Port-Auflösung mit Generics, korrekter/defekter/kombinatorischer Entwurf, ungültiges Modell, fehlschlagender Selbsttest, Fehlerklassifikation, Eskalation, Mutantenerzeugung, starke/schwache Testsuite, Gate mit einmaliger Nachbesserung, Übernahme nach Zeitlimit). Gesamtsuite danach: 488 bestanden; die 33 Fehlschläge und 6 Sammelfehler sind unverändert die bekannten Altlasten (alte APIs, Umgebung). Dabei aufgedeckt und behoben: <code>clk_div_en</code> wurde als Takt erkannt; die Erkennung ist jetzt streng.</p>
+    <p>Eine Aussage zum Qualitätsgewinn pro Lauf ist erst mit einer Benchmark-Wiederholung möglich (vgl. <code>docs/benchmark/METHODIK.md</code>). Die Literatur berichtet für verwandte Verfahren 10–30 Prozentpunkte. Die Werte stammen aus Verilog-Benchmarks mit einzelnen Modulen und starken Modellen und sind nicht übertragbar.</p>
+
+    <h3>16.5 Einstellungen</h3>
+    <table>
+      <thead><tr><th>Schlüssel</th><th>Standard</th><th>Wirkung</th></tr></thead>
+      <tbody>
+        <tr><td><code>gates.min_mutation_score</code></td><td>0,6</td><td>Mindest-Mutationsquote; 0 schaltet B ab.</td></tr>
+        <tr><td><code>gates.max_mutants</code></td><td>10</td><td>Höchstzahl Mutanten pro Validierung (Laufzeit).</td></tr>
+      </tbody>
+    </table>
+    <p>Maßnahme A hat keinen eigenen Schalter: Sie greift, sobald ein Referenzmodell vorliegt, und entfällt ohne Fehler, wenn keins erzeugt werden kann.</p>
+  </section>
+
+  <section id="herkunft-der-ideen">
+    <h2>17. Herkunft der Ideen und Eigenanteil</h2>
+    <p>Diese Übersicht ordnet jede in den Abschnitten 15 und 16 beschriebene Maßnahme ihrer Quelle zu. „Eigene Entwicklung“ bedeutet: aus der Analyse dieses Systems oder seiner Messdaten entstanden, ohne eine bestimmte Veröffentlichung als Vorlage. Wo eine Veröffentlichung Pate stand, steht in der letzten Spalte, was übernommen und was angepasst wurde. Die Literaturangaben wurden anhand der Abstracts bzw. Verlagsangaben geprüft (Abschnitt 17.2).</p>
+
+    <h3>17.1 Zuordnung</h3>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Maßnahme</th><th>Kernidee</th><th>Quelle</th><th>Übernommen / angepasst / eigen</th></tr></thead>
+      <tbody>
+        <tr><td>A – Referenzmodell (16.2)</td><td>Ein unabhängiges, ausführbares Referenzmodell liefert die Erwartungswerte für die Prüfung der Implementierung.</td><td>[FPGAgent]; [PRO-V]; [AutoBench]</td><td>Übernommen: Prüfung gegen ein Referenzmodell bzw. ein generiertes Prüfprogramm. Angepasst: Modell des ganzen Top-Levels in Python für VHDL statt HLS/Verilog. Eigen: Erzeugung vor der Implementierung zur Unabhängigkeit, feste <code>step()</code>-Schnittstelle, Einbettung in die MAS-Gates.</td></tr>
+        <tr><td>A – Python als Zwischenstufe</td><td>Sprachmodelle sind in Python/C++ stärker als in HDL; eine Zwischenstufe in einer solchen Sprache verbessert das Ergebnis.</td><td>[VeriMoA]</td><td>Übernommen als Begründung für Python. Anders als bei VeriMoA dient Python hier nur der Prüfung, nicht der Erzeugung der HDL.</td></tr>
+        <tr><td>A – Vergleich Takt für Takt</td><td>Zwei unabhängige Umsetzungen mit gleichen Eingaben betreiben und Ausgaben vergleichen (differentielles Testen); Bewertung über Simulationsvergleich mit einer Musterlösung.</td><td>[McKeeman 1998]; [VerilogEval]</td><td>Übernommen: Prinzip. Eigen: deterministische Reizfolgen mit gehaltenen Eingängen und Reset-Fenstern, VHDL-Vergleichs-Testbench mit eingebetteten Vektoren statt Co-Simulation.</td></tr>
+        <tr><td>A – Weiterleitung bei wiederholter Abweichung</td><td>Fehler nach Ursache an die Verständnis- bzw. Codierungsstufe zurückgeben.</td><td>[VeriRefine]</td><td>Übernommen: Unterscheidung Verständnis/Codierung. Angepasst: einfache Regel (nach zwei HDL-Reparaturen einmal das Modell prüfen) statt der mehrstufigen Prüfung bei VeriRefine.</td></tr>
+        <tr><td>B – Mutationsanalyse (16.3)</td><td>Güte einer Testsuite daran messen, ob sie absichtlich eingebaute Fehler (Mutanten) findet.</td><td>[DeMillo et al. 1978]; [Jia &amp; Harman 2011]</td><td>Übernommen: Mutationstesten, Mutationsquote, Problem äquivalenter Mutanten. Eigen: VHDL-Operatoren, deterministische Auswahl.</td></tr>
+        <tr><td>B – Testbenches an fehlerhaften RTL-Varianten validieren</td><td>LLM-erzeugte Testbenches mit absichtlich fehlerhaften RTL-Entwürfen prüfen und korrigieren; Fehlererkennung an Mutanten als Gütemaß.</td><td>[CorrectBench]; [PRO-V]</td><td>Übernommen: Testbench-Validierung über fehlerhafte Varianten und gezielte Korrektur. Angepasst: deterministische Mutanten statt LLM-erzeugter „imperfect RTL“, genau ein Nachbesserungsversuch, danach Warnung (eigene Entscheidung nach den Benchmark-Befunden).</td></tr>
+        <tr><td>Golden-Vektoren und Fehlerklasse <code>simulation_hardware_divergence</code> (frühere Ausbaustufe)</td><td>Referenzvektoren statt reiner Erreichbarkeit; eigene Fehlerklasse für „Simulation grün, Hardware falsch“; günstige Prüfungen vor teurer Synthese.</td><td>[FPGAgent]</td><td>Übernommen aus FPGAgent (Golden-Vektoren, Klasse „Error_Functional“, Reihenfolge der Prüfstufen). Die Golden-Vektoren wurden nach den Benchmark-Befunden durch A ersetzt.</td></tr>
+        <tr><td>#1 GHDL-Selbstprüfung der Worker</td><td>Der Agent bedient den Simulator selbst und iteriert, bis die Prüfungen bestehen.</td><td>[VerilogCoder]</td><td>Übernommen: Werkzeugrückmeldung im Agenten-Kreislauf. Eigen: konkrete, validatorgleiche Befehle mit eigenem Arbeitsverzeichnis je Auftrag.</td></tr>
+        <tr><td>#4 Echte Entities der Abhängigkeiten; Single-Session-Modus; #10 weniger Aufrufe</td><td>Bei eng gekoppelten (sequenziellen) Aufgaben schaden getrennte Kontexte; Hierarchie und Schnittstellen explizit vorgeben.</td><td>[Google Scaling]; [VeriGraphi]</td><td>Übernommen: Begründung (Kontextverlust bei sequenziellen Aufgaben) bzw. explizite Schnittstellen. Eigen: konkrete Umsetzung (Entity-Auszüge im Auftrag, Modus <code>single_session</code>).</td></tr>
+        <tr><td>#9 Zustandsausgaben an Prüfpunkten der Testbench</td><td>Präzises Debug-Feedback über Zustandsprüfpunkte statt pauschaler Fehlermeldung.</td><td>[MAGE]; Ausblick [SeqFeed]</td><td>Übernommen: Idee der Prüfpunkte, hier vereinfacht als <code>report "CHECK …"</code>-Anweisungen. Abfrage von Signalverläufen nach SeqFeed ist nicht umgesetzt.</td></tr>
+        <tr><td>#12 Benchmark, Fehlerkategorien</td><td>Fehlschläge von Multi-Agenten-Systemen nach Spezifikation, Abstimmung zwischen Agenten und Verifikation einordnen.</td><td>[MAST]</td><td>Übernommen: Kategorien der Taxonomie. Angepasst: automatische, grobe Zuordnung über die MAS-Fehlerklasse (keine manuelle Annotation).</td></tr>
+        <tr><td>Benchmark: unabhängige Referenz-Testbench je Aufgabe</td><td>Bewertung über verborgene Referenzprüfung statt über die systemeigenen Tests.</td><td>Prinzip wie bei [VerilogEval]; Prüfung der Referenzen über Mutanten nach [DeMillo et al. 1978]</td><td>Eigen: Aufgaben, Referenz-Testbenches, Toleranzregeln und Methodik (<code>docs/benchmark/METHODIK.md</code>).</td></tr>
+        <tr><td>#2, #3, #5–#8, #11, #13–#23, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>Nicht umgesetzte, in der Analyse vorgeschlagene Maßnahmen gehen ebenfalls auf Veröffentlichungen zurück: Spezifikationsverfeinerung und Verdrahtungsprüfung im Plan ([VeriRefine], [VClare], [Mitigating Errors], [VeriGraphi]) sowie Kandidatenauswahl per Simulation ([VRank], [VerilogMonkey], [MAGE], [VFocus]).</p>
+
+    <h3>17.2 Literatur</h3>
+    <p>Geprüft: Titel und Kennung anhand von arXiv bzw. Verlagsangaben; Inhalte anhand der Abstracts. Wo hier keine Autoren stehen, wurden sie nicht geprüft und müssen für die Arbeit aus der jeweiligen arXiv-Seite übernommen werden.</p>
+    <ul>
+      <li>[FPGAgent] Wang et al. (Shanghai Jiao Tong University): <em>FPGAgent: An LLM-Assisted Framework for Autonomous HLS Code Generation and Verification in FPGA Environments.</em> arXiv:2608.23630.</li>
+      <li>[VeriMoA] <em>VeriMoA: A Mixture-of-Agents Framework for Spec-to-HDL Generation.</em> arXiv:2510.27617.</li>
+      <li>[PRO-V] <em>PRO-V: An Efficient Program Generation Multi-Agent System for Automatic RTL Verification</em> (spätere Fassung: <em>PRO-V-R1: Reasoning Enhanced Programming Agent for RTL Verification</em>). arXiv:2506.12200.</li>
+      <li>[AutoBench] <em>AutoBench: Automatic Testbench Generation and Evaluation Using LLMs for HDL Design.</em> 2024. Bibliografische Angaben (Autoren, Tagung) nicht geprüft, bitte aus der Originalquelle übernehmen.</li>
+      <li>[CorrectBench] <em>CorrectBench: Automatic Testbench Generation with Functional Self-Correction using LLMs for HDL Design.</em> arXiv:2411.08510.</li>
+      <li>[VeriRefine] <em>A Progressive Approach to Synthesizable RTL Design Generation Using LLMs.</em> arXiv:2607.18519.</li>
+      <li>[VerilogEval] M. Liu, N. Pinckney, B. Khailany, H. Ren: <em>VerilogEval: Evaluating Large Language Models for Verilog Code Generation.</em> arXiv:2309.07544.</li>
+      <li>[VerilogCoder] <em>VerilogCoder: Autonomous Verilog Coding Agents with Graph-based Planning and Abstract Syntax Tree (AST)-based Waveform Tracing Tool.</em> arXiv:2408.08927.</li>
+      <li>[MAGE] <em>MAGE: A Multi-Agent Engine for Automated RTL Code Generation.</em> arXiv:2412.07822.</li>
+      <li>[SeqFeed] <em>SeqFeed: Improving Agentic RTL Code Generation with Sequential Behavior Feedback.</em> arXiv:2608.16934.</li>
+      <li>[VeriGraphi] <em>VeriGraphi: A Multi-Agent Framework of Hierarchical RTL Generation for Large Hardware Designs.</em> arXiv:2604.14550.</li>
+      <li>[MAST] M. Cemri et al.: <em>Why Do Multi-Agent LLM Systems Fail?</em> arXiv:2503.13657.</li>
+      <li>[Google Scaling] Y. Kim, X. Liu et al. (Google Research, Google DeepMind, MIT): <em>Towards a Science of Scaling Agent Systems: When and Why Agent Systems Work.</em> arXiv:2512.08296.</li>
+      <li>[VClare] <em>VClare: Resolving Imperfect Specifications in LLM-Based Verilog Generation.</em> arXiv:2607.24854.</li>
+      <li>[Mitigating Errors] <em>Understanding and Mitigating Errors of LLM-Generated RTL Code.</em> arXiv:2508.05266 (angenommen bei IEEE TCAD).</li>
+      <li>[VRank] arXiv:2502.00028 (Kandidaten-Clustering per Simulation).</li>
+      <li>[VerilogMonkey] <em>VerilogMonkey: Exploring Parallel Scaling for Automated Verilog Code Generation with LLMs.</em> arXiv:2509.16246.</li>
+      <li>[VFocus] <em>VFocus: Better Verilog Generation from Large Language Model via Focused Reasoning.</em> arXiv:2511.02285.</li>
+      <li>[McKeeman 1998] W. M. McKeeman: <em>Differential Testing for Software.</em> Digital Technical Journal 10(1), 1998, S. 100–107.</li>
+      <li>[DeMillo et al. 1978] R. A. DeMillo, R. J. Lipton, F. G. Sayward: <em>Hints on Test Data Selection: Help for the Practicing Programmer.</em> IEEE Computer 11(4), 1978, S. 34–41.</li>
+      <li>[Jia &amp; Harman 2011] Y. Jia, M. Harman: <em>An Analysis and Survey of the Development of Mutation Testing.</em> IEEE Transactions on Software Engineering 37(5), 2011, S. 649–678.</li>
+    </ul>
+    <p>Nicht verwendet, obwohl recherchiert: AgentDV (arXiv:2608.27148), da von den Autoren wegen methodischer Fehler zurückgezogen.</p>
   </section>
 </body>
 </html>

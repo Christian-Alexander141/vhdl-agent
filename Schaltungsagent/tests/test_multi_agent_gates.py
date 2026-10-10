@@ -458,37 +458,30 @@ def test_testbench_coverage_follows_instantiation_hierarchy(tmp_path):
     assert plan["requirements"]["r2"]["covered"] is False
 
 
-def test_coverage_requires_golden_vectors_to_be_checked_not_just_reached(tmp_path):
-    """FPGAgent-Paper Punkt 1: reine Erreichbarkeit genügt nicht mehr, wenn ein
-    Modul Golden-Model-Vektoren definiert - die Testbench muss sie auch prüfen."""
+def test_golden_vectors_are_informational_and_do_not_block_coverage(tmp_path):
+    """Golden-Vektoren aus dem Manifest blockieren die Abdeckung nicht mehr.
+
+    Im Benchmark (Lauf 20261008-161755) waren vom Planer erzeugte Vektoren
+    widersprüchlich und verwarfen einen korrekten Entwurf. Funktionale
+    Prüfung übernimmt jetzt das Referenzmodell, die Testgüte die Mutationsanalyse.
+    """
     (tmp_path / "src").mkdir()
     (tmp_path / "tests").mkdir()
     (tmp_path / "src" / "adder.vhd").write_text(entity("adder", ["a : in std_logic_vector(3 downto 0)"]))
-    unchecked_tb = (
+    (tmp_path / "tests" / "adder_tb.vhd").write_text(
         "entity adder_tb is end entity;\narchitecture sim of adder_tb is begin\n"
         "  dut: entity work.adder port map (a => (others => '0'));\n"
         "end architecture;\n"
     )
-    (tmp_path / "tests" / "adder_tb.vhd").write_text(unchecked_tb)
     architecture = {"modules": [{
         "name": "adder",
         "simulation_vectors": [{"inputs": {"a": "0001"}, "expected": {"sum": "0010"}}],
     }]}
 
     plan = build_test_plan(architecture, str(tmp_path))
+    assert plan["covered"] == ["adder"]
     assert plan["modules"]["adder"]["simulation_vectors"] == 1
     assert plan["modules"]["adder"]["vectors_referenced"] == 0
-    assert plan["uncovered"] == ["adder"], "erreichbar, aber der Golden-Vektor wird nie geprüft"
-
-    (tmp_path / "tests" / "adder_tb.vhd").write_text(
-        unchecked_tb.replace(
-            "end architecture;",
-            '  assert sum = "0010" report "VECTOR_FAIL" severity error;\nend architecture;',
-        )
-    )
-    plan = build_test_plan(architecture, str(tmp_path))
-    assert plan["modules"]["adder"]["vectors_referenced"] == 1
-    assert plan["covered"] == ["adder"]
 
 
 def test_format_simulation_vectors_renders_requirement_and_empty_list():

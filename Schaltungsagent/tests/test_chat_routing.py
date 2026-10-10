@@ -4,8 +4,6 @@ from unittest.mock import Mock, MagicMock
 import pytest
 
 from src.services.chat_router import ChatRouter, ChatRoute
-from src.services.llm_service import OllamaChatAssistant, StubChatAssistant, CODE_CHAT_MESSAGE
-from src.services.ollama_gateway import CodeGuard, LLMPurpose, UnsafeLLMOutputError
 
 
 def test_long_message_routes_to_new_project():
@@ -91,77 +89,6 @@ def test_attachment_routes_to_new_project():
     
     route = router.route("short", current_project="project-123", has_attachments=True)
     assert route.kind == "new_project"
-
-
-def test_chat_assistant_rejects_code():
-    """OllamaChatAssistant returns fixed message when Ollama outputs code."""
-    # Mock gateway that returns VHDL
-    mock_gateway = Mock()
-    mock_gateway.invoke.side_effect = UnsafeLLMOutputError("Ollama returned code")
-    
-    assistant = OllamaChatAssistant(mock_gateway)
-    answer = assistant.answer_question("Wie erstelle ich einen Zähler?", {})
-    
-    assert answer == CODE_CHAT_MESSAGE
-    mock_gateway.invoke.assert_called_once_with(LLMPurpose.CHAT, mock_gateway.invoke.call_args[0][1])
-
-
-def test_chat_assistant_returns_answer_when_no_code():
-    """OllamaChatAssistant returns answer when Ollama outputs text."""
-    mock_gateway = Mock()
-    mock_gateway.invoke.return_value = "Der Timer zählt bei jedem Clock-Zyklus hoch."
-    
-    assistant = OllamaChatAssistant(mock_gateway)
-    answer = assistant.answer_question("Was macht der Timer?", {"status": "IMPLEMENTING"})
-    
-    assert answer == "Der Timer zählt bei jedem Clock-Zyklus hoch."
-    mock_gateway.invoke.assert_called_once()
-
-
-def test_stub_chat_assistant_deterministic():
-    """StubChatAssistant returns deterministic responses."""
-    assistant = StubChatAssistant()
-    
-    answer = assistant.answer_question("Status?", {"status": "IMPLEMENTING"})
-    assert "IMPLEMENTING" in answer
-    
-    clarification = assistant.phrase_clarification(["Frage 1", "Frage 2"], {})
-    assert "Frage 1" in clarification
-    assert "Frage 2" in clarification
-
-
-def test_code_guard_detects_vhdl():
-    """CodeGuard detects various VHDL patterns."""
-    vhdl_samples = [
-        "```vhdl\nentity test is\nend;\n```",
-        "entity my_entity is\n  port (clk: in std_logic);\nend entity;",
-        "architecture rtl of my_entity is\nbegin\nend architecture;",
-        "library ieee;\nuse ieee.std_logic_1164.all;",
-    ]
-    
-    for sample in vhdl_samples:
-        assert CodeGuard.is_code(sample), f"Missed VHDL in: {sample[:50]}"
-    
-    non_code = [
-        "This is a chat response.",
-        "The entity should have a clock port.",
-        "No code here.",
-    ]
-    
-    for sample in non_code:
-        assert not CodeGuard.is_code(sample), f"False positive for: {sample}"
-
-
-def test_question_does_not_start_supervisor():
-    """Question route returns answer directly, no Supervisor execution."""
-    # This is verified by the api_server.py route_chat_message function
-    # which returns immediately for 'question' kind
-    from src.api_server import route_chat_message
-    import asyncio
-    
-    # Mock the chat assistant
-    mock_assistant = Mock()
-    mock_assistant.answer_question.return_value = "Test answer"
     
     # We can't easily test the full integration here without more mocks,
     # but the routing logic is tested above

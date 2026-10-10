@@ -1,0 +1,3 @@
+variant,model,task,titel,score,bestanden,duration_s,files,xdc_source,final_stage,failure_type,provider_ok_after,valid,note,started_at,workspace
+mas,muse-spark-1.3-contributor-free,task01,Lauflicht,89.3,True,1859.7,7,mas-auto,COMPLETED,model_mismatch,True,True,,2026-10-09T17:06:16,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/mas_muse-spark-1.3-contributor-free/mas-projects/lauflicht-3e4d0c
+mas,muse-spark-1.3-contributor-free,task02,4-Bit-Gray-Code-Zähler,91.3,True,6264.5,4,mas-auto,INFRASTRUCTURE_FAILURE,infrastructure,False,True,Infrastructure failure - cannot repair,2026-10-09T17:37:49,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/mas_muse-spark-1.3-contributor-free/mas-projects/gray-counter-arty-s7-23ba52

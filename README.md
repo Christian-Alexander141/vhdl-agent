@@ -79,20 +79,11 @@ Dieses Projekt untersucht verschiedene Agentenarchitekturen und entwickelt eine 
 
 # Verwendete Technologien
 
-## Ollama
+## OpenCode
 
-Ollama wird als lokale Laufzeitumgebung für Large Language Models verwendet.
+Alle Sprachmodell-Aufgaben laufen über OpenCode: Planung (inklusive Projekt- und Modulnamen), VHDL-Module, Testbenches, Referenzmodelle, Reparaturen und die Beantwortung von Projektfragen im Chat. Welches Modell verwendet wird, wird in den Einstellungen unter OpenCode festgelegt (z. B. die kostenlosen Modelle von OpenCode Zen).
 
-Ollama ermöglicht:
-
-- lokale Ausführung verschiedener Sprachmodelle
-- Nutzung ohne Übertragung sensibler Daten an externe Dienste
-- einfache Verwaltung verschiedener Modelle
-- Integration in lokale Agentensysteme
-
-Alternativ bietet Ollama eine Cloud-Schnittstelle mit umfangreichen kostenlosen Nutzungsmöglichkeiten.
-
-Ein wesentlicher Vorteil besteht darin, dass Interaktionen mit lokalen Modellen nicht zur Modellweiterentwicklung verwendet werden.
+Ein separates Sprachmodell über Ollama, ein Relikt der früheren RAG-Pipeline, wurde entfernt (2026-10-10).
 
 ---
 

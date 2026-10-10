@@ -1,0 +1,344 @@
+[
+  {
+    "id": "task01",
+    "titel": "Lauflicht",
+    "beschreibung": "4-LED-Lauflicht mit 1-s-Takt, BTN0 Start/Stop-Toggle, entprellt.",
+    "aufgabe": "Erstelle VHDL für ein Lauflicht auf dem Digilent Arty S7: LED5 bis LED2 werden zyklisch nacheinander aktiviert (Board-Realität: auf led[0..3] abbilden). Gut sichtbare Verzögerung (z.B. 1 s via Zähler). BTN0 stoppt an aktueller LED; Loslassen+Drücken setzt fort (Toggle). Entity mit LED-/Taster-Ports, kleiner Zustandsautomat, std_logic/vector, BTN0 entprellen. Synthesefähig, modular, wiederverwendbar.",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 1: Lauflicht, Arty S7, 100 MHz -> 1 s Tick\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity lauflicht is\n  generic (CLK_FREQ : natural := 100_000_000; TICK_S : natural := 1);\n  port (clk : in std_logic; btn : in std_logic_vector(3 downto 0);\n        sw  : in std_logic_vector(3 downto 0);\n        led : out std_logic_vector(3 downto 0));\nend lauflicht;\narchitecture rtl of lauflicht is\n  -- debounce BTN0: 3-stufig synchron + Zaehlerfreigabe\n  signal sync : std_logic_vector(2 downto 0) := (others => '0');\n  signal deb  : std_logic := '0'; signal deb_d : std_logic := '0';\n  signal run_en : std_logic := '1'; -- Toggle: Start=an\n  signal tick_cnt : natural range 0 to CLK_FREQ*TICK_S-1 := 0;\n  signal pos : natural range 0 to 3 := 0;\n  type fsm_t is (ST_STOP, ST_RUN); signal fsm : fsm_t := ST_RUN; -- Moore-FSM klein\nbegin\n  -- Debounce: synchronisieren, stabil = 3x gleich\n  process(clk) begin if rising_edge(clk) then\n    sync <= sync(1 downto 0) & btn(0);\n    if sync(2)=sync(1) and sync(1)=sync(0) then deb <= sync(2); end if;\n    deb_d <= deb;\n    if deb='1' and deb_d='0' then run_en <= not run_en; end if; -- steigende Flanke toggelt\n  end if; end process;\n  -- STOP haelt, RUN zaehlt tick -> Position weiter\n  process(clk) begin if rising_edge(clk) then\n    if run_en='0' then fsm <= ST_STOP; else fsm <= ST_RUN; end if;\n    case fsm is\n      when ST_RUN =>\n        if tick_cnt = CLK_FREQ*TICK_S-1 then tick_cnt <= 0; pos <= (pos+1) mod 4;\n        else tick_cnt <= tick_cnt+1; end if;\n      when ST_STOP => tick_cnt <= tick_cnt; -- halten (Moore)\n    end case;\n  end if; end process;\n  process(pos) begin led <= (others=>'0'); led(pos) <= '1'; end process;\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Board hat nur 4 LEDs: LED5..LED2/LED0..LED5 nicht 1:1 übernehmbar, Abbildung doku-pflichtig.",
+      "BTN ohne Debounce loslassen -> Mehrfach-Toggle.",
+      "Erfundene Pins statt H14/H18/G18/M5/E18/F13/E13/H15/G15/K16/J16/H13/R2.",
+      "'wait for'/'after'-Delays statt Zähler (nicht synthesefähig).",
+      "Flanke statt Pegel für Toggle vergessen -> Dauer-Stop."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "rising_edge",
+        "mod",
+        "run_en"
+      ],
+      "need_debounce": true,
+      "need_fsm": true,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task02",
+    "titel": "4-Bit-Gray-Code-Zähler",
+    "beschreibung": "Automatischer Gray-Zähler 0..9 mit Reset BTN0, Anzeige auf LEDs.",
+    "aufgabe": "Erstelle VHDL für 4-Bit-Gray-Code-Zähler Arty S7: automatischer Start, Gray 0000..1001 (0-9) dann 0000. Ausgabe auf LED5-LED2 (real: led[0..3]). Optional Binärwert. BTN0=Reset auf 0000, entprellt. Entity+Architecture, Zählerlogik/kleiner FSM, std_logic/vector, Kommentare, synthesefähig.",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 2: 4-Bit Gray-Zaehler 0..9, Arty S7\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity gray_counter is\n  generic (CLK_FREQ : natural := 100_000_000);\n  port (clk : in std_logic; btn : in std_logic_vector(3 downto 0);\n        sw : in std_logic_vector(3 downto 0);\n        led : out std_logic_vector(3 downto 0));\nend gray_counter;\narchitecture rtl of gray_counter is\n  signal tick : std_logic := '0'; signal c : natural range 0 to CLK_FREQ-1 := 0;\n  signal bin : unsigned(3 downto 0) := (others=>'0');\n  signal sync : std_logic_vector(2 downto 0) := (others=>'0');\n  signal rst : std_logic;\nbegin\n  -- BTN0 entprellt als synchroner Reset (aktiv-high)\n  process(clk) begin if rising_edge(clk) then sync <= sync(1 downto 0) & btn(0); end if; end process;\n  rst <= '1' when sync(2)=sync(1) and sync(1)=sync(0) and sync(2)='1' else '0';\n  -- 1-s-Taktteilung\n  process(clk) begin if rising_edge(clk) then\n    tick <= '0';\n    if c = CLK_FREQ-1 then c <= 0; tick <= '1'; else c <= c+1; end if;\n  end if; end process;\n  -- Binaer 0..9, dann Gray = bin xor (bin>>1)\n  process(clk) begin if rising_edge(clk) then\n    if rst='1' then bin <= (others=>'0');\n    elsif tick='1' then\n      if bin = 9 then bin <= (others=>'0'); else bin <= bin+1; end if;\n    end if;\n  end if; end process;\n  led <= std_logic_vector(bin xor ('0' & bin(3 downto 1))); -- Gray-Code\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Falsche Gray-Folge (binär statt Gray: Gray=bin xor bin>>1).",
+      "9->10 statt 9->0 (nur 0..9 gefordert).",
+      "Asynchroner Reset ohne Sync -> Metastabilität.",
+      "1-s-Teiler mit falscher Taktbasis (50 statt 100 MHz)."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "xor",
+        "bin",
+        "tick"
+      ],
+      "need_debounce": true,
+      "need_fsm": false,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task03",
+    "titel": "4-Bit-Addierer",
+    "beschreibung": "Rein kombinatorischer 4-Bit-Addierer mit Arty-Top (SW=a, BTN=b, LED=Summe).",
+    "aufgabe": "Implementiere 4-Bit-Addierer in VHDL für Arty S7 (gemeinsame Vorgaben, fpgagent-Prompt, Vivado Flash Service, neu implementieren, synthesefähig/sauber). Empfehlung: adder4 (a,b->sum,cout) + Top (sw->a, btn->b, led->sum; Cout-Problem bei nur 4 LEDs dokumentieren).",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 3: 4-Bit-Addierer + Arty-Top (SW=a, BTN=b, LED=summe)\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity adder4 is\n  port (a, b : in std_logic_vector(3 downto 0);\n        sum : out std_logic_vector(3 downto 0); cout : out std_logic);\nend adder4;\narchitecture rtl of adder4 is\n  signal tmp : unsigned(4 downto 0);\nbegin\n  tmp <= ('0' & unsigned(a)) + ('0' & unsigned(b)); -- rein kombinatorisch, synthesefaehig\n  sum <= std_logic_vector(tmp(3 downto 0)); cout <= tmp(4);\nend rtl;\n-- Top fuer Arty S7: Uebertrag auf led(3) ODER als Blinken? Hier: Summe auf led, Cout verworfen/doku.\nlibrary ieee; use ieee.std_logic_1164.all;\nentity top_adder is\n  port (clk : in std_logic; sw : in std_logic_vector(3 downto 0);\n        btn : in std_logic_vector(3 downto 0); led : out std_logic_vector(3 downto 0));\nend top_adder;\narchitecture rtl of top_adder is\n  component adder4 port (a,b: in std_logic_vector(3 downto 0);\n    sum: out std_logic_vector(3 downto 0); cout: out std_logic); end component;\n  signal s : std_logic_vector(3 downto 0); signal co : std_logic;\nbegin\n  u: adder4 port map (a=>sw, b=>btn, sum=>s, cout=>co);\n  led <= s; -- Hinweis: Cout geht mangels 5. LED verloren -> Doku; Alternative RGB-LED\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Cout unterschlagen ohne Doku (nur 4 LEDs).",
+      "BTN direkt als statisches b ohne Hinweis (Taster prellen/halten).",
+      "Vorzeichenfehler: signed/unsigned gemischt ohne numeric_std.",
+      "Latch durch unvollständige case/if-Zuweisung."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "sw",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "adder4",
+        "unsigned",
+        "cout",
+        "sum"
+      ],
+      "need_debounce": false,
+      "need_fsm": false,
+      "need_clock": false,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task04",
+    "titel": "Parametrisches synchrones SRAM",
+    "beschreibung": "SRAM data_bits=4/addr_bits=4/tau=1, read-before-write, Pipeline, inkl. Testbench.",
+    "aufgabe": "Erstelle parametrische SRAM-Implementierung (Generics data_bits=4, addr_bits=4, tau_cycles=1). Ports: clk, address SW0..3, data_in BTN0..3, data_out LED. Verhalten: pro rising_edge lesen, Ausgabe nach tau Takten; data_in/=0 -> synchron schreiben; R/W-gleichzeitig = read-before-write; data_out permanent, kein Tri-State; ram_t + to_integer; tau als Pipeline; Debounce empfohlen; Kommentare zu read-before-write. Lieferung sram.vhd + tb_ram.vhd mit Tests (R/W, R/W-gleichzeitig, read-before-write, tau).",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": {
+      "sram.vhd": "-- Aufgabe 4: parametrisches synchrones SRAM, read-before-write, tau-Pipeline\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity sram is\n  generic (data_bits : natural := 4; addr_bits : natural := 4; tau_cycles : natural := 1);\n  port (clk : in std_logic;\n        address : in unsigned(addr_bits-1 downto 0);   -- SW0..SW3, SW0=LSB\n        data_in : in signed(data_bits-1 downto 0);     -- BTN0..BTN3\n        data_out: out signed(data_bits-1 downto 0));   -- LED, MSB->LED3 (Board hat nur 4 LEDs)\nend sram;\narchitecture rtl of sram is\n  type ram_t is array (0 to 2**addr_bits-1) of signed(data_bits-1 downto 0);\n  signal ram : ram_t := (others => (others => '0'));\n  -- Pipeline tau_cycles\n  type pipe_t is array (0 to 15) of signed(data_bits-1 downto 0);\n  signal pipe : pipe_t := (others => (others => '0'));\nbegin\n  assert tau_cycles>=1 and tau_cycles<=16 report \"tau_cycles ausserhalb 1..16\" severity failure;\n  process(clk) -- read-before-write: erst lesen (alter Wert), dann ggf. schreiben\n    variable rdata : signed(data_bits-1 downto 0);\n  begin if rising_edge(clk) then\n    rdata := ram(to_integer(address)); -- alter Wert\n    if data_in /= to_signed(0, data_bits) then\n      ram(to_integer(address)) <= data_in; -- synchroner Write\n    end if;\n    pipe(0) <= rdata; -- in Pipeline schieben\n    for i in 1 to 15 loop\n      if i < tau_cycles then pipe(i) <= pipe(i-1); end if;\n    end loop;\n  end if; end process;\n  data_out <= pipe(tau_cycles-1); -- permanent getrieben, kein Tri-State\nend rtl;\n",
+      "tb_ram.vhd": "-- tb_ram: Testfaelle Schreiben/Lesen, R/W-gleichzeitig, read-before-write, tau\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity tb_ram is end tb_ram;\narchitecture sim of tb_ram is\n  signal clk: std_logic:='0'; signal addr: unsigned(3 downto 0):=(others=>'0');\n  signal di, dout: signed(3 downto 0):=(others=>'0');\n  component sram generic (data_bits,addr_bits,tau_cycles: natural);\n    port (clk: in std_logic; address: in unsigned(3 downto 0);\n      data_in: in signed(3 downto 0); data_out: out signed(3 downto 0)); end component;\nbegin\n  dut: sram generic map (4,4,1) port map (clk,addr,di,dout);\n  clk <= not clk after 5 ns; -- nur Testbench, kein Synthese-Code\n  process begin\n    addr <= x\"3\"; di <= to_signed(5,4); wait until rising_edge(clk); wait until rising_edge(clk);\n    di <= to_signed(0,4); wait until rising_edge(clk); wait until rising_edge(clk);\n    assert dout=to_signed(5,4) report \"Schreiben/Lesen fail\" severity error; -- Schreiben/Lesen\n    di <= to_signed(-3,4); wait until rising_edge(clk); -- gleichzeitig R/W: dout muss ALT sein\n    assert dout=to_signed(5,4) report \"read-before-write fail\" severity error;\n    wait until rising_edge(clk); wait; -- tau-Verzoegerung pruefen\n  end process;\nend sim;\n"
+    },
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Write-vor-Read implementiert statt read-before-write.",
+      "data_out mit Tri-State/'Z' (auf FPGA innen unzulässig).",
+      "tau als 'after'-Delay statt Register-Pipeline.",
+      "to_integer ohne numeric_std / falscher Adressbereich.",
+      "BTN-Schreiben ohne Entprellung -> Mehrfach-Write."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "address",
+        "data_in",
+        "data_out"
+      ],
+      "required_keywords": [
+        "ram_t",
+        "to_integer",
+        "tau_cycles",
+        "rising_edge",
+        "read-before-write"
+      ],
+      "need_debounce": false,
+      "need_fsm": false,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task05",
+    "titel": "Ampelsteuerung",
+    "beschreibung": "Hierarchie ampel/control/timer, Moore-FSM 8 Phasen, 30/4/2 s, 31-Bit-Timer.",
+    "aufgabe": "VHDL-Ampel Übung 5 für Arty S7, Hierarchie ampel(control,timer). LED0=RotHS..LED5=GrünQS (real: 6 Signale auf 4 LEDs abbilden+doku). SW0=Reset, SW1=Start/Enable. Board-Takt real 100 MHz (Aufgabe nennt 50 MHz/1.5e9 Takte -> anpassen+doku). Timer>=1.5e9 Takte (31 Bit), Ports clock/reset/load/load_value/ready. Moore-FSM Phasen 1..8 (Grün/Rot 30s, Gelb/Rot 2s, Rot/Rot 4s, Rot/RotGelb 2s, Rot/Grün 30s, Rot/Gelb 2s, Rot/Rot 4s, ->1). Dateien ampel/control/timer.vhd + XDC. Abnahme: SW0 Reset, SW1 Start, LED=Phase, Phasenwechsel, Vivado-synthesefähig. Doku: Dateien, SW, LED, XDC, Timer/FSM.",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": {
+      "ampel.vhd": "-- Aufgabe 5a: ampel Top (SW0=Reset, SW1=Enable, LED0..3=Phasen; Board hat nur 4 LEDs!)\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity ampel is\n  port (clk: in std_logic; sw: in std_logic_vector(3 downto 0);\n        btn: in std_logic_vector(3 downto 0); led: out std_logic_vector(3 downto 0));\nend ampel;\narchitecture rtl of ampel is\n  component control port (clock,reset,enable,ready: in std_logic; load: out std_logic;\n    load_value: out unsigned(30 downto 0);\n    rot_1,gelb_1,gruen_1,rot_2,gelb_2,gruen_2: out std_logic); end component;\n  component timer port (clock,reset,load: in std_logic;\n    load_value: in unsigned(30 downto 0); ready: out std_logic); end component;\n  signal ld, rdy: std_logic; signal lv: unsigned(30 downto 0);\n  signal r1,y1,g1,r2,y2,g2: std_logic;\nbegin\n  c: control port map (clk, sw(0), sw(1), rdy, ld, lv, r1,y1,g1,r2,y2,g2);\n  t: timer port map (clk, sw(0), ld, lv, rdy);\n  -- 6 Signale -> 4 LEDs: HS-Gruen, HS-Gelb/Rot, QS-Gruen, QS-Gelb/Rot (Doku!)\n  led(0)<=g1; led(1)<=y1 or r1; led(2)<=g2; led(3)<=y2 or r2;\nend rtl;\n",
+      "control.vhd": "-- Aufgabe 5c: control, Moore-FSM 8 Phasen (30s/2s/4s bei 100 MHz)\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity control is\n  port (clock: in std_logic; reset: in std_logic; enable: in std_logic; ready: in std_logic;\n        load: out std_logic; load_value: out unsigned(30 downto 0);\n        rot_1, gelb_1, gruen_1, rot_2, gelb_2, gruen_2: out std_logic);\nend control;\narchitecture rtl of control is\n  type st_t is (P1,P2,P3,P4,P5,P6,P7,P8); signal st: st_t:=P1; signal armed: std_logic:='0';\n  constant S30: unsigned(30 downto 0) := to_unsigned(1500000000-1,31); -- 30s@100MHz (real)\n  constant S4 : unsigned(30 downto 0) := to_unsigned(200000000-1,31); -- 4s (Aufgabe: 200M)\n  constant S2 : unsigned(30 downto 0) := to_unsigned(100000000-1,31); -- 2s (Aufgabe: 100M)\nbegin\n  process(clock) begin if rising_edge(clock) then\n    if reset='1' then st<=P1; armed<='0'; load<='0';\n    elsif enable='1' then\n      load<='0';\n      if armed='0' then -- Phase laden\n        armed<='1'; load<='1';\n        case st is when P1=>load_value<=S30; when P2=>load_value<=S2;\n          when P3=>load_value<=S4; when P4=>load_value<=S2; when P5=>load_value<=S30;\n          when P6=>load_value<=S2; when P7=>load_value<=S4; when others=>load_value<=S2; end case;\n      elsif ready='1' then -- naechste Phase (Moore: Ausgaenge nur von st)\n        armed<='0';\n        case st is when P1=>st<=P2; when P2=>st<=P3; when P3=>st<=P4; when P4=>st<=P5;\n          when P5=>st<=P6; when P6=>st<=P7; when P7=>st<=P8; when others=>st<=P1; end case;\n      end if;\n    end if;\n  end if; end process;\n  process(st) begin -- Moore-Ausgaenge konstant pro Phase\n    (rot_1,gelb_1,gruen_1,rot_2,gelb_2,gruen_2) <= ('0','0','0','0','0','0');\n    case st is\n      when P1 => gruen_1<='1'; rot_2<='1'; when P2 => gelb_1<='1'; rot_2<='1';\n      when P3 => rot_1<='1'; rot_2<='1'; when P4 => rot_1<='1'; rot_2<='1'; gelb_2<='1';\n      when P5 => rot_1<='1'; gruen_2<='1'; when P6 => rot_1<='1'; gelb_2<='1';\n      when P7 => rot_1<='1'; rot_2<='1'; when others => rot_1<='1'; rot_2<='1';\n    end case;\n  end process;\nend rtl;\n",
+      "timer.vhd": "-- Aufgabe 5b: timer (load/load_value/ready), 31 Bit fuer 1.5e9 Takte\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity timer is\n  port (clock: in std_logic; reset: in std_logic; load: in std_logic;\n        load_value: in unsigned(30 downto 0); ready: out std_logic);\nend timer;\narchitecture rtl of timer is\n  signal cnt: unsigned(30 downto 0) := (others=>'0'); signal active: std_logic:='0';\nbegin\n  process(clock) begin if rising_edge(clock) then\n    if reset='1' then cnt<=(others=>'0'); active<='0'; ready<='0';\n    elsif load='1' then cnt<=load_value; active<='1'; ready<='0';\n    elsif active='1' then\n      if cnt=0 then ready<='1'; active<='0'; else cnt<=cnt-1; ready<='0'; end if;\n    else ready<='0'; end if;\n  end if; end process;\nend rtl;\n"
+    },
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Timer zu schmal (<31 Bit) -> Überlauf bei 1.5e9; 50-MHz-Werte ungeprüft für 100 MHz übernommen.",
+      "Mealy statt Moore (LED flackert bei ready).",
+      "6 LEDs 1:1 gefordert, Board hat 4 -> ohne Abbildung undurchführbar.",
+      "load/ready-Handshake ohne armed-Flag -> Timer-Reload-Loop.",
+      "Reset nur FSM oder nur Timer -> inkonsistente Phase."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clock",
+        "clk",
+        "reset",
+        "sw",
+        "load",
+        "ready",
+        "led"
+      ],
+      "required_keywords": [
+        "moore",
+        "load_value",
+        "ready",
+        "rot_1",
+        "gruen_2"
+      ],
+      "need_debounce": false,
+      "need_fsm": true,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task06",
+    "titel": "4-Bit-Up/Down-Zähler",
+    "beschreibung": "Synchroner Zähler mit Richtung/Enable/Schritt/Auto, Tasterbedienung, Wrap.",
+    "aufgabe": "4-Bit synchroner Up/Down-Zähler Arty S7: SW0=Richtung(0 down/1 up), SW1=Enable, SW2=Schritt(1/2), SW3=Auto/Manuell, BTN0=Reset, BTN1=Start/Stop Auto, BTN2=manUp, BTN3=manDown, LED0..3=Stand binär. Automatik 1-s-Teilung, Buttons entprellen+Flanken, Überlauf zyklisch, modular (Zähler/Debounce/Bedienlogik).",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 6: 4-Bit Up/Down-Zaehler mit Bediensteuerung\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity updown is\n  port (clk: in std_logic; sw: in std_logic_vector(3 downto 0);\n        btn: in std_logic_vector(3 downto 0); led: out std_logic_vector(3 downto 0));\n  -- SW0=Richtung(1=up), SW1=Enable, SW2=Schritt(1=2), SW3=Auto/Manuell\n  -- BTN0=Reset, BTN1=Start/Stop, BTN2=manUp, BTN3=manDown\nend updown;\narchitecture rtl of updown is\n  signal cnt: unsigned(3 downto 0):=(others=>'0');\n  signal tick: std_logic:='0'; signal div: natural range 0 to 100_000_000-1:=0;\n  signal bsync: std_logic_vector(3 downto 0):=(others=>'0');\n  signal bdeb: std_logic_vector(3 downto 0):=(others=>'0');\n  signal bprev: std_logic_vector(3 downto 0):=(others=>'0');\n  signal edge: std_logic_vector(3 downto 0);\n  signal running: std_logic:='0'; signal step: natural range 1 to 2;\nbegin\n  step <= 2 when sw(2)='1' else 1; -- Schrittweite\n  process(clk) begin if rising_edge(clk) then -- Debounce: 2-stufig + Flanke\n    bsync <= btn; bdeb <= bsync; bprev <= bdeb;\n  end if; end process;\n  edge <= bdeb and not bprev; -- steigende Flanken\n  process(clk) begin if rising_edge(clk) then -- 1-s-Taktteilung\n    tick<='0'; if div=100_000_000-1 then div<=0; tick<='1'; else div<=div+1; end if;\n  end if; end process;\n  process(clk) begin if rising_edge(clk) then\n    if edge(0)='1' then cnt<=(others=>'0'); -- Reset\n    elsif edge(1)='1' and sw(3)='1' then running <= not running; end if; -- Start/Stop Auto\n    if sw(3)='1' then -- Automatik\n      if running='1' and sw(1)='1' and tick='1' then\n        if sw(0)='1' then cnt<=cnt+step; else cnt<=cnt-step; end if; -- zyklisch (wrap)\n      end if;\n    else -- manuell\n      if edge(2)='1' then cnt<=cnt+step; end if;\n      if edge(3)='1' then cnt<=cnt-step; end if;\n    end if;\n  end if; end process;\n  led <= std_logic_vector(cnt);\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Schritt 2 als +2 ohne Wrap-Denken (15+2 muss 1 sein, unsigned regelt).",
+      "Manuell-Taster als Pegel statt Flanke -> Dauerzählen.",
+      "Auto/Manuell vermischt (BTN2 wirkt auch in Auto).",
+      "Debounce fehlt -> Reset/Start prellt mehrfach."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "sw",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "rising_edge",
+        "running",
+        "step",
+        "tick"
+      ],
+      "need_debounce": true,
+      "need_fsm": false,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task07",
+    "titel": "Elektronischer Würfel (LFSR)",
+    "beschreibung": "Würfel 1..6 mit LFSR, FSM, Animation, Auto-Modus, LED-Anzeige.",
+    "aufgabe": "Digitaler Würfel 1..6 mit FSM+pseudo-Zufall (LFSR): BTN0=Würfeln, BTN1=Reset, BTN2=Auto, BTN3=Schritt, SW0=Tempo, SW1..3=Seed/Modus, Ergebnis 1..6, LED0..2=Zahl binär, LED3=aktiv, Animation dann Halten, Debounce, nur Board-Mittel.",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 7: Wuerfel 1..6, LFSR + FSM\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity wuerfel is\n  port (clk: in std_logic; sw: in std_logic_vector(3 downto 0);\n        btn: in std_logic_vector(3 downto 0); led: out std_logic_vector(3 downto 0));\n  -- BTN0=Wuerfeln, BTN1=Reset, BTN2=Auto, BTN3=Schritt; SW0=Tempo; LED0-2=Zahl-1 binaer, LED3=aktiv\nend wuerfel;\narchitecture rtl of wuerfel is\n  type st_t is (IDLE, ROLL, DONE); signal st: st_t:=IDLE;\n  signal lfsr: unsigned(3 downto 0):=\"1011\"; -- Seed/=0, kein Lockup\n  signal val: natural range 1 to 6 := 1;\n  signal tick: std_logic:='0'; signal div: natural:=0;\n  signal b: std_logic_vector(3 downto 0):=(others=>'0'); signal bp: std_logic_vector(3 downto 0):=(others=>'0');\n  signal edge: std_logic_vector(3 downto 0); signal auto: std_logic:='0';\n  signal anim: natural range 0 to 15:=0;\nbegin\n  process(clk) begin if rising_edge(clk) then b<=btn; bp<=b; end if; end process; -- Debounce einfach\n  edge <= b and not bp;\n  process(clk) -- Tempo: SW0=0 langsam (~5Hz), 1=schnell (~20Hz)\n    variable lim: natural;\n  begin if rising_edge(clk) then\n    lim := 20_000_000 when sw(0)='0' else 5_000_000; tick<='0';\n    if div>=lim then div<=0; tick<='1'; else div<=div+1; end if;\n  end if; end process;\n  process(clk) -- LFSR x^4+x+1, laeuft frei; 1..6 via mod\n    variable fb: std_logic;\n  begin if rising_edge(clk) then\n    if edge(1)='1' then st<=IDLE; val<=1; auto<='0';\n    else\n      fb := lfsr(3) xor lfsr(2); -- Polynom\n      if tick='1' or st=ROLL then lfsr <= lfsr(2 downto 0) & fb; end if;\n      if edge(2)='1' then auto <= not auto; end if;\n      case st is\n        when IDLE => if edge(0)='1' or edge(3)='1' or auto='1' then st<=ROLL; anim<=10; end if;\n        when ROLL =>\n          if tick='1' then\n            val <= (to_integer(lfsr) mod 6)+1; -- immer 1..6 begrenzt\n            if anim=0 then st<=DONE; else anim<=anim-1; end if;\n          end if;\n        when DONE => if edge(0)='1' or auto='1' then st<=ROLL; anim<=10; end if;\n      end case;\n    end if;\n  end if; end process;\n  led(2 downto 0) <= std_logic_vector(to_unsigned(val-1,3)); -- Zahl binaer (0..5)\n  led(3) <= '1' when st=ROLL else '0'; -- Wuerfelvorgang aktiv\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "LFSR-Seed 0000 -> Lockup (bleibt 0).",
+      "Roh-LFSR direkt angezeigt (0/7..15 möglich) statt mod-6+1.",
+      "Animation ohne Zeitbegrenzung -> nie DONE.",
+      "Auto-Modus als Pegel -> Dauerwürfeln ohne Stopp."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "sw",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "lfsr",
+        "mod 6",
+        "ROLL",
+        "rising_edge"
+      ],
+      "need_debounce": true,
+      "need_fsm": true,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task08",
+    "titel": "Digitales Codeschloss",
+    "beschreibung": "Moore-FSM, Code 1010, 3 Versuche, Timeout, Service-Modus, LED-Status.",
+    "aufgabe": "4-Bit-Codeschloss Moore-FSM: SW0..3=Code, BTN0=Confirm, BTN1=Reset/Lock, BTN2=Retry, BTN3=Service, Sollcode 1010 (Generic/Konstante), max 3 Fehlversuche->Sperre, korrekt->open, Timeout/Reset->locked, LED0=lock LED1=busy LED2=open LED3=err, Debounce+Flanken, Timeout als FSM.",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 8: Codeschloss, Moore-FSM, Sollcode 1010, max 3 Versuche\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity schloss is\n  generic (CODE: std_logic_vector(3 downto 0):=\"1010\");\n  port (clk: in std_logic; sw: in std_logic_vector(3 downto 0);\n        btn: in std_logic_vector(3 downto 0); led: out std_logic_vector(3 downto 0));\n  -- BTN0=Confirm, BTN1=Reset/Lock, BTN2=Retry, BTN3=Service; LED0=lock, LED1=busy, LED2=open, LED3=err\nend schloss;\narchitecture rtl of schloss is\n  type st_t is (LOCKED, CHECK, OPEN, FAIL, BLOCKED); signal st: st_t:=LOCKED;\n  signal fails: natural range 0 to 3:=0;\n  signal tmo: natural range 0 to 100_000_000*10:=0; -- 10 s Timeout\n  signal b, bp: std_logic_vector(3 downto 0):=(others=>'0'); signal edge: std_logic_vector(3 downto 0);\nbegin\n  process(clk) begin if rising_edge(clk) then b<=btn; bp<=b; end if; end process; -- Debounce\n  edge <= b and not bp; -- nur steigende Flanken\n  process(clk) begin if rising_edge(clk) then\n    if edge(1)='1' then st<=LOCKED; fails<=0; tmo<=0; -- Reset/Lock\n    else case st is\n      when LOCKED =>\n        tmo<=0;\n        if edge(3)='1' then st<=OPEN; -- Service/Testmodus\n        elsif edge(0)='1' or edge(2)='1' then st<=CHECK; end if;\n      when CHECK => -- ein Takt pruefen (Moore: LED1 an)\n        if sw=CODE then st<=OPEN; fails<=0; tmo<=0;\n        else\n          if fails+1>=3 then st<=BLOCKED; else st<=FAIL; end if;\n          fails<=fails+1;\n        end if;\n      when FAIL => if edge(2)='1' or edge(0)='1' then st<=CHECK; end if; -- naechster Versuch\n      when OPEN => -- Timeout 10 s -> verriegeln\n        if tmo>=100_000_000*10-1 then st<=LOCKED; tmo<=0; else tmo<=tmo+1; end if;\n      when BLOCKED => null; -- nur BTN1 entsperrt\n    end case; end if;\n  end if; end process;\n  led(0)<='1' when st=LOCKED else '0'; led(1)<='1' when st=CHECK or st=FAIL else '0';\n  led(2)<='1' when st=OPEN else '0'; led(3)<='1' when st=BLOCKED or st=FAIL else '0';\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Code als LED/SW-Pegel ohne Confirm-Flanke lesbar -> trivial auslesbar, aber Spec verlangt Flanke.",
+      "Fail-Zähler nie zurückgesetzt -> nach 3 Fehlern dauerhaft tot trotz Reset-Spec.",
+      "Service-Modus als Hintertür ohne Doku.",
+      "Timeout als 'wait for 10 s' (nicht synthesefähig)."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "sw",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "CODE",
+        "BLOCKED",
+        "fails",
+        "rising_edge"
+      ],
+      "need_debounce": true,
+      "need_fsm": true,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task09",
+    "titel": "Digitaler Countdown-Timer",
+    "beschreibung": "4-Bit-Countdown 0..15 s, Laden/Start/Pause/Reset, 1-s-Takt, Blink bei 0.",
+    "aufgabe": "4-Bit-Countdown Start/Stop/Reset: SW0..3=Startwert 0..15 s, BTN0=Laden, BTN1=Start/Stop, BTN2=Reset, BTN3=Pause, 1-s-Takt, bei 0 stoppen+Endzustand (opt. Blinken), LED0..3=Wert, Debounce+Flanken, modular, reproduzierbar nach Laden.",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 9: 4-Bit Countdown 0..15 s, 1-s-Takt\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity countdown is\n  port (clk: in std_logic; sw: in std_logic_vector(3 downto 0);\n        btn: in std_logic_vector(3 downto 0); led: out std_logic_vector(3 downto 0));\n  -- SW=Startwert, BTN0=Laden, BTN1=Start/Stop, BTN2=Reset, BTN3=Pause\nend countdown;\narchitecture rtl of countdown is\n  signal val: unsigned(3 downto 0):=(others=>'0');\n  signal run: std_logic:='0'; signal tick1s: std_logic:='0';\n  signal div: natural range 0 to 100_000_000-1:=0;\n  signal blink: std_logic:='0'; signal bdiv: natural range 0 to 25_000_000-1:=0;\n  signal b,bp: std_logic_vector(3 downto 0):=(others=>'0'); signal edge: std_logic_vector(3 downto 0);\nbegin\n  process(clk) begin if rising_edge(clk) then b<=btn; bp<=b; end if; end process;\n  edge <= b and not bp;\n  process(clk) begin if rising_edge(clk) then -- 1-s-Takt\n    tick1s<='0'; if div=100_000_000-1 then div<=0; tick1s<='1'; else div<=div+1; end if;\n    if bdiv=25_000_000-1 then bdiv<=0; blink<=not blink; else bdiv<=bdiv+1; end if; -- Blink ~4Hz\n  end if; end process;\n  process(clk) begin if rising_edge(clk) then -- reproduzierbar: Laden setzt run=0\n    if edge(2)='1' then val<=(others=>'0'); run<='0';\n    elsif edge(0)='1' then val<=unsigned(sw); run<='0';\n    elsif edge(1)='1' then\n      if val/=0 then run <= not run; end if;\n    elsif edge(3)='1' then run<='0'; -- Pause\n    elsif run='1' and tick1s='1' then\n      if val=0 then run<='0'; else val<=val-1; if val=1 then run<='0'; end if; end if;\n    end if;\n  end if; end process;\n  led <= std_logic_vector(val) when (val/=0 or blink='1') else \"0000\"; -- bei Ablauf blinken->0/aus\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Laden ohne run=0 -> Timer läuft mit altem enable weiter (nicht reproduzierbar).",
+      "0 übersehen (Underflow 0->15) statt Stop.",
+      "Pause=Stop verwechselt (Pause muss Wert halten).",
+      "1-s-Teiler mit falscher Basis oder async."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "sw",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "tick1s",
+        "run",
+        "blink",
+        "rising_edge"
+      ],
+      "need_debounce": true,
+      "need_fsm": false,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  },
+  {
+    "id": "task10",
+    "titel": "2-Etagen-Aufzug",
+    "beschreibung": "Hierarchischer Moore-FSM, Anfragen-Latch, 2-s-Timer, NotAus, LED-Status.",
+    "aufgabe": "2-Etagen-Aufzug Moore-FSM: SW0=ReqEG, SW1=ReqOG, SW2=Türmodus, SW3=Auto, BTN0=Start, BTN1=Stop, BTN2=Reset, BTN3=NotAus/Quit, zeitgesteuerte Zustände (EG_TUER_AUF/ZU, HOCH, OG_AUF/ZU, RUNTER, NOTAUS), LED0..3=Etage/Bewegung/Tür/NotAus, 2-s-Zähler, Anfragen speichern, Debounce, FSM/Timer getrennt.",
+    "gemeinsame_vorgaben": "Gemeinsame Vorgaben:\n- Zielhardware: Digilent Arty S7 (Spartan-7, Rev. E).\n- VHDL, synthesefähig, modular, wiederverwendbar, aussagekräftige Kommentare.\n- Vivado Flash Service verwenden, aber nicht selbst flashen.\n- Keine alten Projekte wiederverwenden; jede Aufgabe neu implementieren.\n- Keine erfundenen FPGA-Pins: nur offizielle Arty-S7-XDC-Pins (siehe Constraints).\n- Keine Simulation-only-Konstrukte (kein 'wait for', kein 'after <Zeit>', keine files).\n- std_logic / std_logic_vector (+ numeric_std) verwenden, kein 'bit' für Top-Ports.\n- Taster/Schalter aktiv-high, LEDs aktiv-high (1 = an).\n- Board-Realität: 100-MHz-Takt (CLK100MHZ, Pin R2), 4x LED, 4x SW, 4x BTN.\n  Aufgaben, die LED0..LED5 oder 50 MHz fordern, auf led[0..3] bzw. 100 MHz abbilden und dokumentieren.",
+    "referenz_vhdl": "-- Aufgabe 10: 2-Etagen-Aufzug, Moore-FSM + Timer\nlibrary ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\nentity aufzug is\n  port (clk: in std_logic; sw: in std_logic_vector(3 downto 0);\n        btn: in std_logic_vector(3 downto 0); led: out std_logic_vector(3 downto 0));\n  -- SW0=ReqEG, SW1=ReqOG, SW2=Tuermodus, SW3=Auto; BTN0=Start, BTN1=Stop, BTN2=Reset, BTN3=NotAus/Quit\n  -- LED0=Etage(0=EG,1=OG), LED1=Bewegung, LED2=TuerAuf, LED3=NotAus\nend aufzug;\narchitecture rtl of aufzug is\n  type st_t is (EG_AUF, EG_ZU, HOCH, OG_AUF, OG_ZU, RUNTER, NOTAUS);\n  signal st, nxt: st_t:=EG_AUF;\n  signal cnt: natural range 0 to 200_000_000-1:=0; -- 2 s Timer @100MHz\n  signal done: std_logic:='0';\n  signal req_eg, req_og: std_logic:='0'; -- zwischengespeichert\n  signal b,bp: std_logic_vector(3 downto 0):=(others=>'0'); signal edge: std_logic_vector(3 downto 0);\nbegin\n  process(clk) begin if rising_edge(clk) then b<=btn; bp<=b; end if; end process;\n  edge <= b and not bp;\n  process(clk) begin if rising_edge(clk) then -- Anfragen latchen\n    if sw(0)='1' then req_eg<='1'; end if; if sw(1)='1' then req_og<='1'; end if;\n    if edge(2)='1' then req_eg<='0'; req_og<='0'; st<=EG_AUF; end if; -- Reset\n    if edge(3)='1' then if st=NOTAUS then st<=EG_AUF; else st<=NOTAUS; end if; end if; -- NotAus/Quit\n  end if; end process;\n  process(clk) begin if rising_edge(clk) then -- Timer 2 s\n    done<='0';\n    if st=EG_AUF or st=EG_ZU or st=HOCH or st=OG_AUF or st=OG_ZU or st=RUNTER then\n      if cnt=200_000_000-1 then cnt<=0; done<='1'; else cnt<=cnt+1; end if;\n    else cnt<=0; end if;\n  end if; end process;\n  process(clk) begin if rising_edge(clk) then -- FSM (Moore)\n    if st=NOTAUS then null;\n    else case st is\n      when EG_AUF => if done='1' then st<=EG_ZU; end if;\n      when EG_ZU => if done='1' then\n          if req_og='1' then st<=HOCH; req_og<='0'; elsif req_eg='1' then req_eg<='0'; st<=EG_AUF; end if;\n        elsif edge(0)='1' and (sw(3)='1' or req_og='1') then st<=HOCH; end if;\n      when HOCH => if done='1' then st<=OG_AUF; end if;\n      when OG_AUF => if done='1' then st<=OG_ZU; end if;\n      when OG_ZU => if done='1' then\n          if req_eg='1' then st<=RUNTER; req_eg<='0'; elsif req_og='1' then req_og<='0'; st<=OG_AUF; end if;\n        elsif edge(0)='1' and (sw(3)='1' or req_eg='1') then st<=RUNTER; end if;\n      when RUNTER => if done='1' then st<=EG_AUF; end if;\n      when others => st<=EG_AUF;\n    end case;\n    if edge(1)='1' then null; end if; -- Stop: Timer anhalten (vereinfacht: ignoriert, Doku)\n    end if;\n  end if; end process;\n  led(0) <= '1' when (st=OG_AUF or st=OG_ZU or st=RUNTER) else '0';\n  led(1) <= '1' when (st=HOCH or st=RUNTER) else '0';\n  led(2) <= '1' when (st=EG_AUF or st=OG_AUF) else '0';\n  led(3) <= '1' when st=NOTAUS else '0';\nend rtl;\n",
+    "constraints": "# Arty S7 Rev.E Referenz (Digilent digilent-xdc, Arty-S7-50-Master.xdc)\nset_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports { clk }]\ncreate_clock -add -name sys_clk_pin -period 10.000 -waveform {0 5.000} [get_ports { clk }]\nset_property -dict { PACKAGE_PIN H14 IOSTANDARD LVCMOS33 } [get_ports { sw[0] }]\nset_property -dict { PACKAGE_PIN H18 IOSTANDARD LVCMOS33 } [get_ports { sw[1] }]\nset_property -dict { PACKAGE_PIN G18 IOSTANDARD LVCMOS33 } [get_ports { sw[2] }]\nset_property -dict { PACKAGE_PIN M5  IOSTANDARD SSTL135 } [get_ports { sw[3] }]\nset_property -dict { PACKAGE_PIN E18 IOSTANDARD LVCMOS33 } [get_ports { led[0] }]\nset_property -dict { PACKAGE_PIN F13 IOSTANDARD LVCMOS33 } [get_ports { led[1] }]\nset_property -dict { PACKAGE_PIN E13 IOSTANDARD LVCMOS33 } [get_ports { led[2] }]\nset_property -dict { PACKAGE_PIN H15 IOSTANDARD LVCMOS33 } [get_ports { led[3] }]\nset_property -dict { PACKAGE_PIN G15 IOSTANDARD LVCMOS33 } [get_ports { btn[0] }]\nset_property -dict { PACKAGE_PIN K16 IOSTANDARD LVCMOS33 } [get_ports { btn[1] }]\nset_property -dict { PACKAGE_PIN J16 IOSTANDARD LVCMOS33 } [get_ports { btn[2] }]\nset_property -dict { PACKAGE_PIN H13 IOSTANDARD LVCMOS33 } [get_ports { btn[3] }]\nset_property INTERNAL_VREF 0.675 [get_iobanks 34]\n",
+    "fehlerquellen": [
+      "Anfragen nicht gelatcht -> während Fahrt verloren.",
+      "NotAus als normaler Zustand ohne Quit-Verriegelung.",
+      "Tür/Fahrt-Timer gemeinsam ohne done-Trennung -> Phasen zu kurz/lang.",
+      "Etagen-LED aus FSM-Ausgang+Timer kombiniert (Mealy) statt Moore."
+    ],
+    "bewertung": {
+      "pflicht_ports": [
+        "clk",
+        "sw",
+        "btn",
+        "led"
+      ],
+      "required_keywords": [
+        "HOCH",
+        "RUNTER",
+        "NOTAUS",
+        "req_eg",
+        "done"
+      ],
+      "need_debounce": true,
+      "need_fsm": true,
+      "need_clock": true,
+      "bestanden_ab": 70
+    }
+  }
+]

@@ -19,7 +19,7 @@ from src.config import load_config, load_fpga_registry
 from src.domain.event_bus import EventBus
 from src.domain.models import Event, EventType
 from src.domain.domain_registry import DomainRegistry
-from src.services.llm_service import create_llm_clients
+from src.services.project_chat import OpenCodeProjectChat
 from src.services.name_resolver import NameResolver
 from src.services.chat_router import ChatRouter
 from src.services.artifact_generator import VHDLArtifactGenerator
@@ -56,8 +56,6 @@ ws_loop: asyncio.AbstractEventLoop | None = None
 
 DomainRegistry.discover(settings.domains.search_paths)
 
-chat_assistant, naming_client = create_llm_clients(settings, event_bus)
-
 artifact_gen = VHDLArtifactGenerator()
 fs = LocalFileSystemService(
     base_dir=settings.resolve_path(settings.workspace.base_dir),
@@ -65,6 +63,7 @@ fs = LocalFileSystemService(
     max_workspaces=settings.workspace.max_workspaces,
 )
 opencode = ReconfigurableOpenCodeService(settings)
+chat_assistant = OpenCodeProjectChat(opencode)
 
 validator = GHDLValidator(
     ghdl_binary=settings.ghdl.binary,
@@ -121,7 +120,7 @@ orchestrator = SupervisorOrchestrator(
     cleanup_on_failure=settings.workspace.cleanup_on_failure,
     cleanup_temp_files=settings.workspace.cleanup_temp_files,
     require_approval=True,
-    name_resolver=NameResolver(naming_client),
+    name_resolver=NameResolver(),
     plan_timeout_seconds=settings.opencode.plan_timeout_seconds,
     max_prompt_bytes=settings.limits.max_prompt_bytes,
     settings=settings,
@@ -142,6 +141,7 @@ def _project_chat_context(project_id: str) -> dict:
             logger.warning("Could not load chat context for %s", project_id)
     return {
         "project_id": project_id,
+        "workspace": str(workspace) if workspace.is_dir() else "",
         "status": state.get("current_stage", "unknown"),
         "state": state,
         "generated_files": (state.get("implementation") or {}).get("generated_files", []),
@@ -164,7 +164,8 @@ async def route_chat_message(
         has_attachments=has_attachments,
     )
     if route.kind == "question":
-        answer = chat_assistant.answer_question(
+        answer = await asyncio.to_thread(
+            chat_assistant.answer_question,
             user_request,
             _project_chat_context(route.project_id or ""),
         )

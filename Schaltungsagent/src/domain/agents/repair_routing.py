@@ -28,9 +28,11 @@ _ROUTES: dict[str, RepairTarget] = {
     "functional_simulation_error": RepairTarget.HDL,
     "contract_violation": RepairTarget.HDL,
     "logic_error": RepairTarget.HDL,
+    "model_mismatch": RepairTarget.HDL,       # nach 2 Versuchen: Modell prüfen (Supervisor)
     # Test-/Erwartungsfehler
     "testbench_error": RepairTarget.VERIFICATION,
     "coverage_gap": RepairTarget.VERIFICATION,
+    "weak_testbench": RepairTarget.VERIFICATION,
     # Synthese/Timing
     "synthesis_error": RepairTarget.FPGA,
     "timing_error": RepairTarget.FPGA,

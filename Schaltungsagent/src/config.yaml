@@ -1,18 +1,3 @@
-llm:
-  provider: ollama
-  model: gpt-oss:120b-cloud
-  base_url: http://localhost:11434
-  temperature: 0.1
-  max_tokens: 4096
-  context_window: 32768
-  api_key_file: ""
-  chat_timeout_seconds: 120
-  naming_timeout_seconds: 30
-  naming_max_tokens: 96
-  fallback_model: llama3.2:1b
-  fallback_cooldown: 60
-  primary_timeout: 120
-  fallback_timeout: 600
 
 workspace:
   base_dir: ./projects

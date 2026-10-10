@@ -9,7 +9,6 @@ Ubuntu / Linux Mint
 Installiert alles, was das Projekt zum Laufen braucht:
 - Systempakete (Python, git, curl, build tools, GHDL)
 - Docker Engine + Docker Compose Plugin
-- Ollama (lokale LLM-Runtime)
 - OpenCode CLI, gebaut als eigenes Docker-Image (opencode-agent:latest)
 - Python Virtualenv mit allen Abhängigkeiten (pyproject.toml)
 - Projektstruktur und Docker-Images
@@ -160,21 +159,6 @@ def install_compose():
 
 
 # ==================================================
-# LLM-Runtime
-# ==================================================
-
-def install_ollama():
-    if exists("ollama"):
-        print("[OK] Ollama vorhanden")
-    else:
-        print("[INFO] Installiere Ollama...")
-        run("curl -fsSL https://ollama.com/install.sh | sh")
-    run("systemctl enable ollama")
-    run("systemctl start ollama")
-    print("[OK] Ollama installiert")
-
-
-# ==================================================
 # Python-Umgebung
 # ==================================================
 
@@ -242,7 +226,6 @@ def main():
     install_system_packages()
     install_docker()
     install_compose()
-    install_ollama()
     setup_venv()
     setup_structure()
     setup_agents()

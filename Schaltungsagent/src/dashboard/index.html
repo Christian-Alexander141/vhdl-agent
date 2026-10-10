@@ -391,6 +391,10 @@
                                 <input type="number" id="set-coverage" data-setting="gates.min_module_coverage" min="0" max="1" step="0.05">
                             </div>
                             <div class="settings-field">
+                                <label for="set-mutation">Mindest-Mutationsquote der Testbenches (0 = aus) ⟳</label>
+                                <input type="number" id="set-mutation" data-setting="gates.min_mutation_score" min="0" max="1" step="0.05">
+                            </div>
+                            <div class="settings-field">
                                 <label for="set-impl-mode">Implementierung ⟳</label>
                                 <select id="set-impl-mode" data-setting="opencode.implementation_mode">
                                     <option value="modular">Modular – ein Worker je Modul</option>
@@ -430,39 +434,6 @@
                                     <option value="always">Immer</option>
                                     <option value="off">Nie</option>
                                 </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- LLM -->
-                    <div class="card">
-                        <h3>Sprachmodell (LLM)</h3>
-                        <p class="hint">Für Textaufgaben wie Rückfragen und Projektnamen.</p>
-                        <div class="settings-grid">
-                            <div class="settings-field">
-                                <label for="set-llm-provider">Provider ⟳</label>
-                                <select id="set-llm-provider" data-setting="llm.provider">
-                                    <option value="ollama">Ollama (lokal)</option>
-                                    <option value="openai">OpenAI</option>
-                                    <option value="anthropic">Anthropic</option>
-                                    <option value="stub">Stub (Testmodus)</option>
-                                </select>
-                            </div>
-                            <div class="settings-field">
-                                <label for="set-llm-model">Modell ⟳</label>
-                                <input type="text" id="set-llm-model" data-setting="llm.model">
-                            </div>
-                            <div class="settings-field">
-                                <label for="set-llm-url">Base URL ⟳</label>
-                                <input type="text" id="set-llm-url" data-setting="llm.base_url">
-                            </div>
-                            <div class="settings-field">
-                                <label for="set-llm-temp">Temperatur ⟳</label>
-                                <input type="number" id="set-llm-temp" data-setting="llm.temperature" min="0" max="2" step="0.1">
-                            </div>
-                            <div class="settings-field">
-                                <label for="set-llm-tokens">Max Tokens ⟳</label>
-                                <input type="number" id="set-llm-tokens" data-setting="llm.max_tokens" min="256" step="256">
                             </div>
                         </div>
                     </div>

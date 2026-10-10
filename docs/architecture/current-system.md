@@ -30,7 +30,6 @@ Das bestehende `vhdl-agent` System ist eine **Hexagonal Architecture** (Ports & 
 ### 5. Ports (ABCs) - Alle wiederverwendet
 | Port | Interface | Implementierung |
 |------|-----------|-----------------|
-| LLMService | analyze, generate_text, classify, answer, naming | OllamaLLMService |
 | ValidationService | validate, validate_file | GHDLValidator |
 | BitstreamService | build_bitstream | VivadoBitstreamService |
 | FlashService | flash, detect_boards | VivadoFlashService, OpenFPGALoaderFlashService |
@@ -43,7 +42,7 @@ Das bestehende `vhdl-agent` System ist eine **Hexagonal Architecture** (Ports & 
 - **VivadoBitstreamService**: Non-Project-Mode Bitstream-Erzeugung
 - **VivadoFlashService**: JTAG-Flash via Vivado Hardware Manager
 - **OpenFPGALoaderFlashService**: Flash via openFPGALoader
-- **HDL-Codegenerierung**: OpenCode erzeugt Module und Testbenches; Ollama liefert nur Textdaten wie Architektur und Diagnosen
+- **Sprachmodell-Aufgaben**: ausschließlich OpenCode (Plan samt Namen, Module, Testbenches, Referenzmodelle, Reparaturen, Chat-Antworten); Ollama wurde 2026-10-10 entfernt
 - **ProjectMemoryService**: memory.md pro Projekt
 
 ### 7. Domain Plugin System
@@ -70,5 +69,5 @@ Analyze → Architect → Implement (OpenCode) → Static Check → Simulate
 
 1. **Human-in-the-Loop**: Approval vor Flash (threading.Event)
 2. **Self-Healing**: Test & Repair Loop mit strukturierten Repair-Instruktionen
-3. **OpenCode für HDL**: Ollama-Codegenerierung ist nicht Teil des Projekt-Dateipfads
+3. **OpenCode für alle Sprachmodell-Aufgaben**: kein zweites LLM
 4. **Multi-Board**: FPGA Registry für GateMate A1 und Arty S7-50

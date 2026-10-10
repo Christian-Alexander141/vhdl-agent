@@ -10,7 +10,7 @@ VENV_DIR = os.path.join(ROOT_DIR, ".venv")
 VENV_PYTHON = os.path.join(VENV_DIR, "bin", "python")
 INSTALLER = os.path.join(ROOT_DIR, "installer", "installer.py")
 
-REQUIRED_COMMANDS = ["docker", "ollama", "opencode", "ghdl", "git"]
+REQUIRED_COMMANDS = ["docker", "opencode", "ghdl", "git"]
 CORE_MODULES = [
     "pydantic",
     "fastapi",
@@ -18,8 +18,6 @@ CORE_MODULES = [
     "yaml",
     "dotenv",
     "httpx",
-    "ollama",
-    "langchain_core",
 ]
 
 def test_mode_enabled():

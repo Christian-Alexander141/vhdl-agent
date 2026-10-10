@@ -1,0 +1,16 @@
+{
+  "run_id": "20261009-133223-small_vhdl_bench",
+  "started_at": "2026-10-09T13:32:26",
+  "benchmark": "small_vhdl_bench (Projektautor), 10 Aufgaben, evaluate(): regelbasiert, bestanden ab 70",
+  "benchmark_files_sha256": {
+    "tasks.json": "1a52b449eb4e7f9a",
+    "benchmark_api.py": "e91e1a30a7900cae"
+  },
+  "variant": "einzelner nativer OpenCode-Lauf je Aufgabe und Modell",
+  "instruction": "Lies PROMPT.md vollständig und setze die Aufgabe um. Schreibe alle VHDL-Dateien nach src/ (Testbenches, falls die Aufgabe welche verlangt, nach tests/) und die Constraints nach constraints/arty_s7.xdc. Prüfe jede VHDL-Datei mit 'ghdl -a --std=08 <datei>' auf Fehler und behebe sie, bevor du endest.",
+  "timeout_s": 1800,
+  "opencode_version": "1.18.35",
+  "git_head": "ff3c9b4836c21473208e8b4b66d1de52f62318cf",
+  "workspaces": "/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench",
+  "testbench_mapping": "Dateien unter tests/ oder mit '_tb' im Namen gehen als 'tb_<name>' an evaluate()"
+}

@@ -379,54 +379,27 @@ exit
         """Extrahiert Port-Informationen aus einer VHDL-Entity.
 
         Gibt zurück: {port_name: {"direction": "in"|"out", "width": int, "range": str}}
+
+        Nutzt den Entity-Parser des Contract-Checkers (Klammerzählung,
+        Generic-Auflösung). Der frühere Regex beendete den Port-Block beim
+        ersten ')' + ';' und verlor dadurch alle Ports nach dem ersten Vektor.
         """
-        try:
-            content = vhd_file.read_text(errors="replace")
-        except OSError:
-            return {}
+        from src.domain.agents.contract_check import ContractChecker
 
+        info = ContractChecker()._parse_entity(vhd_file)
+        if not info:
+            return {}
         ports: dict[str, dict] = {}
-        # Find the Port section inside entity (with optional generic clause)
-        port_match = re.search(
-            r"\bentity\s+\w+\s+is\s+(?:generic\s*\([^)]*\)\s*;\s*)?port\s*\((.*?)\)\s*;",
-            content,
-            re.IGNORECASE | re.DOTALL,
-        )
-        if not port_match:
-            return {}
-
-        port_block = port_match.group(1)
-        # Split on semicolons to get individual port declarations
-        for decl in port_block.split(";"):
-            decl = decl.strip()
-            if not decl:
+        for port in info["ports"]:
+            if port["direction"] not in ("in", "out", "inout"):
                 continue
-            # Match: name : direction type(range)  OR  name(range) : direction type
-            m = re.match(
-                r"(\w+)\s*(?:\(([^)]+)\)\s*)?:\s*(in|out|inout)\s+\w+(?:\(([^)]+)\))?",
-                decl,
-                re.IGNORECASE,
-            )
-            if m:
-                port_name = m.group(1)
-                port_range = m.group(2) or m.group(4) or ""
-                direction = m.group(3).lower()
-                # Calculate width from range
-                width = 1
-                if port_range:
-                    rm = re.match(r"(\d+)\s+downto\s+(\d+)", port_range)
-                    if rm:
-                        high = int(rm.group(1))
-                        low = int(rm.group(2))
-                        width = high - low + 1
-                    else:
-                        # Generic-based range (e.g., WIDTH-1 downto 0) - default to 8
-                        width = 8
-                ports[port_name] = {
-                    "direction": direction,
-                    "width": width,
-                    "range": port_range,
-                }
+            width = ContractChecker._width(port["type"], info["generics"]) or 1
+            match = re.search(r"\((.*)\)", port["type"])
+            ports[port["name"]] = {
+                "direction": port["direction"],
+                "width": width,
+                "range": match.group(1) if match else "",
+            }
         return ports
 
     def _generatexdc_for_board(
@@ -519,8 +492,31 @@ exit
                     mapped_ports.add(port_name)
                     break
 
-        # Output-Vektoren auf LEDs legen
+        # Board-Namen des Arty S7 (sw, btn, led) bitweise auf ihre Pins legen.
+        board_groups = (("sw", "in", arty_switches), ("btn", "in", arty_buttons), ("led", "out", arty_leds[:4]))
         led_idx = 0
+        for prefix, direction, pins in board_groups:
+            used = 0
+            for port_name in sorted(all_ports):
+                p = all_ports[port_name]
+                if port_name in mapped_ports or p["direction"] != direction:
+                    continue
+                if not port_name.lower().startswith(prefix):
+                    continue
+                for bit in range(p["width"]):
+                    if used >= len(pins):
+                        break
+                    port_ref = port_name if p["width"] == 1 else f"{{{port_name}[{bit}]}}"
+                    xdc_lines.append(
+                        f"set_property -dict {{ PACKAGE_PIN {pins[used]} "
+                        f"IOSTANDARD LVCMOS33 }} [get_ports {port_ref}]"
+                    )
+                    used += 1
+                mapped_ports.add(port_name)
+            if prefix == "led":
+                led_idx = used
+
+        # Übrige Ausgänge auf die verbleibenden LEDs legen
         for port_name in sorted(all_ports.keys()):
             if port_name in mapped_ports:
                 continue
@@ -552,6 +548,15 @@ exit
 
         if not xdc_lines:
             return None
+
+        # R2 (CLK100MHZ) und M5 (sw[3]) liegen in Bank 34 (1,35 V): laut offizieller
+        # Digilent-XDC (Arty-S7-50-Master.xdc, Rev. E) SSTL135, nicht LVCMOS33.
+        sstl_pins = ("R2", "M5")
+        xdc_lines = [
+            line.replace("IOSTANDARD LVCMOS33", "IOSTANDARD SSTL135")
+            if any(f"PACKAGE_PIN {pin} " in line for pin in sstl_pins) else line
+            for line in xdc_lines
+        ]
 
         # Add bitstream configuration for Arty S7-50
         xdc_lines.append("")

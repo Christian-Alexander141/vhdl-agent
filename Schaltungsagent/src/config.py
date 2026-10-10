@@ -4,24 +4,6 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 
-@dataclass
-class LLMConfig:
-    provider: str = "stub"
-    model: str = "gpt-oss:120b-cloud"
-    base_url: str = "http://localhost:11434"
-    temperature: float = 0.1
-    max_tokens: int = 4096
-    context_window: int = 32768
-    api_key_file: str = ""
-    chat_timeout_seconds: float = 120.0
-    naming_timeout_seconds: float = 30.0
-    naming_max_tokens: int = 96
-    fallback_model: str = "llama3.2:1b"
-    fallback_cooldown: float = 60.0
-    primary_timeout: float = 120.0
-    fallback_timeout: float = 600.0
-
-
 
 
 
@@ -171,6 +153,11 @@ class VerificationGateConfig:
     enforce_contracts: bool = True
     # Timing-Gate: WNS/WHS müssen >= 0 sein; fehlende Reports blockieren.
     require_timing_closure: bool = True
+    # Mutationsanalyse: Anteil absichtlich fehlerhafter Entwurfsvarianten, den die
+    # Testbenches erkennen müssen (0 = aus). < 1, weil äquivalente Mutanten nie
+    # erkennbar sind; nach einem Nachbesserungsversuch nur noch Warnung.
+    min_mutation_score: float = 0.6
+    max_mutants: int = 10
 
 
 @dataclass
@@ -187,7 +174,6 @@ class FpgaConfig:
 
 @dataclass
 class Settings:
-    llm: LLMConfig = field(default_factory=LLMConfig)
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
@@ -238,8 +224,6 @@ def load_config(config_path: str | None = None) -> Settings:
     if not data:
         return settings
 
-    if "llm" in data:
-        settings.llm = LLMConfig(**data["llm"])
     if "workspace" in data:
         settings.workspace = WorkspaceConfig(**data["workspace"])
     if "limits" in data:

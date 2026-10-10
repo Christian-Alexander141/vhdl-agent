@@ -1,17 +1,13 @@
-"""Testplan und Abdeckung pro Modul und Requirement.
+"""Testplan und strukturelle Abdeckung pro Modul und Requirement.
 
-Ein Modul ohne Golden-Model-Vektoren (``ModuleInfo.simulation_vectors``) gilt
-als abgedeckt, wenn es von mindestens einer Testbench unter ``tests/`` über
-die Instanziierungshierarchie erreicht wird (reine Erreichbarkeit). Ein Modul
-MIT Vektoren gilt erst als abgedeckt, wenn zusätzlich jeder Vektor im
-Quelltext der erreichenden Testbench(en) referenziert wird – reine
-Erreichbarkeit genügt dann nicht mehr. Ein Requirement gilt als abgedeckt,
-wenn alle Module, die es erfüllen sollen, abgedeckt sind.
+Ein Modul gilt als abgedeckt, wenn es von mindestens einer Testbench unter
+``tests/`` über die Instanziierungshierarchie erreicht wird. Ein Requirement
+gilt als abgedeckt, wenn alle Module, die es erfüllen sollen, abgedeckt sind.
 
-Das ersetzt keine vollständige funktionale Coverage (der Vektor-Check ist ein
-Literal-Abgleich, kein Beweis korrekter Verdrahtung), verhindert aber, dass
-Module ohne jede Simulation oder mit ignorierten Golden-Vektoren in die
-Synthese gelangen.
+Funktionale Aussagekraft kommt aus zwei weiteren Bausteinen: dem
+differentiellen Test gegen das Python-Referenzmodell (reference_model.py)
+und der Mutationsanalyse der Testbenches (mutation.py). Golden-Vektoren aus
+dem Manifest werden nur noch informativ ausgewertet (vectors_referenced).
 """
 import re
 from pathlib import Path
@@ -171,18 +167,15 @@ def build_test_plan(
 
     for name in modules:
         plan = module_plan[name]
-        reached_by_tb = bool(plan["testbenches"])
+        plan["covered"] = bool(plan["testbenches"])
         vectors = vectors_by_name.get(name) or []
-        if not vectors:
-            # Keine Golden-Vektoren definiert: reine Erreichbarkeit wie bisher.
-            plan["covered"] = reached_by_tb
-            continue
-        combined_text = "".join(tb_sources.get(tb, "") for tb in plan["testbenches"])
-        referenced = _referenced_vectors(combined_text, vectors)
-        plan["vectors_referenced"] = referenced
-        # Vektoren definiert: Abdeckung erfordert, dass jeder Vektor auch
-        # tatsächlich geprüft wird – reine Erreichbarkeit genügt nicht mehr.
-        plan["covered"] = reached_by_tb and referenced == len(vectors)
+        if vectors:
+            # Nur noch Information: Vom Sprachmodell geschätzte Erwartungswerte
+            # waren im Benchmark widersprüchlich und verwarfen einen korrekten
+            # Entwurf. Funktionale Prüfung übernimmt das Referenzmodell
+            # (reference_model.py), die Testgüte die Mutationsanalyse.
+            combined_text = "".join(tb_sources.get(tb, "") for tb in plan["testbenches"])
+            plan["vectors_referenced"] = _referenced_vectors(combined_text, vectors)
 
     covered = [n for n, p in module_plan.items() if p["covered"]]
     uncovered = [n for n, p in module_plan.items() if not p["covered"]]

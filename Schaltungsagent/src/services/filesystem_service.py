@@ -77,8 +77,9 @@ class LocalFileSystemService(FileSystemService):
         _check_null_bytes(path)
         file_path = self._resolve(path)
         try:
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(content, encoding="utf-8")
+            # Atomar: parallele Worker lesen u. a. design_state.yaml, während sie geschrieben wird.
+            from src.services.opencode_task_runner import atomic_write_text
+            atomic_write_text(file_path, content)
             logger.info("File written: %s", file_path)
             return str(file_path)
         except OSError as e:

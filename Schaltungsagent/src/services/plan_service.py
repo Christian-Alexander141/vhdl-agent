@@ -9,6 +9,19 @@ from src.services.opencode_task_runner import OpenCodeTaskRunner
 
 _ENTITY_RE = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
 _PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{2,39}$")
+_VHDL_RESERVED = {
+    "abs", "access", "after", "alias", "all", "and", "architecture", "array", "assert", "attribute",
+    "begin", "block", "body", "buffer", "bus", "case", "component", "configuration", "constant",
+    "disconnect", "downto", "else", "elsif", "end", "entity", "exit", "file", "for", "function",
+    "generate", "generic", "group", "guarded", "if", "impure", "in", "inertial", "inout", "is",
+    "label", "library", "linkage", "literal", "loop", "map", "mod", "nand", "new", "next", "nor",
+    "not", "null", "of", "on", "open", "or", "others", "out", "package", "port", "postponed",
+    "procedure", "process", "pure", "range", "record", "register", "reject", "rem", "report",
+    "return", "rol", "ror", "select", "severity", "signal", "shared", "sla", "sll", "sra", "srl",
+    "subtype", "then", "to", "transport", "type", "unaffected", "units", "until", "use",
+    "variable", "wait", "when", "while", "with", "xnor", "xor",
+    "context", "force", "parameter", "release", "default", "sequence", "property",
+}
 
 
 class PlanValidationError(WorkflowError, ValueError):
@@ -79,8 +92,6 @@ class PlanValidator:
                     errors.append(f"Invalid direction for port {port['name']} of {name}")
 
         for name, module in by_name.items():
-            if module.get("type") not in (None, "", "combinational", "sequential", "structural", "fsm"):
-                errors.append(f"type for {name} must be combinational, sequential, structural or fsm")
             if not isinstance(module.get("parameters", {}), dict):
                 errors.append(f"parameters for {name} must be an object of generic defaults")
             vectors = module.get("simulation_vectors", [])
@@ -130,14 +141,11 @@ class PlanValidator:
             isinstance(name, str)
             and len(name) <= 32
             and _ENTITY_RE.fullmatch(name)
-            and name not in {
-                "architecture", "begin", "block", "case", "component",
-                "configuration", "entity", "end", "generate", "generic",
-                "if", "is", "library", "of", "package", "port", "process",
-                "signal", "then", "type", "use", "when", "my_component",
-                "module", "top", "design", "test", "tb", "uart",
-                "fpga", "alu", "control_unit",
-            }
+            # VHDL-Schlüsselwörter sind als Entity-Name ungültig; "uart" belegt
+            # das MAS selbst für die UART-Echo-Brücke. Früher standen hier auch
+            # gängige Namen wie "alu" oder "top" – ein Prompt, der eine Entity
+            # "alu" verlangt, wäre damit abgelehnt bzw. umbenannt worden.
+            and name not in _VHDL_RESERVED | {"uart"}
         )
 
     @staticmethod
@@ -180,10 +188,9 @@ class PlanService:
         change_request: str = "",
     ) -> dict:
         instruction = """Read PROMPT.md as the complete, authoritative request. Create plan/manifest.json using this shape:
-{"project_name":"short-kebab-name","top_entity":"entity","modules":[{"entity":"entity","file":"src/entity.vhd","role":"role","type":"combinational|sequential|structural","depends_on":[],"parameters":{"WIDTH":8},"ports":[{"name":"clk","direction":"in","type":"std_logic"},{"name":"data_out","direction":"out","type":"std_logic_vector(7 downto 0)"}],"simulation_vectors":[{"inputs":{"a":"0001","b":"0010"},"expected":{"sum":"0011"},"after_clocks":1,"requirement":"which requirement it proves"}]}],"testbenches":[{"entity":"entity_tb","file":"tests/entity_tb.vhd","dut":"entity"}],"hardware_tests":[{"name":"short_name","type":"uart_exchange|echo|cpu_program","send":"hex bytes","program":"hex bytes (cpu_program only)","expected":"hex bytes","requirement":"which requirement it proves"}],"open_questions":[]}
-Derive the hierarchy and modules from PROMPT.md without splitting, summarizing, replacing, or simplifying the request. Choose meaningful names. Do not write implementation code at this stage.
+{"project_name":"short-kebab-name","top_entity":"entity","modules":[{"entity":"entity","file":"src/entity.vhd","role":"role","type":"combinational|sequential|structural","depends_on":[],"parameters":{"WIDTH":8},"ports":[{"name":"clk","direction":"in","type":"std_logic"},{"name":"data_out","direction":"out","type":"std_logic_vector(7 downto 0)"}]}],"testbenches":[{"entity":"entity_tb","file":"tests/entity_tb.vhd","dut":"entity"}],"hardware_tests":[{"name":"short_name","type":"uart_exchange|echo|cpu_program","send":"hex bytes","program":"hex bytes (cpu_program only)","expected":"hex bytes","requirement":"which requirement it proves"}],"open_questions":[]}
+Derive the hierarchy and modules from PROMPT.md without splitting, summarizing, replacing, or simplifying the request. Choose meaningful names: project_name is 3-40 characters of lowercase letters, digits and hyphens describing the design (e.g. "traffic-light", "sram-controller"), never starting with words like task, aufgabe, projekt, vhdl or fpga; entity names are lowercase snake_case VHDL identifiers and must keep any entity names that PROMPT.md prescribes. Do not write implementation code at this stage.
 Every module lists all entity ports with exact VHDL types and bit widths; these ports are a binding contract that the implementation is checked against. List every clock/reset port explicitly with the exact name you want; nothing is added implicitly. "parameters" are the entity generics (name: default value), omit it when there are none. The top_entity must itself be listed as a module whose depends_on names every module it instantiates.
-simulation_vectors are optional golden-model stimulus/response pairs for simulation: inputs are port values to drive, expected are the exact output port values the design must then produce (after_clocks: optional number of clock edges to wait first, for sequential modules). Derive expected values from PROMPT.md's own specification (e.g. an arithmetic definition, a truth table, a stated protocol), never guessed or invented; only add a vector when the expected values are fully determined by the request.
 hardware_tests are optional UART test vectors that prove the requested behavior on the real board; only add them when the design exposes a UART protocol whose responses can be predicted exactly.
 """
         if change_request:

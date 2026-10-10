@@ -8,7 +8,6 @@ from src.config import load_config, load_fpga_registry
 from src.domain.event_bus import EventBus
 from src.domain.models import EventType, Event, TaskState
 from src.domain.domain_registry import DomainRegistry
-from src.services.llm_service import create_llm_clients
 from src.services.name_resolver import NameResolver
 from src.services.artifact_generator import VHDLArtifactGenerator
 from src.services.filesystem_service import LocalFileSystemService
@@ -31,7 +30,6 @@ def create_orchestrator(settings) -> SupervisorOrchestrator:
     DomainRegistry.discover(settings.domains.search_paths)
 
     event_bus = EventBus()
-    _, naming_client = create_llm_clients(settings, event_bus)
     artifact_gen = VHDLArtifactGenerator()
     fs = LocalFileSystemService(
         base_dir=settings.resolve_path(settings.workspace.base_dir),
@@ -95,7 +93,7 @@ def create_orchestrator(settings) -> SupervisorOrchestrator:
         flash_services=flash_services,
         fpga_registry=fpga_registry,
         max_repair_iterations=settings.opencode.max_repair_iterations,
-        name_resolver=NameResolver(naming_client),
+        name_resolver=NameResolver(),
         plan_timeout_seconds=settings.opencode.plan_timeout_seconds,
         max_prompt_bytes=settings.limits.max_prompt_bytes,
         settings=settings,

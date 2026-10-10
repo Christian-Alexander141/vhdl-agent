@@ -7,6 +7,9 @@ from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.domain.agents.communication import VerificationResult
 from src.domain.agents.test_plan import format_simulation_vectors
 from src.domain.agents.worker_instructions import TESTBENCH_RULES
+from src.domain.agents import reference_model as refmodel
+from src.domain.agents.contract_check import ContractChecker
+from src.services.opencode_task_runner import OpenCodeTaskRunner
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
 from src.domain.exceptions import OpenCodeDeliveryError
 from src.services.opencode_service import describe_opencode_failure
@@ -30,15 +33,19 @@ class VerificationAgent(BaseAgent):
         filesystem_service,
         opencode_service,
         event_publisher=None,
+        task_runner=None,
+        skills_dir: str = ".opencode/skills",
     ):
         super().__init__("VerificationAgent", event_publisher)
         self._fs = filesystem_service
         self._opencode = opencode_service
         self._validator = GHDLValidator()
+        self._task_runner = task_runner or OpenCodeTaskRunner(opencode_service, event_publisher=event_publisher)
+        self._skills_dir = skills_dir
 
     @property
     def supported_task_types(self) -> list[str]:
-        return ["verify", "generate_testbench", "analyze_coverage"]
+        return ["verify", "generate_testbench", "analyze_coverage", "reference_model"]
 
     async def execute(self, task: AgentTask) -> AgentResult:
         task_type = task.type
@@ -47,6 +54,8 @@ class VerificationAgent(BaseAgent):
             return await self._run_verification(task)
         elif task_type == "generate_testbench":
             return await self._generate_testbench(task)
+        elif task_type == "reference_model":
+            return await self._create_reference_model(task)
         elif task_type == "analyze_coverage":
             return await self._analyze_coverage(task)
         else:
@@ -118,6 +127,102 @@ class VerificationAgent(BaseAgent):
                 error_message=f"Verification error: {e}",
             )
 
+    async def _create_reference_model(self, task: AgentTask) -> AgentResult:
+        """Python-Referenzmodell des Top-Levels, nur aus PROMPT.md (vor der Implementierung).
+
+        Unabhängigkeit: Der Auftrag läuft, bevor VHDL existiert, und darf src/
+        und tests/ nicht lesen. Das Modell ist damit eine zweite, getrennte
+        Auslegung der Spezifikation (vgl. FPGAgent, VeriMoA; Abschnitt 16 der Doku).
+        """
+        workspace = task.inputs.get("workspace", "")
+        architecture = task.inputs.get("architecture", {}) or {}
+        request = task.inputs.get("request_full", "")
+        hint = task.inputs.get("hint", "")
+        top = architecture.get("top_module", "")
+        modules = {m.get("name"): m for m in architecture.get("modules", []) if isinstance(m, dict)}
+        top_module = modules.get(top, {})
+        ports = self._contract_ports(top_module)
+        if not top or not ports:
+            return AgentResult(
+                task_id=task.id, status=AgentStatus.SKIPPED,
+                outputs={"reference_model": {"status": "skipped", "reason": "kein typisierter Port-Contract für das Top-Level"}},
+            )
+        clocked = any(p.direction == "in" and refmodel.is_clock(p.name) for p in ports)
+        timing = (
+            "step() wird einmal pro steigender Taktflanke aufgerufen. inputs enthält die Werte aller "
+            "Eingänge außer dem Takt, wie sie VOR der Flanke anliegen – auch den Reset, den das Modell "
+            "selbst auswerten muss. Rückgabe: die Werte ALLER Ausgänge unmittelbar NACH der Flanke "
+            "(Eingänge unverändert)."
+            if clocked else
+            "Kombinatorisches Design: step() liefert die Ausgänge für die übergebenen Eingänge."
+        )
+        instruction = (
+            f"Schreibe ein ausführbares Python-Referenzmodell des Top-Levels '{top}' ausschließlich anhand "
+            "von PROMPT.md. Es dient als unabhängiger Prüfmaßstab für die spätere VHDL-Implementierung: "
+            "Lies KEINE Dateien unter src/ oder tests/ und schreibe keine VHDL-Dateien.\n\n"
+            f"Datei {refmodel.MODEL_FILE}, nur Python-Standardbibliothek, genau diese Schnittstelle:\n"
+            "    class ReferenceModel:\n"
+            "        SUGGESTED_CYCLES = 400  # Takte, nach denen jede Funktion mindestens einmal durchlaufen ist\n"
+            "        def reset(self) -> None: ...                     # Anfangszustand\n"
+            "        def step(self, inputs: dict) -> dict: ...         # Portname -> int\n"
+            f"{timing}\n"
+            "Werte: Bits als 0/1, Vektoren als ganze Zahl (mit oder ohne Vorzeichen wie angegeben).\n\n"
+            f"Ports von {top}:\n{refmodel.model_interface_text(ports)}\n\n"
+            f"Datei {refmodel.MODEL_TEST_FILE}: mindestens drei Funktionen test_..., die das Modell mit Fällen "
+            "aus PROMPT.md prüfen (assert): Reset, typischer Ablauf, Grenzfall. Importiere mit "
+            "'from reference_model import ReferenceModel'. Prüfe selbst: "
+            "cd model && python3 -c \"import test_reference_model as t; [getattr(t, n)() for n in dir(t) if n.startswith('test_')]\"\n"
+            "Lässt PROMPT.md etwas offen (z. B. genaue Taktzahl einer Phase), wähle die naheliegendste "
+            "Auslegung und begründe sie als Kommentar im Modell."
+        )
+        if hint:
+            instruction += f"\n\nHinweis aus der Verifikation (Modell kritisch prüfen, ggf. korrigieren):\n{hint}"
+        delivery = self._task_runner.run(
+            workspace=workspace,
+            request_full=request,
+            stage="reference_model",
+            task_instruction=instruction,
+            expected_files=[refmodel.MODEL_FILE, refmodel.MODEL_TEST_FILE],
+            task_id=f"model_{uuid.uuid4().hex[:8]}",
+            skills_dir=self._skills_dir,
+        )
+        files_present = all((Path(workspace) / f).is_file() for f in (refmodel.MODEL_FILE, refmodel.MODEL_TEST_FILE))
+        if not delivery.ok and files_present and refmodel.run_selftest(workspace)[0]:
+            # Das Modell arbeitete nach dem Schreiben weiter und lief ins Zeitlimit;
+            # die Dateien sind trotzdem gültig (Selbsttest besteht).
+            logger.info("Reference model accepted despite delivery failure: %s", delivery.reason)
+        elif not delivery.ok:
+            error = delivery.error("Referenzmodell")
+            return AgentResult(
+                task_id=task.id, status=AgentStatus.FAILED, error_message=str(error),
+                outputs={"reference_model": {"status": "failed", "reason": str(error)[:500]}},
+            )
+        ok, detail = refmodel.run_selftest(workspace)
+        status = {"status": "ready" if ok else "selftest_failed", "reason": detail}
+        self.emit_event("REFERENCE_MODEL_CREATED", {"task_id": task.id, **status})
+        return AgentResult(
+            task_id=task.id,
+            status=AgentStatus.COMPLETED if ok else AgentStatus.FAILED,
+            outputs={"reference_model": status},
+            error_message="" if ok else f"Selbsttest des Referenzmodells fehlgeschlagen: {detail}",
+        )
+
+    @staticmethod
+    def _contract_ports(module: dict) -> list:
+        """Ports aus dem typisierten Contract (vor der Implementierung gibt es noch keine Entity)."""
+        generics = {str(k).lower(): v for k, v in (module.get("parameters") or {}).items()}
+        ports = []
+        for name, spec in (module.get("ports") or {}).items():
+            spec = spec or {}
+            direction = str(spec.get("direction", "in")).lower()
+            port_type = spec.get("type") or "std_logic"
+            base = ContractChecker._base_type(port_type)
+            width = ContractChecker._width(port_type, generics)
+            if direction not in ("in", "out") or width is None:
+                return []
+            ports.append(refmodel.ModelPort(name, direction, width, base))
+        return ports
+
     async def _generate_testbench(self, task: AgentTask) -> AgentResult:
         """Generiert Testbench für spezifisches Modul."""
         module = task.inputs.get("module", {})
@@ -143,6 +248,13 @@ class VerificationAgent(BaseAgent):
                     break
 
         vector_section = f"\n{format_simulation_vectors(simulation_vectors)}\n" if simulation_vectors else ""
+        hints = task.inputs.get("mutation_hints") or []
+        if hints:
+            vector_section += (
+                "\nDie bisherige Testbench erkennt folgende absichtlich fehlerhafte Varianten des Moduls NICHT "
+                "(Mutationsanalyse). Ergänze Prüfungen, die jede davon als Fehler melden würden:\n- "
+                + "\n- ".join(hints) + "\n"
+            )
         prompt = f"""Generiere eine vollständige VHDL-Testbench für folgendes Modul:
 
 VHDL-CODE DES MODULS:

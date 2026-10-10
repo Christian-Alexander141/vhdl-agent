@@ -47,9 +47,6 @@ class MockTool(Tool):
     def execute(self, **kwargs) -> ToolResult:
         return ToolResult(success=True, output=f"Mock executed: {kwargs}")
 
-    def to_langchain_tool(self):
-        return None
-
 
 class MockValidationService(ValidationService):
     def __init__(self, should_pass: bool = True):
@@ -285,11 +282,6 @@ def test_tool_executor_with_plan_no_tool():
     assert "No tool for step" in result
 
 
-def test_tool_langchain_conversion():
-    tool = MockTool("mock")
-    lc = tool.to_langchain_tool()
-    assert lc is None
-
 
 def test_read_file_tool_adapter():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -319,12 +311,6 @@ def test_write_file_tool_adapter():
         with open(file_path) as f:
             assert f.read() == "test content"
 
-
-def test_tool_registry_get_langchain_tools():
-    registry = DefaultToolRegistry()
-    registry.register(MockTool("mock"))
-    tools = registry.get_langchain_tools()
-    assert tools == []
 
 
 def test_workspace_defaults():
@@ -405,8 +391,6 @@ if __name__ == "__main__":
         test_tool_executor_not_found,
         test_tool_executor_plan_step,
         test_tool_executor_with_plan_no_tool,
-        test_tool_langchain_conversion,
-        test_tool_registry_get_langchain_tools,
         test_validation_service_interface,
         test_validation_service_fail,
         test_validation_result,

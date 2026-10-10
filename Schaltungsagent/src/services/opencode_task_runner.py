@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
+import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -24,6 +27,7 @@ STAGE_SKILLS: dict[str, list[str]] = {
     "implement_testbench": ["vhdl-testbench", "vhdl-synthesis-rules"],
     "implement_top": ["vhdl-synthesis-rules", "arty-s7-50-board"],
     "implement_project": ["vhdl-synthesis-rules", "vhdl-fsm", "vhdl-testbench"],
+    "reference_model": [],
     "review_and_fix": ["ghdl-vivado-errors", "vhdl-synthesis-rules", "arty-s7-50-board"],
 }
 
@@ -138,6 +142,8 @@ def _snapshot(workspace: Path) -> dict[str, float]:
         rel = path.relative_to(workspace)
         if rel.parts and rel.parts[0] in _IGNORED_SNAPSHOT_PARTS:
             continue
+        if path.name.startswith(".") and path.name.endswith(".tmp"):
+            continue  # kurzlebige Datei aus atomic_write_text
         if path.is_file():
             try:
                 result[rel.as_posix()] = path.stat().st_mtime
@@ -168,6 +174,34 @@ def _check_vhdl_file(path: Path, relative_path: str) -> tuple[str, str, str]:
         return ("ohne Architecture", f"{relative_path} enthält keine architecture",
                 "Das Modell hat nur die Entity-Deklaration geliefert.")
     return "ok", "", ""
+
+
+_STATE_LOCKS: dict[str, threading.Lock] = {}
+_STATE_LOCKS_GUARD = threading.Lock()
+
+
+def _state_lock(path: Path) -> threading.Lock:
+    key = str(Path(path).resolve())
+    with _STATE_LOCKS_GUARD:
+        return _STATE_LOCKS.setdefault(key, threading.Lock())
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    """Schreibt über eine Temporärdatei im selben Ordner und ersetzt atomar.
+
+    Leser sehen so immer entweder die alte oder die neue Datei, nie eine halbe.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 class PromptStore:
@@ -204,7 +238,8 @@ class PromptStore:
         raw = prompt_path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
         state_path = self._state_path(root)
-        state = self._read_state(state_path)
+        with _state_lock(state_path):
+            state = self._read_state(state_path)
         expected = (state.get("metadata") or {}).get("prompt_sha256")
         if expected and expected != digest:
             raise PromptIntegrityError("PROMPT.md hash does not match design_state metadata")
@@ -213,11 +248,17 @@ class PromptStore:
         return digest
 
     def _save_digest(self, root: Path, digest: str) -> None:
+        # Parallele Worker riefen das für jeden Auftrag gleichzeitig auf und
+        # lasen dabei halb geschriebene Dateien (PromptIntegrityError, Benchmark
+        # 20261010-091252). Daher: serialisiert, nur bei Bedarf, atomar.
         path = self._state_path(root)
-        state = self._read_state(path)
-        metadata = state.setdefault("metadata", {})
-        metadata["prompt_sha256"] = digest
-        path.write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        with _state_lock(path):
+            state = self._read_state(path)
+            metadata = state.setdefault("metadata", {})
+            if metadata.get("prompt_sha256") == digest:
+                return
+            metadata["prompt_sha256"] = digest
+            atomic_write_text(path, yaml.safe_dump(state, sort_keys=False, allow_unicode=True))
 
     @staticmethod
     def _read_state(path: Path) -> dict:

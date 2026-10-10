@@ -1,0 +1,15 @@
+variant,model,task,titel,score,bestanden,duration_s,files,xdc_source,final_stage,failure_type,provider_ok_after,valid,note,started_at,workspace
+single,nemotron-3-ultra-free,task01,Lauflicht,86.7,True,195.8,4,modell,,,True,True,,2026-10-09T13:33:14,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task01
+single,nemotron-3-ultra-free,task02,4-Bit-Gray-Code-Zähler,93.3,True,236.5,2,modell,,,True,True,,2026-10-09T13:37:25,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task02
+single,nemotron-3-ultra-free,task03,4-Bit-Addierer,100.0,True,110.4,2,modell,,,True,True,,2026-10-09T13:42:10,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task03
+single,nemotron-3-ultra-free,task04,Parametrisches synchrones SRAM,100.0,True,467.7,2,modell,,,True,True,,2026-10-09T13:44:45,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task04
+single,nemotron-3-ultra-free,task05,Ampelsteuerung,85.1,True,588.8,4,modell,,,True,True,,2026-10-09T13:53:08,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task05
+single,nemotron-3-ultra-free,task06,4-Bit-Up/Down-Zähler,95.0,True,264.9,5,modell,,,True,True,,2026-10-09T14:04:01,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task06
+single,nemotron-3-ultra-free,task07,Elektronischer Würfel (LFSR),100.0,True,387.8,5,modell,,,True,True,,2026-10-09T14:09:19,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task07
+single,nemotron-3-ultra-free,task08,Digitales Codeschloss,90.0,True,329.4,5,modell,,,False,True,,2026-10-09T14:16:23,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task08
+single,nemotron-3-ultra-free,task09,Digitaler Countdown-Timer,0.0,False,95.3,0,,,,True,False,"tron-3-ultra-free
+ [0m
+ [0m→ [0mRead PROMPT.md
+ [91m[1mError: [0m{""message"":""Streaming response failed: [503] Upstream error from Nvidia: Service temporarily overloaded"",""type"":""server_error""}
+ ",2026-10-09T14:23:24,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task09
+single,nemotron-3-ultra-free,task10,2-Etagen-Aufzug,100.0,True,672.6,5,modell,,,True,True,,2026-10-09T14:25:49,/home/alex/vhdl-agent-benchmark/20261009-133223-small_vhdl_bench/nemotron-3-ultra-free/task10

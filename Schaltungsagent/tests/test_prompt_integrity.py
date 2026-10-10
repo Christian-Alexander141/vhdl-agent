@@ -116,7 +116,7 @@ def test_plan_service_uses_full_prompt():
         
         opencode = CapturingOpenCode()
         runner = OpenCodeTaskRunner(opencode, max_prompt_bytes=200_000)
-        name_resolver = NameResolver(naming_llm=None)
+        name_resolver = NameResolver()
         plan_service = PlanService(runner, name_resolver=name_resolver)
         
         manifest = plan_service.plan(tmpdir, AMP_PROMPT, task_id="test")

@@ -132,6 +132,25 @@ _ERROR_PATTERNS: list[tuple[str, list[re.Pattern], str, str]] = [
         "high",
     ),
     (
+        # Differentieller Test: Entwurf weicht vom Python-Referenzmodell ab
+        # (MODEL_MISMATCH cycle=.. port=.. expected=.. got=..).
+        "model_mismatch",
+        [
+            re.compile(r"MODEL_MISMATCH|model\s+mismatch", re.I),
+        ],
+        "Align the design with the reference model at the reported cycle and port",
+        "high",
+    ),
+    (
+        # Mutationsanalyse: Testbenches erkennen absichtlich fehlerhafte Varianten nicht.
+        "weak_testbench",
+        [
+            re.compile(r"weak\s+testbench|mutation\s+score", re.I),
+        ],
+        "Strengthen the testbench so it detects the listed surviving mutants",
+        "medium",
+    ),
+    (
         "functional_simulation_error",
         [
             re.compile(r"runtime\s+error|simulation\s+failed|index\s+(?:out\s+of|range)", re.I),
@@ -453,6 +472,11 @@ class DebugAgent(BaseAgent):
             "constraint_error": "Add missing pin/clock constraints to the board constraint file",
             "contract_violation": "Align the module entity with its architecture contract",
             "coverage_gap": "Add or adapt testbenches for uncovered modules",
+            "model_mismatch": (
+                "The design differs from the executable reference model: fix the RTL at the reported "
+                "cycle/port; if repeated, re-check the model's reading of the specification"
+            ),
+            "weak_testbench": "Add checks that detect the surviving mutants (listed in the diagnosis)",
             "flash_error": "Check USB cable, drivers and programmer selection",
         }
         

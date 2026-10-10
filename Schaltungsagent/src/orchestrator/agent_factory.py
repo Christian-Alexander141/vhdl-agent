@@ -58,6 +58,8 @@ def build_supervisor_agent(
         filesystem_service=filesystem_service,
         opencode_service=opencode_service,
         event_publisher=event_publisher,
+        task_runner=task_runner,
+        skills_dir=skills_dir,
     )
     debug_agent = DebugAgent(
         event_publisher=event_publisher,
@@ -103,6 +105,8 @@ def build_supervisor_agent(
             "max_hardware_failures": 5,
             "min_module_coverage": getattr(gates, "min_module_coverage", 1.0),
             "enforce_contracts": getattr(gates, "enforce_contracts", True),
+            "min_mutation_score": getattr(gates, "min_mutation_score", 0.6),
+            "max_mutants": getattr(gates, "max_mutants", 10),
             "max_parallel_workers": getattr(limits, "max_parallel_workers", 2),
             "default_fpga": getattr(synthesis, "default_fpga", "arty_s7_50"),
             "synthesis_enabled": getattr(synthesis, "enabled", True),

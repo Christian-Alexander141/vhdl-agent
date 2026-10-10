@@ -14,6 +14,7 @@ from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus, Me
 from src.domain.agents.communication import AgentMessage, TaskResult, VerificationResult, DebugDiagnosis
 from src.domain.agents.task_graph import TaskGraph
 from src.domain.agents.contract_check import ContractChecker
+from src.domain.agents import reference_model as refmodel
 from src.domain.agents.repair_routing import RepairTarget, route_repair
 from src.domain.agents.test_plan import build_test_plan
 from src.domain.models import DesignState, DesignStage, EventType, Requirement, ModuleInfo, ArchitectureInfo, VerificationInfo, SynthesisInfo, HardwareTestInfo
@@ -97,6 +98,9 @@ class SupervisorAgent(BaseAgent):
         self._min_module_coverage = float(self._config.get("min_module_coverage", 1.0))
         self._max_parallel_workers = max(int(self._config.get("max_parallel_workers", 2)), 1)
         self._enforce_contracts = bool(self._config.get("enforce_contracts", True))
+        # Mutationsanalyse der Testbenches (Doku Abschnitt 16, Maßnahme B); 0 = aus.
+        self._min_mutation_score = float(self._config.get("min_mutation_score", 0.0))
+        self._max_mutants = int(self._config.get("max_mutants", 10))
         self._default_fpga = self._config.get("default_fpga", "arty_s7_50")
         
         # State - per-project isolation via locks
@@ -779,6 +783,7 @@ class SupervisorAgent(BaseAgent):
         
         self._design_state.transition_to(DesignStage.IMPLEMENTING)
         await self._save_design_state()
+        await self._ensure_reference_model()
         
         architecture = self._design_state.architecture.model_dump()
         modules = architecture.get("modules", [])
@@ -1267,6 +1272,8 @@ class SupervisorAgent(BaseAgent):
                 }],
             )
 
+        self._refresh_model_testbench(workspace)
+
         validator = self._validation_service
         if validator is None:
             from src.infrastructure.validation.ghdl_validator import GHDLValidator
@@ -1291,7 +1298,10 @@ class SupervisorAgent(BaseAgent):
             status=AgentStatus.FAILED,
             error_message=result.message,
             outputs={"checks": "failed", "validation": validation, "contract_check": contract},
-            diagnostics=[{"type": "validation_failure", "message": result.message, "stage": "static_check"}],
+            diagnostics=[{
+                "type": "validation_failure", "message": result.message, "stage": "static_check",
+                "details": validation.get("details", {}),
+            }],
         )
 
     async def _run_simulation(self) -> AgentResult:
@@ -1408,6 +1418,11 @@ class SupervisorAgent(BaseAgent):
             })
 
         if not problems:
+            weak = await self._mutation_gate()
+            if weak:
+                problems.append(weak)
+
+        if not problems:
             for requirement in self._design_state.requirements:
                 plan = verification.test_plan.get("requirements", {}).get(requirement.id, {})
                 requirement.verified = bool(plan.get("covered"))
@@ -1423,6 +1438,56 @@ class SupervisorAgent(BaseAgent):
             error_message=problems[0]["message"],
             diagnostics=[{"type": "validation_gate", "stage": "validation", **p} for p in problems],
         )
+
+    async def _mutation_gate(self) -> dict | None:
+        """Erkennen die Testbenches absichtlich fehlerhafte Varianten des Entwurfs?
+
+        Bei zu niedriger Quote genau ein gezielter Nachbesserungsversuch der
+        Testbenches; danach nur noch Warnung. Ein Gate, das einen korrekten
+        Entwurf endlos blockiert (vgl. Golden-Vektoren im Benchmark), ist
+        schlimmer als eine Lücke in der Testgüte.
+        """
+        if self._min_mutation_score <= 0:
+            return None
+        from src.domain.agents.mutation import run_mutation_analysis
+        from src.infrastructure.validation.ghdl_validator import GHDLValidator
+
+        workspace = self._fs.workspace_path(self._current_task.project_id)
+        validator = self._validation_service if self._validation_service is not None else GHDLValidator()
+        try:
+            report = await asyncio.to_thread(run_mutation_analysis, workspace, validator, self._max_mutants)
+        except Exception as exc:
+            logger.exception("Mutation analysis failed")
+            self._design_state.metadata["mutation"] = {"error": str(exc)[:500]}
+            return None
+        meta = self._design_state.metadata
+        meta["mutation"] = report
+        self._design_state.verification.test_plan["mutation_score"] = report["score"]
+        self._emit_event("MUTATION_ANALYSIS", {
+            "project_id": self._current_task.project_id,
+            "score": report["score"], "killed": len(report["killed"]),
+            "survived": len(report["survived"]), "invalid": len(report["invalid"]),
+        })
+        score = report["score"]
+        if score is None or score >= self._min_mutation_score:
+            return None
+        if meta.get("mutation_repair_done"):
+            meta["mutation_warning"] = (
+                f"Mutationsquote {score:.0%} unter {self._min_mutation_score:.0%} auch nach Nachbesserung; "
+                "fortgesetzt (mögliche äquivalente Mutanten)."
+            )
+            self._emit_event("MUTATION_WARNING", {"project_id": self._current_task.project_id, "message": meta["mutation_warning"]})
+            return None
+        meta["mutation_repair_done"] = True
+        undetected = "; ".join(s["description"] for s in report["survived"][:5])
+        return {
+            "failure_type": "weak_testbench",
+            "message": (
+                f"Weak testbench: mutation score {score:.0%} (required {self._min_mutation_score:.0%}); "
+                f"undetected mutants: {undetected}"
+            ),
+            "modules": sorted({s["module"] for s in report["survived"]}),
+        }
 
     async def _run_debugging(self) -> AgentResult:
         """Startet den DebugAgent und hängt das verbindliche Reparaturziel an."""
@@ -1611,6 +1676,127 @@ class SupervisorAgent(BaseAgent):
                 diagnostics=result.diagnostics,
             )
         return result
+
+    # ------------------------------------------------------------------
+    # Differentieller Test gegen das Python-Referenzmodell (Doku Abschnitt 16, Maßnahme A)
+    # ------------------------------------------------------------------
+
+    _MODEL_MISMATCH_HDL_ATTEMPTS = 2
+
+    def _model_agent(self):
+        agent = self._verification_agent
+        return agent if agent and "reference_model" in getattr(agent, "supported_task_types", []) else None
+
+    async def _ensure_reference_model(self, hint: str = "", force: bool = False) -> dict:
+        """Referenzmodell erzeugen, bevor VHDL existiert (Unabhängigkeit vom Entwurf).
+
+        Ein fehlendes oder ungültiges Modell blockiert nichts; es fehlt dann
+        nur der differentielle Test. Neu erzeugt wird bei Änderungswunsch,
+        auf Anforderung (force) oder wenn noch keins existiert.
+        """
+        agent = self._model_agent()
+        if agent is None:
+            return {"status": "skipped", "reason": "kein Modell-Agent"}
+        workspace = self._fs.workspace_path(self._current_task.project_id)
+        change_request = self._current_task.inputs.get("change_request", "")
+        exists = (Path(workspace) / refmodel.MODEL_FILE).is_file()
+        if exists and not force and not change_request:
+            return self._design_state.metadata.get("reference_model", {"status": "ready"})
+        if self._design_state.metadata.get("uart_required"):
+            status = {"status": "skipped", "reason": "UART-Echo-Brücke im Top-Level ist nicht modellierbar"}
+            self._design_state.metadata["reference_model"] = status
+            return status
+        request = self._design_state.metadata.get(
+            "request_full", self._current_task.inputs.get("request_full", self._current_task.inputs.get("request", "")),
+        )
+        if change_request:
+            hint = (hint + "\n" if hint else "") + f"Änderungswunsch, der im Modell berücksichtigt werden muss:\n{change_request}"
+        task = AgentTask(
+            id=str(uuid.uuid4()), type="reference_model", project_id=self._current_task.project_id,
+            inputs={
+                "workspace": workspace,
+                "architecture": self._design_state.architecture.model_dump(),
+                "request_full": request,
+                "hint": hint,
+            },
+        )
+        try:
+            result = await agent.execute(task)
+            status = (result.outputs or {}).get("reference_model") or {
+                "status": "failed", "reason": result.error_message,
+            }
+        except Exception as exc:  # Modell ist Zusatznutzen; nie den Lauf abbrechen
+            logger.exception("Reference model generation failed")
+            status = {"status": "failed", "reason": str(exc)[:500]}
+        self._design_state.metadata["reference_model"] = status
+        self._emit_event("REFERENCE_MODEL", {"project_id": self._current_task.project_id, **status})
+        await self._save_design_state()
+        return status
+
+    def _refresh_model_testbench(self, workspace: str) -> None:
+        top = self._design_state.architecture.top_module
+        if not top or not (Path(workspace) / refmodel.MODEL_FILE).is_file():
+            return
+        if self._design_state.metadata.get("uart_required"):
+            return
+        try:
+            status = refmodel.write_model_testbench(workspace, top)
+        except Exception as exc:
+            logger.exception("Model testbench generation failed")
+            status = {"status": "model_error", "reason": str(exc)[:500]}
+        if status.get("status") != "written":
+            # Ein veraltetes Vergleichs-Testbench darf nicht weiterlaufen.
+            stale = Path(workspace) / refmodel.model_testbench_path(top)
+            if stale.is_file():
+                stale.unlink()
+        self._design_state.metadata["model_testbench"] = status
+
+    def _classify_model_mismatch(self, diagnostic: dict) -> dict:
+        details = diagnostic.get("details") or {}
+        output = details.get("error", "") if isinstance(details, dict) else ""
+        line = refmodel.mismatch_line(output) or refmodel.mismatch_line(diagnostic.get("message", ""))
+        if not line:
+            return diagnostic
+        top = self._design_state.architecture.top_module if self._design_state else ""
+        return {
+            **diagnostic,
+            "failure_type": "model_mismatch",
+            "message": f"{diagnostic.get('message', '')}: {line}".strip(": "),
+            "modules": diagnostic.get("modules") or ([top] if top else []),
+        }
+
+    def _model_mismatch_target(self, diagnosis: dict, target: RepairTarget) -> RepairTarget:
+        """Zuerst HDL reparieren; hilft das zweimal nicht, ist evtl. das Modell falsch.
+
+        Anlehnung an VeriRefine (arXiv:2607.18519): Fehler je nach Ursache an
+        die Verständnis- bzw. Codierungsstufe zurückgeben. Das Modell wird
+        höchstens einmal neu erzeugt.
+        """
+        meta = self._design_state.metadata
+        meta["model_mismatch_repairs"] = int(meta.get("model_mismatch_repairs", 0)) + 1
+        if meta["model_mismatch_repairs"] > self._MODEL_MISMATCH_HDL_ATTEMPTS and not meta.get("model_regenerated"):
+            diagnosis["regenerate_model"] = True
+            diagnosis["repair_target"] = RepairTarget.VERIFICATION.value
+            return RepairTarget.VERIFICATION
+        return target
+
+    async def _regenerate_reference_model(self, diagnosis: dict) -> AgentResult:
+        self._design_state.metadata["model_regenerated"] = True
+        evidence = "; ".join(str(e) for e in diagnosis.get("evidence", [])[:2])[:1500]
+        hint = (
+            "Der VHDL-Entwurf weicht nach zwei Reparaturen weiterhin vom Modell ab. Prüfe, ob das Modell "
+            "PROMPT.md korrekt auslegt (z. B. Takt-/Phasenzählung, Reset-Verhalten), und korrigiere es nur "
+            f"dann. Abweichung: {evidence}"
+        )
+        status = await self._ensure_reference_model(hint=hint, force=True)
+        self._safe_transition_to(DesignStage.STATIC_CHECK)
+        await self._save_design_state()
+        return AgentResult(
+            task_id=self._current_task.id,
+            status=AgentStatus.COMPLETED if status.get("status") == "ready" else AgentStatus.FAILED,
+            error_message="" if status.get("status") == "ready" else f"Referenzmodell: {status.get('reason', '')}",
+            outputs={"reference_model": status},
+        )
 
     def _capture_file_hashes(self, workspace: str, suspected_modules: list[str]) -> dict[str, str]:
         """Capture SHA-256 hashes of affected VHDL files before repair."""
@@ -1935,6 +2121,11 @@ class SupervisorAgent(BaseAgent):
         return result
 
     async def _run_testbench_repair(self, diagnosis: dict) -> AgentResult:
+        if diagnosis.get("regenerate_model"):
+            return await self._regenerate_reference_model(diagnosis)
+        return await self._run_testbench_repair_impl(diagnosis)
+
+    async def _run_testbench_repair_impl(self, diagnosis: dict) -> AgentResult:
         """Test-/Erwartungs- und Abdeckungsfehler: VerificationAgent erzeugt Testbenches."""
         if not self._verification_agent:
             return AgentResult(
@@ -1961,7 +2152,13 @@ class SupervisorAgent(BaseAgent):
                 id=str(uuid.uuid4()),
                 type="generate_testbench",
                 project_id=self._current_task.project_id,
-                inputs={"module": by_name[name], "workspace": workspace, "domain": "vhdl"},
+                inputs={
+                    "module": by_name[name], "workspace": workspace, "domain": "vhdl",
+                    "mutation_hints": [
+                        s["description"] for s in (self._design_state.metadata.get("mutation") or {}).get("survived", [])
+                        if s.get("module") == name
+                    ],
+                },
             )))
         failed = [r for r in results if r.status != AgentStatus.COMPLETED]
         if not results or failed:
@@ -2076,7 +2273,7 @@ class SupervisorAgent(BaseAgent):
             self._design_state.synthesis.errors = synth.get("errors", [])
 
         diagnostics = [
-            {**d, "stage": d.get("stage") or stage_name}
+            self._classify_model_mismatch({**d, "stage": d.get("stage") or stage_name})
             for d in (result.diagnostics or [{
                 "type": "stage_failure",
                 "message": result.error_message or f"{normalized_stage.value} failed",
@@ -2113,6 +2310,8 @@ class SupervisorAgent(BaseAgent):
         diagnosis = debug_result.outputs.get("diagnosis", {})
         failure_type = diagnosis.get("failure_type", "unknown")
         target = RepairTarget(diagnosis.get("repair_target", RepairTarget.HDL.value))
+        if failure_type == "model_mismatch":
+            target = self._model_mismatch_target(diagnosis, target)
         logger.info(
             "DEBUG_COMPLETED suspected_modules=%s failure_type=%s repair_target=%s",
             diagnosis.get("suspected_modules", []), failure_type, target.value,

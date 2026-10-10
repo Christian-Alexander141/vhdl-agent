@@ -7,13 +7,6 @@ from typing import Any
 
 from src.domain.ports.tool import Tool, ToolResult
 
-try:
-    from langchain_core.tools import tool as _langchain_tool
-    HAS_LANGCHAIN = True
-except ImportError:
-    HAS_LANGCHAIN = False
-
-
 class OpenCodeToolAdapter(Tool):
     def __init__(self, binary: str = "opencode"):
         self._binary = binary
@@ -81,27 +74,6 @@ class OpenCodeToolAdapter(Tool):
             data={"exit_code": exit_code},
         )
 
-    def to_langchain_tool(self):
-        if not HAS_LANGCHAIN:
-            return None
-
-        @_langchain_tool
-        def dispatch_opencode(
-            task: str,
-            project_path: str | None = None,
-            timeout_seconds: int = 600,
-            model: str | None = None,
-        ) -> str:
-            result = self.execute(
-                task=task,
-                project_path=project_path,
-                timeout_seconds=timeout_seconds,
-                model=model,
-            )
-            return json.dumps(result.to_dict(), ensure_ascii=False)
-
-        return dispatch_opencode
-
 
 class ReadFileToolAdapter(Tool):
     @property
@@ -122,17 +94,6 @@ class ReadFileToolAdapter(Tool):
         except Exception as e:
             return ToolResult(success=False, error=str(e))
 
-    def to_langchain_tool(self):
-        if not HAS_LANGCHAIN:
-            return None
-
-        @_langchain_tool
-        def read_file_tool(path: str) -> str:
-            result = self.execute(path=path)
-            return result.output if result.success else result.error
-
-        return read_file_tool
-
 
 class WriteFileToolAdapter(Tool):
     @property
@@ -151,14 +112,3 @@ class WriteFileToolAdapter(Tool):
             return ToolResult(output=f"File saved: {file_path}", data={"path": str(file_path)})
         except Exception as e:
             return ToolResult(success=False, error=str(e))
-
-    def to_langchain_tool(self):
-        if not HAS_LANGCHAIN:
-            return None
-
-        @_langchain_tool
-        def write_file_tool(path: str, content: str) -> str:
-            result = self.execute(path=path, content=content)
-            return result.output if result.success else result.error
-
-        return write_file_tool

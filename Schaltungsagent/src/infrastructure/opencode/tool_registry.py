@@ -19,14 +19,6 @@ class DefaultToolRegistry(ToolRegistry):
     def list_tools(self) -> list[Tool]:
         return list(self._tools.values())
 
-    def get_langchain_tools(self) -> list:
-        result = []
-        for tool in self._tools.values():
-            lc_tool = tool.to_langchain_tool()
-            if lc_tool is not None:
-                result.append(lc_tool)
-        return result
-
 
 class DefaultToolExecutor(ToolExecutor):
     def __init__(self, registry: ToolRegistry):

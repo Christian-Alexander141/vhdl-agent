@@ -34,10 +34,6 @@ class Tool(ABC):
     def execute(self, **kwargs) -> ToolResult:
         ...
 
-    @abstractmethod
-    def to_langchain_tool(self):
-        ...
-
 
 class ToolRegistry(ABC):
     @abstractmethod
@@ -54,10 +50,6 @@ class ToolRegistry(ABC):
 
     @abstractmethod
     def list_tools(self) -> list[Tool]:
-        ...
-
-    @abstractmethod
-    def get_langchain_tools(self) -> list:
         ...
 
 

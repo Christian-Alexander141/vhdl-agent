@@ -13,6 +13,21 @@ from src.services.plan_service import PlanService, PlanValidator
 logger = logging.getLogger(__name__)
 
 
+MODULE_TYPES = ("combinational", "sequential", "structural", "fsm")
+
+
+def _module_type(declared, has_clock: bool) -> str:
+    """Typ aus dem Manifest; unbekannte Angaben (z. B. "top") aus den Ports ableiten.
+
+    Früher lehnte die Planprüfung solche Pläne ab und der ganze Lauf scheiterte
+    (Benchmark 20261009-133223, Lightning/task03); der Typ ist nur ein Hinweis.
+    """
+    value = str(declared or "").strip().lower()
+    if value in MODULE_TYPES:
+        return value
+    return "sequential" if has_clock else "combinational"
+
+
 def module_from_manifest(item: dict) -> ModuleInfo:
     """ModuleInfo aus einem Manifest-Modul inkl. typisiertem Port-Contract.
 
@@ -55,7 +70,7 @@ def module_from_manifest(item: dict) -> ModuleInfo:
     has_clock = any("clk" in str(p).lower() or "clock" in str(p).lower() for p in all_ports)
     return ModuleInfo(
         name=item["entity"],
-        type=item.get("type") or ("sequential" if has_clock else "combinational"),
+        type=_module_type(item.get("type"), has_clock),
         inputs=names["in"],
         outputs=names["out"],
         parameters=item.get("parameters", {}),

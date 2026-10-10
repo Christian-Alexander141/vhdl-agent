@@ -1,12 +1,29 @@
-"""Resolve project and entity names in OpenCode -> Ollama -> rules order."""
+"""Projekt- und Entity-Namen: OpenCode legt sie im Plan fest, hier werden sie nur bereinigt.
+
+Früher fragte der Resolver bei ungültigen Namen ein separates Ollama-LLM und
+blockierte den ganzen Lauf, wenn das nicht antwortete (BLOCKED_NEEDS_NAME,
+Benchmark 20261010-091252, Muse/task04). Jetzt gilt: Der Name aus
+plan/manifest.json wird deterministisch bereinigt; nur wenn davon nichts
+Gültiges übrig bleibt, wird ein Ersatzname abgeleitet. Ein Lauf scheitert
+nie mehr an der Namensvergabe.
+"""
 from __future__ import annotations
 
+import hashlib
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 
-from src.services.ollama_gateway import CodeGuard
 from src.services.plan_service import PlanValidator
 from src.services.project_namer import extract_project_topic
+
+# Präfixe, die keinen Inhalt beschreiben (z. B. "task04-sram" -> "sram").
+_FILLER_PREFIX = re.compile(
+    r"^(?:(?:aufgabe|task|prompt|projekt|project|uebung|übung|erstelle|schaltung|vhdl|fpga|entity)"
+    r"[-_ ]*\d*[-_ ]*)+",
+    re.IGNORECASE,
+)
+_UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "Ä": "ae", "Ö": "oe", "Ü": "ue"})
 
 
 @dataclass
@@ -17,9 +34,33 @@ class NameSet:
     manifest: dict = field(default_factory=dict)
 
 
+def _slug(text: str, sep: str) -> str:
+    text = str(text or "").translate(_UMLAUTS).lower()
+    text = re.sub(r"[^a-z0-9]+", sep, text).strip(sep)
+    return re.sub(re.escape(sep) + "+", sep, text)
+
+
+def normalize_project_name(candidate: str) -> str:
+    slug = _slug(candidate, "-")
+    stripped = _FILLER_PREFIX.sub("", slug).strip("-")
+    for name in (stripped, slug):
+        name = name[:40].strip("-")
+        if name and name[0].isdigit():
+            name = f"p-{name}"[:40].strip("-")
+        if PlanValidator.valid_project_name(name):
+            return name
+    return ""
+
+
+def normalize_entity(candidate: str) -> str:
+    name = _slug(candidate, "_")[:32].strip("_")
+    if name and name[0].isdigit():
+        name = f"m_{name}"[:32]
+    return name if PlanValidator.valid_entity(name) else ""
+
+
 class NameResolver:
-    def __init__(self, naming_llm=None):
-        self._naming = naming_llm
+    """Bereinigt die von OpenCode im Plan vergebenen Namen (kein eigenes Sprachmodell)."""
 
     def resolve(self, request_full: str, plan_names: dict) -> NameSet:
         manifest = deepcopy(plan_names or {})
@@ -28,97 +69,49 @@ class NameResolver:
             modules = []
             manifest["modules"] = modules
 
-        missing: set[str] = set()
-        if not PlanValidator.valid_project_name(manifest.get("project_name", "")):
-            missing.add("project_name")
-        for index, module in enumerate(modules):
-            if not isinstance(module, dict) or not PlanValidator.valid_entity(module.get("entity", "")):
-                missing.add(f"module_{index}")
-
-        suggestions = {}
-        if missing and self._naming:
-            suggestions = self._naming.suggest_names(
-                request_full,
-                set(missing),
-                {
-                    "topic": extract_project_topic(request_full),
-                    "existing_project_name": manifest.get("project_name", ""),
-                    "existing_entities": [
-                        item.get("entity", "") for item in modules if isinstance(item, dict)
-                    ],
-                },
-            ) or {}
-
-        unresolved: list[str] = []
-        project_name = manifest.get("project_name")
-        if "project_name" in missing:
-            candidate = suggestions.get("project_name", "")
-            if self._valid_project(candidate):
-                project_name = candidate
-            else:
-                topic = extract_project_topic(request_full)
-                project_name = topic.replace("_", "-") if topic else None
-            if not self._valid_project(project_name):
-                project_name = None
-                unresolved.append("project_name")
-        manifest["project_name"] = project_name
-
         old_to_new: dict[str, str] = {}
         entities: list[str | None] = []
-        top_old = manifest.get("top_entity")
+        used: set[str] = set()
         for index, module in enumerate(modules):
             if not isinstance(module, dict):
                 entities.append(None)
-                unresolved.append(f"module_{index}")
                 continue
             old = str(module.get("entity", ""))
-            if PlanValidator.valid_entity(old):
-                candidate = old
-            else:
-                candidate = suggestions.get(f"module_{index}", "")
-                if not self._valid_entity(candidate):
-                    role = str(module.get("role", module.get("description", ""))).lower()
-                    topic = extract_project_topic(request_full)
-                    if old == top_old and topic:
-                        candidate = topic.replace("-", "_")
-                    elif any(word in role for word in ("timer", "zeitgeber")):
-                        candidate = "timer"
-                    elif any(word in role for word in ("control", "schaltwerk")):
-                        candidate = "control"
-                    else:
-                        candidate = ""
-                if not self._valid_entity(candidate):
-                    unresolved.append(f"module_{index}")
-                    entities.append(None)
-                    continue
+            candidate = old if PlanValidator.valid_entity(old) else normalize_entity(old)
+            if not candidate:
+                candidate = normalize_entity(module.get("role", "")) or f"module_{index}"
+            base, n = candidate, 2
+            while candidate in used:
+                candidate = f"{base}_{n}"[:32]
+                n += 1
+            used.add(candidate)
             if old:
                 old_to_new[old] = candidate
             module["entity"] = candidate
             module["file"] = f"src/{candidate}.vhd"
             entities.append(candidate)
 
+        top_old = manifest.get("top_entity")
         if top_old in old_to_new:
             manifest["top_entity"] = old_to_new[top_old]
+
+        project_name = manifest.get("project_name", "")
+        if not PlanValidator.valid_project_name(project_name):
+            project_name = (
+                normalize_project_name(project_name)
+                or normalize_project_name(manifest.get("top_entity", ""))
+                or normalize_project_name(extract_project_topic(request_full) or "")
+                or "design-" + hashlib.sha256((request_full or "").encode()).hexdigest()[:6]
+            )
+        manifest["project_name"] = project_name
+
         for module in modules:
-            if not isinstance(module, dict):
-                continue
-            module["depends_on"] = [old_to_new.get(dep, dep) for dep in module.get("depends_on", [])]
+            if isinstance(module, dict):
+                module["depends_on"] = [old_to_new.get(dep, dep) for dep in module.get("depends_on", [])]
         for testbench in manifest.get("testbenches", []):
             if not isinstance(testbench, dict):
                 continue
             dut = old_to_new.get(testbench.get("dut"), testbench.get("dut"))
-            testbench.update({
-                "dut": dut,
-                "entity": f"{dut}_tb",
-                "file": f"tests/{dut}_tb.vhd",
-            })
+            testbench.update({"dut": dut, "entity": f"{dut}_tb", "file": f"tests/{dut}_tb.vhd"})
 
-        return NameSet(project_name, entities, sorted(set(unresolved)), manifest)
-
-    @staticmethod
-    def _valid_project(name: str) -> bool:
-        return PlanValidator.valid_project_name(name) and not CodeGuard.is_code(name)
-
-    @staticmethod
-    def _valid_entity(name: str) -> bool:
-        return PlanValidator.valid_entity(name) and not CodeGuard.is_code(name)
+        return NameSet(project_name, entities, [], manifest)

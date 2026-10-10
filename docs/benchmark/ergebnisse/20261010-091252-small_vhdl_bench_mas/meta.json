@@ -1,0 +1,42 @@
+{
+  "run_id": "20261010-091252-small_vhdl_bench_mas",
+  "started_at": "2026-10-10T09:12:53",
+  "benchmark": "small_vhdl_bench (Projektautor), 10 Aufgaben, evaluate(): regelbasiert, bestanden ab 70",
+  "benchmark_files_sha256": {
+    "tasks.json": "1a52b449eb4e7f9a",
+    "benchmark_api.py": "e91e1a30a7900cae"
+  },
+  "variants": "single = ein nativer OpenCode-Lauf je Aufgabe; mas = vollständiges MAS (modular, ohne Synthese, XDC wie in der Synthesephase des MAS erzeugt)",
+  "instruction": "Lies PROMPT.md vollständig und setze die Aufgabe um. Schreibe alle VHDL-Dateien nach src/ (Testbenches, falls die Aufgabe welche verlangt, nach tests/) und die Constraints nach constraints/arty_s7.xdc. Prüfe jede VHDL-Datei mit 'ghdl -a --std=08 <datei>' auf Fehler und behebe sie, bevor du endest.",
+  "timeout_s": 1800,
+  "opencode_version": "1.18.35",
+  "git_head": "ff3c9b4836c21473208e8b4b66d1de52f62318cf",
+  "code_state": {
+    "head": "ff3c9b4836c21473208e8b4b66d1de52f62318cf",
+    "uncommitted_files": {
+      "Schaltungsagent/src/agents/debug.py": "1aedcc2be65f0a04",
+      "Schaltungsagent/src/agents/supervisor.py": "d0b8f4d0d2286aff",
+      "Schaltungsagent/src/agents/verification.py": "0961f9af96e64c92",
+      "Schaltungsagent/src/config.py": "d9a3be10d9eda2a1",
+      "Schaltungsagent/src/dashboard/index.html": "3fd0444c26613aa3",
+      "Schaltungsagent/src/domain/agents/repair_routing.py": "bc9d4d5abd01183a",
+      "Schaltungsagent/src/domain/agents/test_plan.py": "0e1ab2d6f2c5f467",
+      "Schaltungsagent/src/infrastructure/synthesis/vivado_synthesis.py": "e1a02755b398fdc6",
+      "Schaltungsagent/src/orchestrator/agent_factory.py": "ad3724cc4127de8c",
+      "Schaltungsagent/src/services/opencode_task_runner.py": "b254b5dd132d15a6",
+      "Schaltungsagent/src/services/plan_service.py": "690bfd823f416214",
+      "Schaltungsagent/src/services/settings_store.py": "5c7ef23122f95098",
+      "Schaltungsagent/tests/test_mas_improvements.py": "e4326d39f0e9ad0b",
+      "Schaltungsagent/tests/test_multi_agent_gates.py": "89bda8518db8183b",
+      "Schaltungsagent/benchmark/small_bench_models.py": "8a149ef95c51ddb7",
+      "Schaltungsagent/src/domain/agents/mutation.py": "6cb389783963a65f",
+      "Schaltungsagent/src/domain/agents/reference_model.py": "56506cb7444feaf6",
+      "Schaltungsagent/tests/test_reference_model_and_mutation.py": "ce1b9cfa79b88289"
+    }
+  },
+  "python": "3.12.3",
+  "compare_with": "20261009-133223-small_vhdl_bench",
+  "order": "Modelle nacheinander (eines zur Zeit), Aufgaben task01..task10; schont das Gratis-Kontingent",
+  "workspaces": "/home/alex/vhdl-agent-benchmark/20261010-091252-small_vhdl_bench_mas",
+  "testbench_mapping": "Dateien unter tests/ oder mit '_tb' im Namen gehen als 'tb_<name>' an evaluate()"
+}

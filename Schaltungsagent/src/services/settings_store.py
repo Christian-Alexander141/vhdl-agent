@@ -12,7 +12,7 @@ import yaml
 
 # Abschnitte, die über das Dashboard geändert werden dürfen.
 EDITABLE_SECTIONS = (
-    "opencode", "llm", "synthesis", "gates", "hardware_test",
+    "opencode", "synthesis", "gates", "hardware_test",
     "limits", "knowledge", "ghdl", "vivado", "flash",
 )
 
@@ -25,7 +25,6 @@ READ_ONLY_FIELDS = {
 CHOICES = {
     ("opencode", "docker_isolation"): ("per_task", "shared"),
     ("opencode", "docker_network"): ("bridge", "none", "host"),
-    ("llm", "provider"): ("ollama", "openai", "anthropic", "stub"),
     ("flash", "method"): ("vivado", "openfpgaloader"),
     ("opencode", "implementation_mode"): ("modular", "single_session"),
     ("hardware_test", "uart_integration"): ("auto", "always", "off"),
@@ -33,6 +32,8 @@ CHOICES = {
 
 RANGES = {
     ("gates", "min_module_coverage"): (0.0, 1.0),
+    ("gates", "min_mutation_score"): (0.0, 1.0),
+    ("gates", "max_mutants"): (1, 50),
     ("limits", "max_parallel_workers"): (1, 16),
     ("opencode", "max_repair_iterations"): (1, 50),
     ("opencode", "default_timeout"): (30, 7200),

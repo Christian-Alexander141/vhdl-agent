@@ -121,3 +121,19 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
 | 2026-10-08 11:33 | ungültig, keine Daten | Workspaces lagen im Repo, und OpenCode arbeitete wegen `$PWD` im Quellbaum (Doku #16/#17). Abgebrochen, Repo bereinigt. |
 | `20261008-121802` | abgebrochen nach 8 von 27 Läufen | Älterer Code-Stand: vor Doku #18 (Fehlklassifikation `clock_reset_error`) und #19 (vorzeitiger Modellabbruch), noch ohne Referenz-Testbench. Ergebnisse und nachträgliche Referenzprüfung in `ergebnisse/20261008-121802-abgebrochen/`. |
 | `20261008-161755` | größtenteils ungültig | Code-Stand Commit `73769ce`. Ab ca. 18:00 Ausfall des Modell-Providers ([502] Upstream error from Nvidia); 15 von 18 Läufen ungültig. Gültige Beobachtung: Beide Ampel-Entwürfe bleiben auf Haupt-Grün stehen, der MAS-Entwurf besteht trotzdem seine eigene Testbench. Anlass für die Provider-Prüfung (Abschnitt 5). Details: `ergebnisse/20261008-161755/HINWEIS.md`. |
+| `20261009-133223-small_vhdl_bench` | Einzel vollständig, MAS abgebrochen | Modellvergleich auf small_vhdl_bench (Abschnitt 11). Einzel-OpenCode: alle 4 Modelle vollständig. MAS: Muse und MiMo nach Rate-Limit des Gratis-Kontingents abgebrochen, die Nemotron-Läufe manuell gestoppt, um zwei MAS-Fehler zu beheben (Doku #20, #21). Details: `ergebnisse/20261009-133223-small_vhdl_bench/HINWEIS.md`. |
+
+| `20261010-091252-small_vhdl_bench_mas` | unterbrochen | MAS, Modelle nacheinander. Muse 9/10, dann Rate-Limit für alle Modelle (Kontingent pro Konto). Danach Doku #22 (Ollama entfernt, Namensvergabe) und #23 (Race Condition `design_state.yaml`) behoben; nicht mit späteren Läufen mischen. Details: `ergebnisse/20261010-091252-small_vhdl_bench_mas/HINWEIS.md`. |
+## 11. Modellvergleich auf small_vhdl_bench
+
+`small_vhdl_bench` (vom Projektautor, `Schaltungsagent/benchmark/small_vhdl_bench-main/`) umfasst 10 Aufgaben für den Arty S7: Lauflicht bis Aufzug, mit VHDL und XDC.
+
+- **Bewertung:** `evaluate()` des Benchmarks, regelbasiert. Geprüft werden Struktur, Pflicht-Ports, Schlüsselwörter, keine Simulationskonstrukte, Takt, Entprellung, FSM und erlaubte XDC-Pins; 0–100 Punkte, bestanden ab 70. Bewertet wird **nicht das Verhalten**. Hohe Punktzahlen bedeuten „formal vollständig“, nicht „funktioniert“.
+- **Werkzeug:** `Schaltungsagent/benchmark/small_bench_models.py`, Varianten `single` und `mas`.
+  - `single`: ein nativer OpenCode-Lauf je Aufgabe, mit einer kurzen, für alle Modelle gleichen Anweisung (Dateien nach `src/`, `tests/`, `constraints/`; Syntaxprüfung mit `ghdl -a`).
+  - `mas`: das vollständige MAS (modular, Synthese aus).
+- **XDC beim MAS:** Das MAS lässt das Sprachmodell keine XDC schreiben, sondern erzeugt sie in der Synthesephase aus den Entity-Ports. Weil die Synthese im Benchmark aus ist, erzeugt der Runner die XDC nach dem Lauf mit genau dieser Funktion (`_generatexdc_for_board`), ohne Vivado zu starten.
+- **Testbenches:** `evaluate()` nimmt nur Dateien mit Präfix `tb_` vom Verbot von Simulationskonstrukten aus. Der Runner reicht Dateien unter `tests/` oder mit `_tb` im Namen deshalb als `tb_<name>` weiter.
+- **Gültigkeit:** Vor jedem Lauf wird geprüft, ob der Provider antwortet. Ein nicht bestandener Lauf gilt als ungültig, wenn die OpenCode-Ausgabe einen Provider-Fehler enthält (503/502, Rate-Limit) oder der Provider danach nicht erreichbar ist.
+- **Rate-Limits:** Die Gratis-Modelle haben ein Kontingent. Das MAS braucht pro Aufgabe ein Vielfaches an Aufrufen; parallele MAS-Läufe mehrerer Modelle nach anderen Testserien am selben Tag erschöpften es (Lauf 20261009). Empfehlung: MAS-Läufe mit frischem Kontingent und je Modell nacheinander starten.
+

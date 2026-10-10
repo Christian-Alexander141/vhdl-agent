@@ -9,7 +9,7 @@ description = "KI-gestützte Agentenplattform für VHDL-Workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-keywords = ["vhdl", "agent", "llm", "fastapi", "docker"]
+keywords = ["vhdl", "agent", "opencode", "fastapi", "docker"]
 authors = [
   { name = "Schaltungsagent", email = "noreply@example.com" }
 ]
@@ -20,12 +20,9 @@ dependencies = [
   "websockets>=12.0",
   "python-multipart>=0.0.9",
   "httpx>=0.27.0",
-  "ollama>=0.4.0",
   "python-dotenv>=1.0.0",
   "pyyaml>=6.0",
   "aiofiles>=23.0.0",
-  "langchain-core>=0.3.0",
-  "langchain-ollama>=1.0.0",
   "jinja2>=3.1.0"
 ]
 

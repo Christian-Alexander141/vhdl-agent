@@ -59,8 +59,7 @@ im selben Workspace; die Top-Datei wird von `implement_module_<top>` und
 
 ## Abhängigkeitsstatus
 
-- `langchain-core` und `langchain-ollama` werden weiterhin benötigt (`ollama_gateway.py`, `domain/ports/tool.py`, `tool_adapter.py`). `langgraph` wurde mit dem unbenutzten `launcher.py` entfernt (2026-10-07).
-- `OllamaLLMService` bleibt für Textaufgaben wie Analyse, Architektur, Diagnose und Projektnamen aktiv.
+- Ollama, `langchain-core` und `langchain-ollama` wurden entfernt (2026-10-10). Alle Sprachmodell-Aufgaben laufen über OpenCode.
 - HDL-Module und Testbenches werden im Produktionspfad über OpenCode erzeugt; der LLM-Port heißt `generate_text` und bietet keine Codegenerierungs-Methode.
 
 ## Behoben in dieser Reparatur
