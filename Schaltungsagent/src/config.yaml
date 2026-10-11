@@ -82,3 +82,4 @@ gates:
   min_module_coverage: 1.0
   enforce_contracts: true
   require_timing_closure: true
+  requirements_review: true

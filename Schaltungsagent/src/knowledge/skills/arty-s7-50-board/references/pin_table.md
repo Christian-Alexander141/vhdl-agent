@@ -1,39 +1,40 @@
 # Arty S7-50 Pin Table (Reference)
 # Quelle: Arty_S7-50_RAG_Wissenspaket.pdf, Digilent Arty S7 Reference Manual
+# Takt, LEDs, Taster und Schalter korrigiert 2026-10-11 nach dem offiziellen
+# Digilent Arty-S7-50-Master.xdc (Rev. E). Pmod- und UART-Angaben ungeprüft.
 # Vollständige FPGA-Pin-Belegung für XC7S50CSGA324
 
 ## Clock Pins
 | Schematic Name | FPGA Pin | I/O Standard | Notes |
 |---|---|---|---|
-| CLK12MHz (12 MHz Osc) | F14 | LVCMOS33 | General purpose system clock |
-| DDR3_CLK_P | R2 | SSTL135 | DDR3 reference clock (positive) |
-| DDR3_CLK_N | T2 | SSTL135 | DDR3 reference clock (negative) |
+| CLK100MHZ (100 MHz) | R2 | SSTL135 | User clock (bank 34, 1.35 V); generator default |
+| CLK12MHZ (12 MHz Osc) | F14 | LVCMOS33 | User clock |
 
 ## User LEDs (4x)
 | LED | FPGA Pin | I/O Standard | Schematic Net |
 |---|---|---|---|
-| LD0 | E18 | LVCMOS33 | LED0 |
-| LD1 | F13 | LVCMOS33 | LED1 |
-| LD2 | E13 | LVCMOS33 | LED2 |
-| LD3 | H15 | LVCMOS33 | LED3 |
+| LD2 = led[0] | E18 | LVCMOS33 | led[2] |
+| LD3 = led[1] | F13 | LVCMOS33 | led[3] |
+| LD4 = led[2] | E13 | LVCMOS33 | led[4] |
+| LD5 = led[3] | H15 | LVCMOS33 | led[5] |
 
 ## Push Buttons (4x, Active HIGH)
 | Button | FPGA Pin | I/O Standard | Schematic Net |
 |---|---|---|---|
 | BTN0 | G15 | LVCMOS33 | BTN0 |
-| BTN1 | H13 | LVCMOS33 | BTN1 |
+| BTN1 | K16 | LVCMOS33 | BTN1 |
 | BTN2 | J16 | LVCMOS33 | BTN2 |
-| BTN3 | J15 | LVCMOS33 | BTN3 |
+| BTN3 | H13 | LVCMOS33 | BTN3 |
 
 ## Slide Switches (4x)
 | Switch | FPGA Pin | I/O Standard | Schematic Net |
 |---|---|---|---|
 | SW0 | H14 | LVCMOS33 | SW0 |
-| SW1 | G14 | LVCMOS33 | SW1 |
-| SW2 | K18 | LVCMOS33 | SW2 |
-| SW3 | K17 | LVCMOS33 | SW3 |
+| SW1 | H18 | LVCMOS33 | SW1 |
+| SW2 | G18 | LVCMOS33 | SW2 |
+| SW3 | M5 | SSTL135 | SW3 (bank 34, INTERNAL_VREF 0.675) |
 
-## Pmod JA (8 pins, 3.3V)
+## Pmod JA (8 pins, 3.3V) – ungeprüft (K16/H13 sind laut Master-XDC BTN1/BTN3)
 | Pmod Pin | FPGA Pin | Schematic Net |
 |---|---|---|
 | JA1 | N14 | JA1 |
@@ -76,11 +77,11 @@
 |---|---|---|
 | Address/Command | Multiple | SSTL135 |
 | Data/Strobe | Multiple | SSTL135 |
-| Clock | R2/T2 | SSTL135 Diff |
+| Clock | (siehe Clock Pins: R2 ist als 100-MHz-User-Takt nutzbar) | SSTL135 |
 
 ## Important Notes
-1. **R2/T2 are SSTL135** – Do not use as LVCMOS33 user clock without MMCM
-2. **F14 is the only general-purpose LVCMOS33 clock** (12 MHz)
+1. **R2 (100 MHz) and M5 (SW3) are in bank 34 at 1.35 V** – use SSTL135, never LVCMOS33
+2. **F14 is the 12 MHz LVCMOS33 clock** – alternative to R2; match the design's clock generic
 3. **Only 4 user LEDs** – Pmod JA pins (N14, G13, F15, E15) are NOT LEDs
 4. **Buttons are Active HIGH** – pressed = '1'
 5. **UART pins fixed** – R12 (RX), V12 (TX) via FTDI bridge

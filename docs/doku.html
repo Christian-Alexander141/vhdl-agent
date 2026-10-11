@@ -357,7 +357,7 @@
           <td>Verlustbehaftete Reparatur-Rückmeldung: Klassifikation per Regex, unscharfe Anweisung („run the full GHDL validation“), keine Signalverläufe. Die Reparatur läuft direkt über <code>opencode.execute</code>, ohne Skills.</td>
           <td>Konkrete, validatorgleiche Prüfbefehle; Zustandsausgaben an Prüfpunkten der Testbench (vgl. MAGE); später gezielte Abfragen von Signalverläufen (vgl. SeqFeed, VerilogCoder).</td>
           <td><span class="part">Teilweise</span></td>
-          <td><code>_repair_verification</code> (alle Quellen in Abhängigkeitsreihenfolge, jede Testbench mit <code>--stop-time=1ms --assert-level=error</code>); <code>CHECK</code>-Reports über <code>TESTBENCH_RULES</code>. <span class="open">Offen:</span> Reparatur über den Task-Runner (Skills), Waveform-/Trace-Werkzeug.</td>
+          <td><code>_repair_verification</code> (alle Quellen in Abhängigkeitsreihenfolge, jede Testbench mit <code>--stop-time=1ms --assert-level=error</code>); <code>CHECK</code>-Reports über <code>TESTBENCH_RULES</code>. Seit #31/#32 (2026-10-11): Klassifikation auf den Kernzeilen der Werkzeugausgabe statt nur auf der Kurzmeldung, alle Kernzeilen und der Versuchsverlauf im Reparaturauftrag. <span class="open">Offen:</span> HDL-Reparatur über den Task-Runner (Skills), Waveform-/Trace-Werkzeug.</td>
         </tr>
         <tr>
           <td>10</td>
@@ -491,6 +491,164 @@
           <td><span class="ok">Gelöst</span></td>
           <td><code>_escalate</code>, <code>_ESCALATION_LADDER</code>, <code>_regenerate_module</code>, <code>_switch_to_fallback_model</code>/<code>_restore_model</code> in <code>supervisor.py</code>; <code>_model_switcher</code> und Grenzwerte in <code>agent_factory.py</code>; <code>repair_routing.py</code>; Ereignis <code>ESCALATION</code>. Das Fallback-Modell gilt nur bis zum Ende des Laufs. Tests in <code>test_mas_improvements.py</code> und <code>test_multi_agent_gates.py</code>.</td>
         </tr>
+        <tr>
+          <td>28</td>
+          <td>Korrekter Entwurf durch Reparatur zerstört (Lauf <code>traffic-light</code>, 2026-10-10, 2,5&nbsp;h). Simulation, Referenzmodell und Mutationsanalyse (Score 1,0) waren bestanden. Dann scheiterte die GHDL-Synthese, weil <code>ghdl synth</code> ohne <code>--std=08</code> aufgerufen wurde und <code>process(all)</code> ablehnte. Die Meldung „GHDL synthesis failed for all entities“ enthielt keinen Fehlertext und wurde als <code>unknown</code> ohne Modul diagnostiziert. Die Reparatur änderte daraufhin den korrekten Entwurf ziellos und verletzte dabei die Vorgabe „synchroner Reset“. Danach scheiterte schon der Abgleich mit dem Referenzmodell. Die nächste Reparatur lief 50&nbsp;min ins Zeitlimit, das als Infrastrukturfehler sofort zum Abbruch führte.</td>
+          <td>(1) <code>ghdl synth</code> mit <code>--std=08</code>. (2) Fehlerzeilen in die Meldung, Fehlerklasse <code>synthesis_error</code>, damit Modul und Ursache erkannt werden. (3) Regressionsschutz: Vor jeder gezielten Reparatur werden <code>src/</code> und <code>tests/</code> gesichert. Scheitert danach eine frühere Phase als vorher, wird die Reparatur zurückgenommen; der Versuch zählt in der Eskalation. (4) Im Modus <code>persistent</code> ist ein OpenCode-Zeitlimit bei einer Reparatur kein Abbruchgrund mehr: halbe Änderungen werden verworfen, die Eskalation geht weiter. Provider- und Werkzeugfehler stoppen weiterhin.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>SYNTH_FLAGS</code> in <code>ghdl_synthesis.py</code>; <code>fpga.py</code>; <code>_take_repair_snapshot</code>, <code>_rollback_regression</code>, <code>_restore_snapshot</code> und die Zeitlimit-Behandlung in <code>supervisor.py</code>; Ereignis <code>REPAIR_ROLLED_BACK</code>. Rücknahme nur bei gezielten Patches, nicht beim Neuschreiben eines Moduls oder bei einer Architekturüberarbeitung (die dürfen anfangs frühere Phasen verletzen). Gegenprobe: Der Entwurf des Laufs synthetisiert mit <code>--std=08</code>. Tests in <code>test_mas_improvements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>29</td>
+          <td>Anforderungen gingen unbemerkt verloren. Lauf <code>gray-countdown</code> (2026-10-10): Der Prompt verlangte „wenn der zähler bei 0 ist sollen die RGB leds rot läuchten“. Der Plan enthielt keinen RGB-Port, und alle Prüfungen waren grün, weil sie nur gegen den Plan prüften, nie gegen den Prompt. Der ganze Prompt galt als eine einzige Anforderung, die schon als erfüllt zählte, sobald jedes Modul irgendeine Testbench hatte. Im Lauf <code>traffic-light</code> (#28) baute eine Reparatur den verlangten synchronen Reset in einen asynchronen um.</td>
+          <td>Einzelanforderungen durchgängig verfolgen:
+            <ul>
+              <li><strong>Plan:</strong> Der Planer listet jede Anforderung einzeln (<code>R1</code>, <code>R2</code> …) mit wörtlichem Zitat aus PROMPT.md, zuständigen Modulen, beteiligten Ports und Prüfart (<code>simulation</code>/<code>structure</code>). Deterministisch geprüft: Das Zitat steht in PROMPT.md, Module und Ports existieren im Plan. Fehlt ein Port, geht der Plan zur Korrektur zurück; die Ports sind danach Teil des Port-Contracts. Im Benchmark-Modus (ein Versuch) wird statt eines Abbruchs der ganze Prompt als Sammelanforderung <code>R0</code> ergänzt.</li>
+              <li><strong>Jeder Auftrag:</strong> <code>plan/requirements.md</code> wird jedem OpenCode-Auftrag nach der Planung als verbindliche Invariante mitgegeben, auch Reparaturen.</li>
+              <li><strong>Testbenches:</strong> Prüfungen tragen <code>REQ Rn</code> im report-Text. Ein Gate verlangt für jede simulierbare Anforderung mindestens eine solche Prüfung (Kommentare zählen nicht), sonst Testbench-Nachbesserung.</li>
+              <li><strong>Abschlussprüfung:</strong> Ein frischer OpenCode-Lauf, der den Entwurf nicht geschrieben hat, bewertet jede Anforderung mit Begründung und meldet Anforderungen aus PROMPT.md, die in der Liste fehlen (nur mit wörtlichem Zitat). Er darf nichts ändern; Änderungen werden verworfen.</li>
+            </ul>
+            Folgen: <code>requirement_gap</code> → Testbench, <code>requirement_violation</code> → HDL, <code>requirement_missing</code> → Architektur (Plan samt Ports ergänzen). Alle drei laufen durch die Eskalationsleiter (#27).</td>
+          <td><span class="ok">Gelöst</span> (ohne echten Lauf gegengeprüft)</td>
+          <td>Neu: <code>domain/agents/requirements.py</code>. Geändert: <code>plan_service.py</code> (Auftrag, Prüfung, Rückfall <code>R0</code>), <code>opencode_task_runner.py</code> und <code>hdl.py</code> (Anforderungen in jedem Auftrag; Reparatur stoppt nach etwa fünf erfolglosen Runden mit Analyse statt bis zum Zeitlimit zu laufen), <code>verification.py</code> (Aufgabe <code>review_requirements</code>, Anforderungshinweise für Testbenches), <code>supervisor.py</code> (<code>_adopt_plan_requirements</code>, <code>_requirement_gaps</code>, <code>_requirements_review</code>), <code>repair_routing.py</code>, <code>debug.py</code>, <code>Requirement</code>-Modell. Neue Einstellung <code>gates.requirements_review</code>. Grenzen: Die Vollständigkeit der Liste und das Urteil der Abschlussprüfung sind Sprachmodell-Urteile; ein unbegründetes „nicht erfüllt“ wird ignoriert, eine nicht verfügbare Prüfung führt nur zu einer Warnung. Tests: <code>test_requirements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>30</td>
+          <td>Flashen scheiterte an der Bitstream-Konfiguration. Lauf <code>gray-countdown-5ace9d</code> (2026-10-11, über 5&nbsp;h ohne Ergebnis): <code>[Writecfgmem 68-20] SPI_BUSWIDTH property is set to "1"</code>. Die Konfigurationsspeicher-Einstellungen des Boards (<code>SPI_BUSWIDTH 4</code>, <code>CONFIG_MODE SPIx4</code> u.&nbsp;a.) standen nur in der automatisch erzeugten XDC. Das Projekt brachte eine eigene XDC mit, die Einstellungen fehlten, und <code>write_cfgmem -interface SPIx4</code> brach ab. Den Fehler hatte erst das Fallback-Modell nach rund 5&nbsp;h gefunden.</td>
+          <td>Das Vivado-Build-Skript setzt die Board-Einstellungen immer nach <code>synth_design</code>, unabhängig von der Herkunft der XDC.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>BOARD_BITSTREAM_CONFIG</code> in <code>vivado_synthesis.py</code>. Mit echtem Vivado gegengeprüft: Die Quellen des Laufs mit der ursprünglichen Projekt-XDC wurden neu gebaut, <code>write_cfgmem -interface SPIx4</code> erzeugt die MCS-Datei (6&nbsp;MB). Der alte Bitstream des Laufs liefert weiterhin genau <code>[Writecfgmem 68-20]</code>. Test: <code>test_triage_and_flow.py</code>.</td>
+        </tr>
+        <tr>
+          <td>31</td>
+          <td>Informationsverlust zwischen Fehlerquelle und Reparatur:
+            <ul>
+              <li>Die Diagnose sah nur die Kurzmeldung („GHDL simulation failed for x_tb“). Die eigentlichen GHDL-/Vivado-Zeilen und die fehlgeschlagene Assertion standen in <code>details</code> und gingen verloren; der Reparaturauftrag enthielt nur die ersten drei Kurzmeldungen.</li>
+              <li>Flash-Fehler hatten weder Fehlerklasse noch Vivado-Ausgabe (nur die ersten 500 Zeichen) und wurden <code>unknown</code>.</li>
+              <li>Module wurden aus jedem Vorkommen des Namens im Text abgeleitet, im Lauf aus dem Pfad der <code>.bit</code>-Datei. So ging ein Werkzeugfehler als HDL-Fehler an <code>gray_countdown</code>.</li>
+            </ul></td>
+          <td>Vorfilter für alle Fehler, bevor sie an einen Agenten gehen:
+            <ul>
+              <li>Kernzeilen aus Meldung und Details ziehen (ohne ANSI-Codes, ohne Rauschen wie <code>metavalue detected</code>).</li>
+              <li>Herkunft bestimmen: Entwurf, Testbench, Anforderungen, Werkzeug/Konfiguration, Hardware oder Infrastruktur.</li>
+              <li>Module nur aus ausdrücklichen Angaben oder Dateiverweisen (<code>x.vhd:12</code>) ableiten, bei Werkzeug- und Hardwarefehlern gar nicht.</li>
+            </ul>
+            Der FPGAAgent klassifiziert Flash-Fehler selbst (<code>bitstream_config_error</code>, <code>flash_error</code>, <code>infrastructure</code>) und gibt die Vivado-Ausgabe weiter.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td>Neu: <code>domain/agents/triage.py</code>. Geändert: <code>debug.py</code> (Diagnose über den Vorfilter, Feld <code>origin</code>), <code>fpga.py</code>, <code>repair_routing.py</code> (<code>bitstream_config_error</code> → FPGA), <code>supervisor.py</code> (alle Kernzeilen in den Auftrag). Tests: <code>test_triage_and_flow.py</code>.</td>
+        </tr>
+        <tr>
+          <td>32</td>
+          <td>Ungeeignete Eskalation und leerlaufende Pipeline:
+            <ul>
+              <li>Für den Flash-Fehler liefen nacheinander HDL-Reparatur, Neuschreiben des Moduls und Architekturüberarbeitung, alle wirkungslos.</li>
+              <li>Nach jedem ergebnislosen Versuch (z.&nbsp;B. Zeitlimit) lief die ganze Pipeline neu, mit 5–8&nbsp;min Synthese und erneutem Flash, nur um denselben Fehler wieder zu finden.</li>
+              <li>Jede Stufe begann ohne Wissen über die vorherigen Versuche.</li>
+            </ul></td>
+          <td><ul>
+              <li>Eskalationsleitern je Herkunft. Neuschreiben und Architekturüberarbeitung gibt es nur bei Entwurfsfehlern; Testbench-, Anforderungs- und Werkzeugfehler durchlaufen nur Reparatur, Fallback-Modell und Mensch.</li>
+              <li>Ein Bitstream-Konfigurationsfehler wird zuerst ohne Sprachmodell neu gebaut.</li>
+              <li>Bleibt eine Reparatur ohne jede Dateiänderung, folgt sofort die nächste Stufe, ohne Pipeline-Neustart.</li>
+              <li>Jede Stufe bekommt die bisherigen Versuche mit Ergebnis und die Notizen des letzten Versuchs (<code>reports/repair_notes.md</code>).</li>
+              <li>Synthese- und Flash-Fehler bekommen einen Vivado-Kontext (XDC darf geändert werden, Vivado nicht selbst starten) statt eines reinen GHDL-Auftrags.</li>
+              <li>Die Fortschrittsprüfung erfasst auch Constraints, Testbenches, Plan und Modell.</li>
+              <li>Grenzen im Modus <code>persistent</code>: 150 Iterationen, 40 Reparaturen. Das Ende setzt die Leiter.</li>
+            </ul></td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_LADDERS</code>, <code>_escalate</code> (Versuchsverlauf), <code>_dispatch_repair</code>, <code>_rebuild_bitstream</code>, <code>_sources_digest</code>, <code>_block_for_human</code> in <code>supervisor.py</code>; <code>_repair_history_block</code>, <code>_toolchain_block</code> in <code>hdl.py</code>; Ereignis <code>REPAIR_RETRY</code>. Tests: <code>test_triage_and_flow.py</code>, <code>test_mas_improvements.py</code>.</td>
+        </tr>
+        <tr>
+          <td>33</td>
+          <td>Testbench-Reparatur übernahm die Konsolenausgabe als Code. Der VerificationAgent las den Testbench-Code aus der stdout von OpenCode. Mit <code>longcat-2.5-preview-free</code> enthielt sie ANSI-Steuerzeichen und die Kopfzeile <code>&gt; build · longcat-2.5-preview-free</code>; GHDL lehnte die Datei viermal ab (je 3–8&nbsp;min). Außerdem ersetzte die neue Testbench die alte vollständig, auch deren <code>REQ</code>-Prüfungen.</td>
+          <td>OpenCode schreibt die Datei selbst über den Task-Runner (wie alle anderen Aufträge), überarbeitet die bestehende Testbench statt sie zu ersetzen und prüft sich mit GHDL. Bei Ablehnung wird die vorherige Testbench wiederhergestellt.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_generate_testbench</code> in <code>verification.py</code>; <code>source_compile_order</code> in <code>worker_instructions.py</code>. Tests: <code>test_triage_and_flow.py</code>.</td>
+        </tr>
+        <tr>
+          <td>34</td>
+          <td>Unveränderter Entwurf wurde immer wieder synthetisiert: Im Lauf sechs Synthesen zu je 4–8&nbsp;min, fünf davon mit identischen Quellen.</td>
+          <td>Synthese-Cache: Prüfsumme über Quellen, Projekt-XDC (ohne die abgeleitete <code>auto_generated.xdc</code>), Ziel-FPGA, Timing-Gate und Version des Build-Skripts. Bei gleicher Prüfsumme und vorhandenem Bitstream wird das gespeicherte Ergebnis übernommen.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>synthesis_digest</code>, <code>read_/write_/invalidate_synthesis_cache</code> in <code>fpga.py</code>; <code>BUILD_SCRIPT_VERSION</code> in <code>vivado_synthesis.py</code>. Test: <code>test_triage_and_flow.py</code>.</td>
+        </tr>
+        <tr>
+          <td>35</td>
+          <td>Kontrollfluss- und Vertragsfehler aus der Durchsicht:
+            <ul>
+              <li>Konnte der Supervisor eine Phase nicht direkt erreichen, wechselte <code>_safe_transition_to</code> still in den ersten erlaubten Zustand, z.&nbsp;B. von der Validierung in die Synthese statt zum statischen Check.</li>
+              <li>Der Plan kannte kein Reset-Konzept, die Architektur setzte immer <code>async_active_high</code> und gab das jedem Modulauftrag mit, auch wenn PROMPT.md einen synchronen Reset verlangte (vgl. #28).</li>
+              <li>Der Auftrag an den Planer lautete bei jeder Fehlerklasse „Module erfüllen ihre Contracts, passen aber nicht zusammen“, auch bei fehlenden Anforderungen.</li>
+            </ul></td>
+          <td>Phasenwechsel über DEBUGGING oder direkt ins Ziel, nie in eine andere Phase. <code>reset_concept</code> im Plan (aus PROMPT.md, ungültige Werte werden verworfen). Auftrag an den Planer je Fehlerklasse, mit den Kernzeilen.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_safe_transition_to</code>, <code>_architecture_feedback</code> in <code>supervisor.py</code>; Planauftrag und <code>_autofix</code> in <code>plan_service.py</code>. Tests: <code>test_triage_and_flow.py</code>.</td>
+        </tr>
+        <tr>
+          <td>36</td>
+          <td>Benutzerfreigabe vor dem Flashen. Im Lauf wartete der Workflow vor dem ersten Flash 1,5&nbsp;h und danach vor jedem weiteren Versuch erneut. Die Freigabe widerspricht dem Ziel eines autonomen Systems.</td>
+          <td>Freigabe vollständig entfernt (Wunsch des Benutzers): Orchestrator (<code>approve_task</code>, <code>reject_task</code>, Wartelogik, <code>state.json</code>-Freigabe), API-Endpunkte <code>/approve</code> und <code>/reject</code>, Supervisor, Zustand <code>AWAITING_APPROVAL</code>, Ereignisse <code>APPROVAL_*</code>, Dashboard (Freigabe-Karte, Schritt „Freigabe“), Doku und Diagramme. Der Benutzer wird nur noch gerufen, wenn die Eskalationsleiter erschöpft ist oder Werkzeug bzw. Board fehlen.</td>
+          <td><span class="ok">Erledigt</span></td>
+          <td>Tests angepasst: <code>test_supervisor_orchestrator.py</code>, <code>test_multi_agent_gates.py</code> (<code>test_flash_runs_without_waiting_for_approval</code>), <code>test_hardware_workflow.py</code>, <code>test_api_contracts.py</code>, <code>test_state_machine.py</code>.</td>
+        </tr>
+        <tr>
+          <td>37</td>
+          <td>OpenCode lief nach getaner Arbeit bis zum Zeitlimit weiter. Die Abschlussprüfung (#29) schrieb ihr Urteil nach 1,5&nbsp;min und endete erst nach 900&nbsp;s durch das Zeitlimit (10:29:46 → 10:44:47); das Urteil wurde trotzdem verwendet.</td>
+          <td>Optionale Fertig-Prüfung (<code>stop_when</code>) für OpenCode-Aufrufe: Ist sie 20&nbsp;s lang durchgehend erfüllt, wird der Prozess beendet und als erfolgreich gewertet. Genutzt für die Abschlussprüfung (gültiges JSON, jede Anforderung bewertet). Implementierungsaufträge nutzen sie bewusst nicht, weil die Worker nach dem Schreiben noch selbst mit GHDL prüfen und nachbessern.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_run_via_pty</code>, <code>SubprocessOpenCodeService</code>, Docker-Variante und Port in <code>opencode_service.py</code>; <code>OpenCodeTaskRunner.run(stop_when=…)</code> (nur an Dienste, die den Parameter kennen); <code>review_complete</code> in <code>requirements.py</code>. Tests: <code>test_triage_and_flow.py</code>.</td>
+        </tr>
+        <tr>
+          <td>38</td>
+          <td>Widersprüchliches Board-Wissen und doppelte Pin-Vergabe (gefunden bei der Vorbereitung einer Testaufgabe mit Schaltern):
+            <ul>
+              <li>Der Skill <code>arty-s7-50-board</code>, seine Pin-Tabelle und die Board-Daten <code>arty_s7_50.yaml</code> (Quelle: RAG-Wissenspaket) nannten falsche Pins für BTN1/BTN3 (H13/J15 statt K16/H13) und SW1–SW3 (G14/K18/K17 statt H18/G18/M5). Außerdem erklärten sie den 100-MHz-Takt an R2 für unbenutzbar und die LEDs als LD0–LD3. Der XDC-Generator verwendete dagegen die richtigen Pins der offiziellen Master-XDC. Schreibt OpenCode die XDC nach dem Skill, reagieren SW1–SW3 am Board nicht, und die Board-Prüfung warnte vor korrekten Pins.</li>
+              <li>Der XDC-Generator legte <code>rst</code> auf BTN0 (G15) und danach <code>btn[0]</code> noch einmal auf G15, ebenso <code>en</code>/<code>sw[0]</code> und <code>load</code>/<code>btn[2]</code>. Vivado bricht dann in der Platzierung ab.</li>
+            </ul></td>
+          <td>Takt, Taster, Schalter und LED-Namen nach dem offiziellen Digilent Arty-S7-50-Master.xdc (Rev. E) korrigiert, wie im Repo dokumentiert. Pmod- und UART-Angaben sind als ungeprüft markiert. Der Generator vergibt jeden Pin nur einmal.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>src/knowledge/boards/arty_s7_50.yaml</code>, <code>src/knowledge/skills/arty-s7-50-board/SKILL.md</code> und <code>references/pin_table.md</code> (gelangen bei jedem neuen Projekt in den Workspace); Meldung der Regel <code>DDR3_CLOCK_WRONG_IOSTANDARD</code> in <code>board_facts_check.py</code>; <code>used_pins</code> in <code>_generatexdc_for_board</code> (<code>vivado_synthesis.py</code>). Test: <code>test_xdc_generator_never_assigns_a_pin_twice</code>. <span class="open">Offen:</span> UART-Pins (R12/V12, Richtung) und Pmod JA gegen die Master-XDC prüfen; das alte Template <code>ARTY_S7_50_XDC_T</code> in <code>templates.py</code> (nur Demo <code>led_running_light</code>) ist weiterhin falsch.</td>
+        </tr>
+        <tr>
+          <td>39</td>
+          <td>Abbruch eines korrekten Entwurfs am differentiellen Test (Lauf <code>led-pattern-display-cb4f0e</code>, 2026-10-11, 1,5&nbsp;h, 7 Reparaturen, dann „Eingriff erforderlich“). Das Referenzmodell rechnete mit <code>tick_cycles=4</code>, damit in 400 Takten überhaupt Schritte vorkommen. Der Generator der Vergleichs-Testbench instanziierte den Entwurf aber ohne <code>generic map</code>, also mit <code>TICK_CYCLES=25_000_000</code>. Erste Abweichung in Takt 18. Der Modellauftrag erwähnte Generics nicht, das Modell musste raten.</td>
+          <td>Generic-Vertrag zwischen Modell und Vergleichs-Testbench:
+            <ul>
+              <li>Der Modellauftrag nennt die Generics des Top-Levels und verlangt <code>GENERICS = {…}</code> mit kleinen Werten.</li>
+              <li>Ersatzweise werden die Werte aus den Konstruktor-Standardwerten des Modells abgeleitet.</li>
+              <li>Der Generator schreibt eine <code>generic map</code>, aber nur für Generics, die die Entity wirklich hat.</li>
+              <li>Fehlende Werte werden als Warnung gemeldet.</li>
+            </ul></td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>model_meta</code>, <code>entity_generics</code>, <code>resolve_generics</code> und <code>generic_map</code> in <code>reference_model.py</code>; Modellauftrag in <code>verification.py</code>. Gegenprobe am Lauf: Mit dem neuen Generator besteht der Entwurf den Vergleich (400 Takte, <code>TB_COMPLETE</code>). Tests: <code>test_model_contract_and_isolation.py</code>, darunter ein GHDL-Test.</td>
+        </tr>
+        <tr>
+          <td>40</td>
+          <td>Befunde der Agenten gingen verloren. Fünf Agentenläufe (drei Reparaturen, Modul-Neuschreiben, Fallback-Modell) erkannten die Ursache aus #39 und schrieben sie als Freitext in <code>reports/repair_notes.md</code> und <code>reports/review.md</code>; der Supervisor las beides nie. Ihre Korrektur an der erzeugten Testbench zählte als „Änderung“ und wurde vor jedem Prüflauf überschrieben. Die Leiter lief weiter (Modul neu, Architektur neu, Fallback-Modell) bis zum Abbruch, und die Meldung an den Benutzer nannte die Ursache nicht.</td>
+          <td><ul>
+              <li>Strukturierter Befund jeder Reparatur in <code>reports/repair_verdict.json</code>: Ursache (design, testbench, reference_model, generated_check, toolchain, specification) und Begründung. Der Supervisor wertet ihn aus und hält ihn im Versuchsverlauf fest.</li>
+              <li>Hält die Reparatur Modell oder erzeugte Prüfung für falsch und lässt <code>src/</code> unverändert, wird das Modell einmal mit dieser Begründung neu erzeugt.</li>
+              <li>Besteht der Streit danach weiter, wird der differentielle Test für diesen Lauf abgeschaltet, mit Warnung und Hinweis in der Abschlussmeldung.</li>
+              <li>Erzeugte Prüfdateien (<code>*_model_tb.vhd</code>) zählen nicht als Reparaturfortschritt und werden im Auftrag als „nicht bearbeiten“ benannt.</li>
+              <li>Neue Einträge in <code>reports/review.md</code> erscheinen als Ereignis.</li>
+              <li>Der letzte Befund steht in der Meldung „Eingriff erforderlich“.</li>
+            </ul></td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_read_repair_verdict</code>, <code>_handle_model_dispute</code>, <code>_collect_agent_notes</code>, <code>_is_generated</code> in <code>supervisor.py</code>; Reparaturauftrag in <code>hdl.py</code>; Ereignisse <code>REFERENCE_MODEL_DISPUTED</code>, <code>AGENT_NOTE</code>. Tests: <code>test_model_contract_and_isolation.py</code>.</td>
+        </tr>
+        <tr>
+          <td>41</td>
+          <td>OpenCode arbeitete im System-Repo. Die Sperre <code>external_directory: deny</code> greift erst außerhalb des Git-Repos, in dem der Workspace liegt. Die Dashboard-Projekte liegen unter <code>vhdl-agent/projects/</code>, also im Repo des MAS. Im Lauf führte eine Reparatur <code>git status</code>/<code>git diff</code> im System-Repo aus und las Quellcode des MAS. Ändern hätte sie ihn ebenso können. Mit <code>opencode debug scrap</code> bestätigt: Alle Dashboard-Projekte liefen als Projekt „vhdl-agent“ mit dem ganzen Repo als Arbeitsbaum.</td>
+          <td>Liegt ein Workspace in einem fremden Git-Repo, bekommt er vor dem ersten OpenCode-Aufruf ein eigenes Repo mit leerem Start-Commit. Damit ist der Workspace selbst das OpenCode-Projekt, und die Sperre greift für alles außerhalb (mit OpenCode 1.18.35 geprüft). Das System-Repo ignoriert <code>projects/</code>, das innere Repo bleibt dort unsichtbar.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>isolate_workspace_repo</code> in <code>opencode_service.py</code> (aufgerufen aus <code>ensure_native_guard</code>). Tests: <code>test_model_contract_and_isolation.py</code>.</td>
+        </tr>
+        <tr>
+          <td>42</td>
+          <td>Projektzustand zu groß und zu langsam. <code>design_state.yaml</code> wuchs auf 1,27&nbsp;MB: Jede gespeicherte Diagnose enthielt den Quelltext aller Dateien (<code>dut_content</code>) und die vollständige Simulationsausgabe (743&nbsp;KB), dazu eine nie gelesene Kopie des Taskgraphen (260&nbsp;KB). Mit dem reinen Python-YAML kosteten Laden und Speichern je 6,7&nbsp;s, und das bei jedem Phasenwechsel und zweimal vor jedem OpenCode-Aufruf (PromptStore). Pro Lauf grob 10–15&nbsp;min Wartezeit.</td>
+          <td>Gespeicherte Diagnosen enthalten die Kernzeilen des Vorfilters statt kompletter Quelltexte und Ausgaben. Keine Taskgraph-Kopie mehr (<code>task_graph.json</code> genügt). YAML über die C-Bibliothek libyaml.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>compact</code> in <code>triage.py</code>; neu <code>domain/yaml_io.py</code>, genutzt von <code>DesignState</code>, <code>PromptStore</code>, Orchestrator und API. Am Zustand des Laufs gemessen: 106&nbsp;KB, Speichern 0,08&nbsp;s, Laden 0,15&nbsp;s. Die Testsuite läuft 134&nbsp;s statt 230&nbsp;s. Tests: <code>test_model_contract_and_isolation.py</code>.</td>
+        </tr>
       </tbody>
     </table>
     </div>
@@ -503,6 +661,7 @@
         <tr><td><code>opencode.implementation_mode</code></td><td><code>modular</code> (Standard) · <code>single_session</code></td><td>Ein Worker je Modul (TaskGraph, parallel) oder ein OpenCode-Lauf für das ganze Projekt. Gates, Reparatur und Hardware-Stufen bleiben gleich.</td></tr>
         <tr><td><code>hardware_test.uart_integration</code></td><td><code>auto</code> (Standard) · <code>always</code> · <code>off</code></td><td>UART-Echo-Brücke nur bei Bedarf, immer oder nie.</td></tr>
         <tr><td><code>opencode.repair_policy</code></td><td><code>persistent</code> (Standard) · <code>standard</code></td><td>Eskalation statt Abbruch, bis zu drei Planungsversuche und höhere Iterationsgrenzen (80 statt 20) oder das bisherige, kürzere Verhalten (#26, #27). Benchmarks laufen mit <code>standard</code>.</td></tr>
+        <tr><td><code>gates.requirements_review</code></td><td><code>true</code> (Standard) · <code>false</code></td><td>Unabhängige Abschlussprüfung jeder Einzelanforderung vor der Synthese (#29). Kostet einen zusätzlichen OpenCode-Aufruf je geändertem Entwurfsstand.</td></tr>
         <tr><td><code>synthesis.enabled</code></td><td><code>true</code> · <code>false</code></td><td>Ausgeschaltet endet der Lauf nach bestandener Validierung (Simulation).</td></tr>
       </tbody>
     </table>
@@ -659,11 +818,13 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
         <tr><td>#12 Benchmark, Fehlerkategorien</td><td>Fehlschläge von Multi-Agenten-Systemen nach Spezifikation, Abstimmung zwischen Agenten und Verifikation einordnen.</td><td>[MAST]</td><td>Übernommen: Kategorien der Taxonomie. Angepasst: automatische, grobe Zuordnung über die MAS-Fehlerklasse (keine manuelle Annotation).</td></tr>
         <tr><td>Benchmark: unabhängige Referenz-Testbench je Aufgabe</td><td>Bewertung über verborgene Referenzprüfung statt über die systemeigenen Tests.</td><td>Prinzip wie bei [VerilogEval]; Prüfung der Referenzen über Mutanten nach [DeMillo et al. 1978]</td><td>Eigen: Aufgaben, Referenz-Testbenches, Toleranzregeln und Methodik (<code>docs/benchmark/METHODIK.md</code>).</td></tr>
         <tr><td>#27 Eskalationsleiter</td><td>Bei wiederholtem Fehler stufenweise eskalieren (Reparatur → Modul neu → Architektur neu → stärkeres/anderes Modell → Mensch) statt abzubrechen.</td><td>[VeriRefine], [HDLFORGE]</td><td>Eigene Entwicklung (Stufen, Zähler je Fehlerklasse und Modul, Grenzwerte, Richtlinie <code>persistent</code>/<code>standard</code>). Angelehnt: die Unterscheidung, ob ein Fehler im Code oder im Verständnis bzw. Entwurf liegt (Modul neu vs. Architektur neu), an [VeriRefine]; der Modellwechsel erst bei Bedarf an die Eskalation zu größeren Modellen bei [HDLFORGE]. Anders als dort wird nicht zu einem größeren, sondern zum konfigurierten Fallback-Modell gewechselt.</td></tr>
-        <tr><td>#2, #3, #5–#8, #11, #13–#26, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands, Vivado-Pfad und Fehlerursache, verworfene Ereignisse, Planwiederholung mit Korrekturauftrag)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen.</td></tr>
+        <tr><td>#29 Einzelanforderungen</td><td>Anforderungen einzeln vom Prompt über Plan und Tests bis zur Abschlussprüfung verfolgen; ein unabhängiges Sprachmodell bewertet das Ergebnis je Anforderung.</td><td>[Gotel/Finkelstein 1994], [LLM-as-a-Judge], verwandt: [VeriRefine], [VClare]</td><td>Übernommen: der Grundgedanke der Anforderungs-Rückverfolgbarkeit (jede Anforderung bis zu ihrer Prüfung verfolgbar) aus der Softwaretechnik [Gotel/Finkelstein 1994]; die Bewertung durch ein Sprachmodell als Prüfer [LLM-as-a-Judge]. Eigene Entwicklung: Zitatprüfung gegen PROMPT.md, Port-Zuordnung als Teil des Contracts, <code>REQ</code>-Kennzeichnung in Testbenches mit Gate, Unabhängigkeit des Prüfers (frischer Lauf, Schreibschutz), Weiterleitung der drei Fehlerklassen. Verwandt, aber nicht in deren Form umgesetzt: Spezifikationsverfeinerung vor der Codierung bei [VeriRefine] und [VClare].</td></tr>
+        <tr><td>#40 Modellstreit</td><td>Ein Referenzmodell als Prüfmaßstab kann selbst falsch sein; widerspricht die Reparatur begründet, wird das Modell einmal neu erzeugt und sonst für den Lauf abgeschaltet.</td><td>verwandt: [Oracle Problem]</td><td>Eigene Entwicklung (strukturierter Befund der Reparatur, Abschaltregel, Ausschluss erzeugter Prüfdateien vom Fortschritt). Die Problemstellung, dass das Testorakel selbst fehlerhaft sein kann, ist in der Softwaretechnik als Oracle Problem bekannt [Oracle Problem]; ein Verfahren daraus wurde nicht übernommen.</td></tr>
+        <tr><td>#2, #3, #5–#8, #11, #13–#26, #28, #30–#39, #41, #42, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands, Vivado-Pfad und Fehlerursache, verworfene Ereignisse, Planwiederholung mit Korrekturauftrag, Synthese-Standard, Rücknahme verschlechternder Reparaturen, Zeitlimit als Eskalationsschritt, Board-Konfiguration im Build-Skript, Vorfilter mit Herkunft und Kernzeilen, Eskalationsleitern je Herkunft mit Versuchsverlauf, Testbench-Reparatur über Dateien, Synthese-Cache, Phasenwechsel und Planverträge, Entfernung der Benutzerfreigabe, vorzeitiges Ende bei vollständigem Ergebnis, Korrektur des Board-Wissens nach der Master-XDC, eindeutige Pin-Vergabe, Generic-Vertrag des differentiellen Tests, Workspace-Isolation, kompakter Projektzustand)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen. Der Synthese-Cache nutzt die gängige Technik inkrementeller Build-Systeme (Neubau nur bei geänderter Eingabe-Prüfsumme).</td></tr>
       </tbody>
     </table>
     </div>
-    <p>Nicht umgesetzte, in der Analyse vorgeschlagene Maßnahmen gehen ebenfalls auf Veröffentlichungen zurück: Spezifikationsverfeinerung und Verdrahtungsprüfung im Plan ([VeriRefine], [VClare], [Mitigating Errors], [VeriGraphi]) sowie Kandidatenauswahl per Simulation ([VRank], [VerilogMonkey], [MAGE], [VFocus]).</p>
+    <p>Nicht umgesetzte, in der Analyse vorgeschlagene Maßnahmen gehen ebenfalls auf Veröffentlichungen zurück: Spezifikationsverfeinerung (seit #29 teilweise: Einzelanforderungen, nicht das Verfahren der Quellen) und Verdrahtungsprüfung im Plan ([VeriRefine], [VClare], [Mitigating Errors], [VeriGraphi]) sowie Kandidatenauswahl per Simulation ([VRank], [VerilogMonkey], [MAGE], [VFocus]).</p>
 
     <h3>17.2 Literatur</h3>
     <p>Geprüft: Titel und Kennung anhand von arXiv bzw. Verlagsangaben; Inhalte anhand der Abstracts. Wo hier keine Autoren stehen, wurden sie nicht geprüft und müssen für die Arbeit aus der jeweiligen arXiv-Seite übernommen werden.</p>
@@ -687,6 +848,9 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
       <li>[VRank] arXiv:2502.00028 (Kandidaten-Clustering per Simulation).</li>
       <li>[VerilogMonkey] <em>VerilogMonkey: Exploring Parallel Scaling for Automated Verilog Code Generation with LLMs.</em> arXiv:2509.16246.</li>
       <li>[VFocus] <em>VFocus: Better Verilog Generation from Large Language Model via Focused Reasoning.</em> arXiv:2511.02285.</li>
+      <li>[Gotel/Finkelstein 1994] O. C. Z. Gotel, A. C. W. Finkelstein: <em>An Analysis of the Requirements Traceability Problem.</em> Proc. IEEE International Conference on Requirements Engineering (ICRE), 1994, S. 94–101.</li>
+      <li>[LLM-as-a-Judge] L. Zheng et al.: <em>Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena.</em> arXiv:2306.05685 (NeurIPS 2023).</li>
+      <li>[Oracle Problem] E. T. Barr, M. Harman, P. McMinn, M. Shahbaz, S. Yoo: <em>The Oracle Problem in Software Testing: A Survey.</em> IEEE Transactions on Software Engineering 41(5), 2015, S. 507–525.</li>
       <li>[McKeeman 1998] W. M. McKeeman: <em>Differential Testing for Software.</em> Digital Technical Journal 10(1), 1998, S. 100–107.</li>
       <li>[DeMillo et al. 1978] R. A. DeMillo, R. J. Lipton, F. G. Sayward: <em>Hints on Test Data Selection: Help for the Practicing Programmer.</em> IEEE Computer 11(4), 1978, S. 34–41.</li>
       <li>[Jia &amp; Harman 2011] Y. Jia, M. Harman: <em>An Analysis and Survey of the Development of Mutation Testing.</em> IEEE Transactions on Software Engineering 37(5), 2011, S. 649–678.</li>

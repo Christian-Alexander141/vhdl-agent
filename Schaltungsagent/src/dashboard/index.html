@@ -115,7 +115,6 @@
 
                         <li class="step-group">Hardware</li>
                         <li class="step" data-step="SYNTHESIZING"><span class="step-marker"></span><span class="step-label">Synthese</span></li>
-                        <li class="step" data-step="AWAITING_APPROVAL"><span class="step-marker"></span><span class="step-label">Freigabe</span></li>
                         <li class="step" data-step="FPGA_PROGRAMMING"><span class="step-marker"></span><span class="step-label">FPGA flashen</span></li>
                         <li class="step" data-step="HARDWARE_TESTING"><span class="step-marker"></span><span class="step-label">Hardwaretest</span></li>
 
@@ -412,6 +411,7 @@
                         <div class="toggle-list">
                             <label class="toggle"><input type="checkbox" data-setting="gates.enforce_contracts"><span>Port-Verträge erzwingen (Richtung, Typ, Bitbreite) ⟳</span></label>
                             <label class="toggle"><input type="checkbox" data-setting="gates.require_timing_closure"><span>Timing-Gate: WNS/WHS ≥ 0 und Reports Pflicht ⟳</span></label>
+                            <label class="toggle"><input type="checkbox" data-setting="gates.requirements_review"><span>Abschlussprüfung: jede Anforderung aus dem Prompt einzeln gegen den Entwurf prüfen ⟳</span></label>
                             <label class="toggle"><input type="checkbox" data-setting="knowledge.enabled"><span>Wissensbasis (Skills, Board-Daten) bereitstellen ⟳</span></label>
                             <label class="toggle"><input type="checkbox" data-setting="synthesis.enabled"><span>Nach bestandener Validierung synthetisieren (aus: Lauf endet nach der Simulation) ⟳</span></label>
                         </div>

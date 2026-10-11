@@ -1,5 +1,4 @@
 """Factories for constructing the production supervisor and its agents."""
-from collections.abc import Callable
 
 from src.agents.architecture import ArchitectureAgent
 from src.agents.debug import DebugAgent
@@ -24,7 +23,6 @@ def build_supervisor_agent(
     plan_timeout_seconds: int = 180,
     max_prompt_bytes: int = 200_000,
     skills_dir: str = ".opencode/skills",
-    approval_handler: Callable[[str, str], tuple[bool, str]] | None = None,
     validation_service=None,
     settings=None,
 ) -> SupervisorAgent:
@@ -103,21 +101,23 @@ def build_supervisor_agent(
         debug_agent=debug_agent,
         fpga_agent=fpga_agent,
         hardware_test_agent=hardware_test_agent,
-        approval_handler=approval_handler,
         validation_service=validation_service,
         fpga_registry=registry or None,
         model_switcher=_model_switcher(opencode_service, settings),
         config={
             "repair_policy": policy,
-            # Persistent: genug Spielraum für alle Eskalationsstufen.
-            "max_iterations": 80 if persistent else 20,
-            "max_repairs_per_stage": max(max_repair_iterations, 15) if persistent else max_repair_iterations,
+            # Persistent: genug Spielraum für alle Eskalationsstufen mehrerer
+            # Fehler; das eigentliche Ende setzt die Eskalationsleiter (Mensch
+            # mit Zusammenfassung), nicht diese Sicherheitsgrenzen.
+            "max_iterations": 150 if persistent else 20,
+            "max_repairs_per_stage": max(max_repair_iterations, 40) if persistent else max_repair_iterations,
             "max_simulation_failures": 40 if persistent else 10,
             "max_hardware_failures": 5,
             "min_module_coverage": getattr(gates, "min_module_coverage", 1.0),
             "enforce_contracts": getattr(gates, "enforce_contracts", True),
             "min_mutation_score": getattr(gates, "min_mutation_score", 0.6),
             "max_mutants": getattr(gates, "max_mutants", 10),
+            "requirements_review": getattr(gates, "requirements_review", True),
             "max_parallel_workers": getattr(limits, "max_parallel_workers", 2),
             "default_fpga": getattr(synthesis, "default_fpga", "arty_s7_50"),
             "synthesis_enabled": getattr(synthesis, "enabled", True),

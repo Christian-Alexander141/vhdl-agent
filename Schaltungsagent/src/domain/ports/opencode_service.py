@@ -27,5 +27,8 @@ class OpenCodeService(ABC):
         project_path: str,
         instruction: str,
         timeout_seconds: int = 600,
+        stop_when=None,
     ) -> OpenCodeResult:
+        """``stop_when``: optionale Prüfung; ist sie eine Weile durchgehend
+        wahr (Ergebnis vollständig), darf der Aufruf vorzeitig enden."""
         ...

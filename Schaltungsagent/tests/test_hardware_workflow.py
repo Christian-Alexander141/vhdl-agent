@@ -11,7 +11,7 @@ Testet:
 - Passendes JTAG-Gerät → Flash
 - Falsches JTAG-Gerät → kein Flash
 - Kein JTAG-Gerät → Fehler
-- Flash ohne User Approval → verboten
+- Flash ohne Benutzerfreigabe (Freigabe entfernt 2026-10-11)
 - DRC-Abschwächung entfernt
 """
 import pytest
@@ -388,13 +388,12 @@ class TestJTAGDeviceMatching:
             assert "kein passendes" in result.message.lower()
 
 
-class TestFlashRequiresApproval:
-    """Tests dass Flash ohne User Approval verboten ist."""
+class TestFlashStates:
+    """Flash-Zustände; eine Benutzerfreigabe gibt es nicht mehr (entfernt 2026-10-11)."""
 
-    def test_workflow_states_include_approval(self):
-        """Workflow muss AWAITING_APPROVAL Zustand haben."""
-        assert hasattr(WorkflowState, 'AWAITING_APPROVAL')
-        assert WorkflowState.AWAITING_APPROVAL == "AWAITING_APPROVAL"
+    def test_no_approval_state(self):
+        assert not hasattr(WorkflowState, 'AWAITING_APPROVAL')
+        assert not hasattr(WorkflowStatus, 'AWAITING_APPROVAL')
 
     def test_workflow_states_include_flashing(self):
         """Workflow muss FLASHING Zustand haben."""
@@ -411,12 +410,10 @@ class TestFlashRequiresApproval:
         assert hasattr(WorkflowState, 'SYNTHESIZING')
         assert WorkflowState.SYNTHESIZING == "SYNTHESIZING"
 
-    def test_transitions_require_approval_before_flash(self):
-        """FLASHING darf nur nach AWAITING_APPROVAL erfolgen."""
+    def test_flash_failure_goes_to_debugging(self):
         from src.domain.state_machine import TRANSITIONS
 
-        # AWAITING_APPROVAL -> FLASHING muss erlaubt sein
-        assert WorkflowState.FLASHING in TRANSITIONS[WorkflowState.AWAITING_APPROVAL]
+        assert WorkflowState.DEBUGGING in TRANSITIONS[WorkflowState.FPGA_PROGRAMMING]
 
     def test_transitions_flashed_to_completed(self):
         """FLASHED -> COMPLETED muss erlaubt sein."""
@@ -428,11 +425,6 @@ class TestFlashRequiresApproval:
         """WorkflowStatus muss SYNTHESIZING enthalten."""
         assert hasattr(WorkflowStatus, 'SYNTHESIZING')
         assert WorkflowStatus.SYNTHESIZING == "SYNTHESIZING"
-
-    def test_workflow_status_includes_awaiting_approval(self):
-        """WorkflowStatus muss AWAITING_APPROVAL enthalten."""
-        assert hasattr(WorkflowStatus, 'AWAITING_APPROVAL')
-        assert WorkflowStatus.AWAITING_APPROVAL == "AWAITING_APPROVAL"
 
     def test_workflow_status_includes_flashing(self):
         """WorkflowStatus muss FLASHING enthalten."""

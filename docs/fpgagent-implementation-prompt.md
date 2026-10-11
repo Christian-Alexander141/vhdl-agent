@@ -48,8 +48,8 @@ Deterministische Services entscheiden ueber alle Qualitaetsgates.
   Flash-Services, parst echte Reports (keine Demo-Werte).
 - `HardwareTestAgent`: `COMPLETED` nur bei erkannter, programmierter realer
   Hardware + bestandenem Protokoll. Mock / Simulation / Hardware strikt trennen.
-- `SupervisorAgent`: steuert Gates, Reparaturbudget, Checkpoints, Approval,
-  Resume. Keine Phase ohne bestandenes Gate ueberspringen.
+- `SupervisorAgent`: steuert Gates, Reparaturbudget, Checkpoints und
+  Resume (die frühere Freigabe vor dem Flashen ist seit 2026-10-11 entfernt). Keine Phase ohne bestandenes Gate ueberspringen.
 
 ## Harte Gates (aus Fehlern gelernt, nicht verhandelbar)
 
@@ -68,8 +68,8 @@ Deterministische Services entscheiden ueber alle Qualitaetsgates.
 - Jedes Artefakt muss zur aktuellen Source-Revision gehoeren (Hashes
   vergleichen; Bitstream neuer als Quellen). Fremde/veraltete Artefakte
   ablehnen, nie flashen.
-- Flash nur nach Approval + erfolgreicher Bitstream-Pruefung, nur bei genau
-  einem passenden Board. Mehrere/kein Board = `BLOCKED` mit Diagnose.
+- Flash nur nach erfolgreicher Bitstream-Pruefung (ohne Benutzerfreigabe,
+  entfernt 2026-10-11), nur bei genau einem passenden Board. Mehrere/kein Board = `BLOCKED` mit Diagnose.
 
 ## Board-Wissen: Digilent Arty S7-50 (verifiziert 2026-09-23)
 

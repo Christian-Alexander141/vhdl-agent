@@ -15,9 +15,11 @@ from src.domain.agents.communication import AgentMessage, TaskResult, Verificati
 from src.domain.agents.task_graph import TaskGraph
 from src.domain.agents.contract_check import ContractChecker
 from src.domain.agents import reference_model as refmodel
+from src.domain.agents import requirements as reqs
+from src.domain.agents.triage import ORIGIN_BY_TYPE, compact as compact_diagnostic
 from src.domain.agents.repair_routing import RepairTarget, route_repair
 from src.domain.agents.test_plan import build_test_plan
-from src.domain.models import DesignState, DesignStage, EventType, Requirement, ModuleInfo, ArchitectureInfo, VerificationInfo, SynthesisInfo, HardwareTestInfo
+from src.domain.models import DesignState, DesignStage, EventType, Requirement, RequirementStatus, ModuleInfo, ArchitectureInfo, VerificationInfo, SynthesisInfo, HardwareTestInfo
 from src.domain.state_machine import StateMachine, WorkflowState
 from src.domain.exceptions import WorkflowError, StateMachineError
 from src.services.project_memory import ProjectMemoryService
@@ -65,7 +67,6 @@ class SupervisorAgent(BaseAgent):
         debug_agent=None,
         fpga_agent=None,
         hardware_test_agent=None,
-        approval_handler: Callable[[str, str], tuple[bool, str]] | None = None,
         validation_service=None,
         config: dict | None = None,
         fpga_registry: dict | None = None,
@@ -86,7 +87,6 @@ class SupervisorAgent(BaseAgent):
         self._debug_agent = debug_agent
         self._fpga_agent = fpga_agent
         self._hardware_test_agent = hardware_test_agent
-        self._approval_handler = approval_handler
         
         # Configuration
         self._config = config or {}
@@ -95,6 +95,7 @@ class SupervisorAgent(BaseAgent):
         self._max_simulation_failures = self._config.get("max_simulation_failures", 10)
         # "persistent": bei Fehlern eskalieren statt aufzugeben (siehe _escalate).
         self._persistent = self._config.get("repair_policy", "standard") == "persistent"
+        self._repair_snapshot: dict | None = None
         self._max_hardware_failures = self._config.get("max_hardware_failures", 5)
         self._heartbeat_interval_seconds = max(
             float(self._config.get("heartbeat_interval_seconds", 20)), 0.1
@@ -105,6 +106,7 @@ class SupervisorAgent(BaseAgent):
         # Mutationsanalyse der Testbenches (Doku Abschnitt 16, Maßnahme B); 0 = aus.
         self._min_mutation_score = float(self._config.get("min_mutation_score", 0.0))
         self._max_mutants = int(self._config.get("max_mutants", 10))
+        self._requirements_review_enabled = bool(self._config.get("requirements_review", True))
         self._default_fpga = self._config.get("default_fpga", "arty_s7_50")
         
         # State - per-project isolation via locks
@@ -338,7 +340,7 @@ class SupervisorAgent(BaseAgent):
                 continue
             
             elif result.status == AgentStatus.BLOCKED:
-                # Auf User-Input warten (Approval, Hardware-Probleme, etc.)
+                # Benutzer muss eingreifen (z. B. Board nicht angeschlossen)
                 user_result = await self._request_human_intervention(result)
                 if user_result:
                     continue
@@ -392,6 +394,16 @@ class SupervisorAgent(BaseAgent):
         )
 
     def _completion_message(self) -> str:
+        message = self._completion_message_base()
+        model = self._design_state.metadata.get("reference_model") or {}
+        if model.get("status") == "disputed":
+            message += (
+                " Hinweis: Der Vergleich mit dem Referenzmodell wurde abgeschaltet, weil Reparatur und Modell "
+                f"sich widersprachen ({model.get('cause')}): {model.get('reason', '')[:300]}"
+            )
+        return message
+
+    def _completion_message_base(self) -> str:
         hardware = self._design_state.hardware
         if hardware.status == "passed":
             return (
@@ -657,8 +669,10 @@ class SupervisorAgent(BaseAgent):
             self._design_state.architecture.status = "completed"
             self._design_state.architecture.version += 1
             
-            # Requirements mit Modulen verknüpfen
-            self._link_requirements_to_modules()
+            # Requirements mit Modulen verknüpfen: bevorzugt die Einzel-
+            # anforderungen des Plans, sonst die alte Stichwortzuordnung.
+            if not self._adopt_plan_requirements(manifest):
+                self._link_requirements_to_modules()
         
         return result
 
@@ -1072,7 +1086,11 @@ class SupervisorAgent(BaseAgent):
 
         # --- TaskGraph persistieren ---
         self._persist_task_graph(workspace, graph)
-        self._design_state.metadata["task_graph"] = graph.to_dict()
+        # task_graph.json enthält den Graphen; im Projektzustand nur die Übersicht
+        # (die frühere Kopie war 260 KB groß und wurde nie gelesen).
+        self._design_state.metadata["task_graph"] = {
+            "tasks": len(graph.get_all_tasks()), "file": "task_graph.json",
+        }
         
         if all_errors:
             self._emit_event("IMPLEMENTATION_GRAPH_FAILED", {
@@ -1450,10 +1468,17 @@ class SupervisorAgent(BaseAgent):
                 "modules": uncovered,
             })
 
+        gaps = self._requirement_gaps()
+        if gaps:
+            problems.append(gaps)
+
         if not problems:
             weak = await self._mutation_gate()
             if weak:
                 problems.append(weak)
+
+        if not problems:
+            problems.extend(await self._requirements_review())
 
         if not problems:
             for requirement in self._design_state.requirements:
@@ -1471,6 +1496,137 @@ class SupervisorAgent(BaseAgent):
             error_message=problems[0]["message"],
             diagnostics=[{"type": "validation_gate", "stage": "validation", **p} for p in problems],
         )
+
+    def _requirement_gaps(self) -> dict | None:
+        """Jede simulierbare Einzelanforderung braucht eine gekennzeichnete
+        Testbench-Prüfung (report "REQ Rn: ..."). Sonst kann eine Anforderung
+        unbemerkt fehlen, obwohl alle Tests grün sind (Lauf gray-countdown)."""
+        requirements = self._requirement_dicts()
+        if not requirements:
+            return None
+        from src.domain.agents.test_plan import _tb_sources
+
+        workspace = self._fs.workspace_path(self._current_task.project_id)
+        gaps = reqs.uncovered_simulation_requirements(requirements, _tb_sources(Path(workspace) / "tests"))
+        if not gaps:
+            return None
+        return {
+            "failure_type": "requirement_gap",
+            "message": (
+                "Requirement gap: no testbench assertion with report text 'REQ <id>' for "
+                + "; ".join(f"{r['id']} ({r['text'][:120]})" for r in gaps)
+            ),
+            "modules": sorted({m for r in gaps for m in r["modules"]}),
+            "requirements": [r["id"] for r in gaps],
+        }
+
+    @staticmethod
+    def _is_generated(path: Path) -> bool:
+        """Vom System erzeugte Prüfdateien: werden vor jedem Prüflauf neu
+        geschrieben; Änderungen daran sind kein Reparaturfortschritt."""
+        return path.name.endswith("_model_tb.vhd")
+
+    def _read_sources(self) -> dict[Path, str]:
+        root = Path(self._fs.workspace_path(self._current_task.project_id))
+        files: dict[Path, str] = {}
+        for name in self._SNAPSHOT_DIRS:
+            folder = root / name
+            if folder.is_dir():
+                for path in sorted(folder.iterdir()):
+                    if path.is_file() and path.suffix.lower() in (".vhd", ".vhdl") and not self._is_generated(path):
+                        files[path] = path.read_text(errors="replace")
+        return files
+
+    async def _requirements_review(self) -> list[dict]:
+        """Unabhängige Abschlussprüfung: erfüllt der Entwurf jede Anforderung,
+        und fehlt in der Liste etwas aus PROMPT.md?
+
+        Ein frischer OpenCode-Lauf, der den Entwurf nicht geschrieben hat,
+        bewertet jede Anforderung mit Begründung. Er darf nichts ändern
+        (Änderungen werden verworfen). Ist er nicht verfügbar, wird gewarnt
+        statt blockiert; jedes Urteil ist ein Sprachmodell-Urteil.
+        """
+        requirements = self._requirement_dicts()
+        if not requirements or not self._requirements_review_enabled or not self._verification_agent:
+            return []
+        sources = self._read_sources()
+        digest = hashlib.sha256(
+            json.dumps([[str(p), c] for p, c in sources.items()] + [requirements], sort_keys=True).encode()
+        ).hexdigest()
+        state = self._design_state.metadata.get("requirements_review") or {}
+        if state.get("digest") == digest and state.get("status") == "passed":
+            return []
+        result = await self._verification_agent.execute(AgentTask(
+            id=str(uuid.uuid4()),
+            type="review_requirements",
+            project_id=self._current_task.project_id,
+            inputs={
+                "workspace": self._fs.workspace_path(self._current_task.project_id),
+                "request": self._design_state.metadata.get("request_full", ""),
+                "requirements": requirements,
+            },
+        ))
+        if self._read_sources() != sources:
+            self._restore_snapshot({"files": sources})
+            logger.warning("Requirements review modified sources; changes discarded")
+        now = datetime.now(timezone.utc).isoformat()
+        if result.status != AgentStatus.COMPLETED:
+            self._design_state.metadata["requirements_review"] = {
+                "status": "unavailable", "reason": (result.error_message or "")[:500], "at": now,
+            }
+            self._emit_event("REQUIREMENTS_WARNING", {
+                "project_id": self._current_task.project_id,
+                "message": f"Abschlussprüfung der Anforderungen nicht verfügbar: {(result.error_message or '')[:300]}",
+            })
+            return []
+
+        review = result.outputs.get("review") or {}
+        violations, missing = review.get("violations", []), review.get("missing", [])
+        verdict = {v["id"]: "not_met" for v in violations} | {rid: "met" for rid in review.get("met", []) if rid not in {v["id"] for v in violations}}
+        for requirement in self._design_state.requirements:
+            if requirement.id in verdict:
+                requirement.review = verdict[requirement.id]
+                requirement.status = (
+                    RequirementStatus.SATISFIED if verdict[requirement.id] == "met" else RequirementStatus.FAILED
+                )
+        top = self._design_state.architecture.top_module
+        for item in missing:
+            self._design_state.requirements.append(Requirement(
+                id=reqs.next_id(self._requirement_dicts()), description=item["text"], quote=item["quote"],
+                satisfied_by=item.get("modules") or ([top] if top else []),
+                check="simulation", review="added",
+            ))
+        if missing:
+            self._write_requirements_file()
+        problems: list[dict] = []
+        if missing:
+            problems.append({
+                "failure_type": "requirement_missing",
+                "message": "Requirements from PROMPT.md missing in the plan and design: "
+                + "; ".join(f"{m['text']} (\"{m['quote']}\")" for m in missing),
+                "modules": sorted({m for item in missing for m in (item.get("modules") or [top]) if m}),
+            })
+        if violations:
+            problems.append({
+                "failure_type": "requirement_violation",
+                "message": "Requirements not met: " + "; ".join(
+                    f"{v['id']} {v['text'][:120]}: {v['evidence'][:300]}" for v in violations),
+                "modules": sorted({m for v in violations for m in v["modules"]}),
+                "requirements": [v["id"] for v in violations],
+            })
+        self._design_state.metadata["requirements_review"] = {
+            "digest": digest, "status": "failed" if problems else "passed",
+            "violations": [v["id"] for v in violations], "missing": len(missing),
+            "unrated": review.get("unrated", []), "at": now,
+        }
+        self._emit_event("REQUIREMENTS_REVIEW", {
+            "project_id": self._current_task.project_id,
+            "message": (
+                f"Anforderungen: {len(review.get('met', []))} erfüllt, {len(violations)} verletzt, "
+                f"{len(missing)} fehlten in der Liste"
+            ),
+        })
+        return problems
 
     async def _mutation_gate(self) -> dict | None:
         """Erkennen die Testbenches absichtlich fehlerhafte Varianten des Entwurfs?
@@ -1627,22 +1783,9 @@ class SupervisorAgent(BaseAgent):
             },
         )
 
-        if self._approval_handler:
-            approved, feedback = self._approval_handler(
-                self._current_task.project_id,
-                self._design_state.synthesis.bitstream_path,
-            )
-            if not approved:
-                self._emit_event("APPROVAL_REJECTED", {
-                    "project_id": self._current_task.project_id,
-                    "feedback": feedback,
-                })
-                return AgentResult(
-                    task_id=self._current_task.id,
-                    status=AgentStatus.BLOCKED,
-                    error_message=feedback or "Bitstream approval rejected",
-                )
-        
+        # Keine Benutzerfreigabe vor dem Flashen mehr (entfernt 2026-10-11):
+        # Im Lauf gray-countdown wartete der Workflow so 1,5 h und danach bei
+        # jeder Wiederholung erneut.
         result = await self._fpga_agent.execute(task)
         
         if result.status == AgentStatus.COMPLETED:
@@ -1725,6 +1868,16 @@ class SupervisorAgent(BaseAgent):
         (5, "rearchitect"),   # Architektur/Plan dieses Teils überarbeiten
         (7, "switch_model"),  # Fallback-Modell, dann wieder reparieren
     )
+    # Leitern je Herkunft (Vorfilter, domain/agents/triage.py). Neu schreiben
+    # und Architekturüberarbeitung helfen nur bei Entwurfsfehlern; bei
+    # Testbench-, Anforderungs- und Werkzeug-/Konfigurationsfehlern richteten
+    # sie im Lauf gray-countdown (2026-10-11) nur Schaden an und kosteten Zeit.
+    _LADDERS = {
+        "design": _ESCALATION_LADDER,
+        "verification": ((2, "repair"), (3, "switch_model"), (4, "repair")),
+        "requirements": ((2, "repair"), (3, "switch_model"), (4, "repair")),
+        "toolchain": ((2, "repair"), (3, "switch_model"), (4, "repair")),
+    }
 
     def _escalate(self, failure_type: str, diagnosis: dict, target: RepairTarget) -> tuple[RepairTarget, str]:
         """Wählt je nach bisherigen Versuchen für denselben Fehler die nächste Maßnahme.
@@ -1733,6 +1886,8 @@ class SupervisorAgent(BaseAgent):
         Jetzt wird bei wiederholtem Scheitern die Maßnahme gewechselt; erst nach
         allen Stufen geht der Fehler mit einer Zusammenfassung an den Benutzer.
         Werkzeug-, Board- und Ressourcenprobleme (Ziel HUMAN) bleiben unverändert.
+        Die bisherigen Versuche (Maßnahme und Ergebnis) gehen in die Diagnose,
+        damit die nächste Stufe sie nicht wiederholt.
         """
         if target == RepairTarget.HUMAN:
             return target, "human"
@@ -1741,7 +1896,9 @@ class SupervisorAgent(BaseAgent):
         counts = self._design_state.metadata.setdefault("escalation", {})
         attempt = int(counts.get(key, 0)) + 1
         counts[key] = attempt
-        action = next((a for limit, a in self._ESCALATION_LADDER if attempt <= limit), "human")
+        origin = diagnosis.get("origin") or ORIGIN_BY_TYPE.get(failure_type, "design")
+        ladder = self._LADDERS.get(origin, self._ESCALATION_LADDER)
+        action = next((a for limit, a in ladder if attempt <= limit), "human")
         if diagnosis.get("regenerate_model"):
             action = "repair"  # Modellprüfung (Maßnahme A) hat Vorrang
         if action == "regenerate" and target not in (RepairTarget.HDL, RepairTarget.FPGA):
@@ -1750,22 +1907,31 @@ class SupervisorAgent(BaseAgent):
             action = "repair"
         if action == "rearchitect":
             target = RepairTarget.ARCHITECTURE
+        log = self._design_state.metadata.setdefault("escalation_log", [])
+        diagnosis["attempt"] = attempt
+        diagnosis["previous_attempts"] = [
+            {k: e.get(k) for k in ("attempt", "action", "outcome") if e.get(k) is not None}
+            for e in log if e.get("key") == key
+        ]
         if action == "human":
             target = RepairTarget.HUMAN
-            log = self._design_state.metadata.get("escalation_log", [])
             diagnosis["recommended_action"] = (
                 f"Nach {attempt - 1} Versuchen für '{failure_type}' ({module or 'Gesamtentwurf'}) nicht gelöst. "
                 f"Versucht: {', '.join(dict.fromkeys(self._ESCALATION_LABELS[e['action']] for e in log if e['key'] == key and e['action'] != 'human')) or 'gezielte Reparatur'}."
             )
-        self._design_state.metadata.setdefault("escalation_log", []).append(
-            {"key": key, "attempt": attempt, "action": action, "at": datetime.now(timezone.utc).isoformat()}
-        )
+        log.append({"key": key, "attempt": attempt, "action": action, "origin": origin,
+                    "at": datetime.now(timezone.utc).isoformat()})
         self._emit_event("ESCALATION", {
             "project_id": self._current_task.project_id,
             "failure_type": failure_type, "module": module, "attempt": attempt, "action": action,
             "message": f"{failure_type} ({module or 'Entwurf'}), Versuch {attempt}: {self._ESCALATION_LABELS[action]}",
         })
         return target, action
+
+    def _record_attempt_outcome(self, outcome: str) -> None:
+        log = self._design_state.metadata.get("escalation_log") or []
+        if log:
+            log[-1]["outcome"] = outcome[:300]
 
     _ESCALATION_LABELS = {
         "repair": "gezielte Reparatur",
@@ -1774,6 +1940,73 @@ class SupervisorAgent(BaseAgent):
         "switch_model": "Wechsel auf das Fallback-Modell",
         "human": "Eingriff erforderlich",
     }
+
+    # Reihenfolge der Prüfphasen: scheitert nach einer Reparatur eine frühere
+    # Phase als vorher, hat die Reparatur etwas kaputt gemacht.
+    _STAGE_RANK = {
+        DesignStage.STATIC_CHECK: 1,
+        DesignStage.VERIFYING: 2,
+        DesignStage.SIMULATING: 2,
+        DesignStage.VALIDATING: 3,
+        DesignStage.SYNTHESIZING: 4,
+        DesignStage.FPGA_PROGRAMMING: 5,
+        DesignStage.HARDWARE_TESTING: 6,
+    }
+    _SNAPSHOT_DIRS = ("src", "tests")
+
+    def _take_repair_snapshot(self, stage: DesignStage) -> None:
+        """Merkt sich die HDL-Quellen vor einer gezielten Reparatur.
+
+        Lauf traffic-light 2026-10-10: Der Entwurf hatte Simulation und
+        Mutationsanalyse bestanden, die GHDL-Synthese scheiterte an einem
+        Werkzeugaufruf. Die anschließende Reparatur änderte den korrekten
+        Entwurf, danach scheiterte schon der statische Check.
+        """
+        rank = self._STAGE_RANK.get(stage)
+        self._repair_snapshot = None
+        if rank is None:
+            return
+        self._repair_snapshot = {"rank": rank, "stage": stage.value, "files": self._read_sources()}
+
+    def _rollback_regression(self, stage: DesignStage) -> bool:
+        """Stellt den Stand vor der letzten Reparatur wieder her, wenn sie eine
+        bereits bestandene Phase gebrochen hat. Der Fehlversuch bleibt in der
+        Eskalation gezählt, die nächste Stufe greift beim erneuten Fehler."""
+        snapshot = getattr(self, "_repair_snapshot", None)
+        self._repair_snapshot = None
+        rank = self._STAGE_RANK.get(stage)
+        if not snapshot or rank is None or rank >= snapshot["rank"]:
+            return False
+        self._restore_snapshot(snapshot)
+        self._design_state.metadata.setdefault("rollbacks", []).append({
+            "failed_stage": stage.value,
+            "restored_to_stage": snapshot["stage"],
+            "at": datetime.now(timezone.utc).isoformat(),
+        })
+        self._emit_event("REPAIR_ROLLED_BACK", {
+            "project_id": self._current_task.project_id,
+            "failed_stage": stage.value,
+            "message": (
+                f"Reparatur zurückgenommen: danach scheiterte '{stage.value}', "
+                f"vorher erst '{snapshot['stage']}'"
+            ),
+        })
+        return True
+
+    def _restore_snapshot(self, snapshot: dict) -> None:
+        from src.services.opencode_task_runner import atomic_write_text
+
+        root = Path(self._fs.workspace_path(self._current_task.project_id))
+        for name in self._SNAPSHOT_DIRS:
+            folder = root / name
+            if folder.is_dir():
+                for path in folder.iterdir():
+                    if (path.is_file() and path.suffix.lower() in (".vhd", ".vhdl")
+                            and path not in snapshot["files"] and not self._is_generated(path)):
+                        path.unlink()
+        for path, content in snapshot["files"].items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(path, content)
 
     def _switch_to_fallback_model(self) -> None:
         if self._model_switcher is None or self._design_state.metadata.get("fallback_model_active"):
@@ -1892,6 +2125,12 @@ class SupervisorAgent(BaseAgent):
             return
         if self._design_state.metadata.get("uart_required"):
             return
+        if (self._design_state.metadata.get("reference_model") or {}).get("status") == "disputed":
+            # Differentieller Test für diesen Lauf abgeschaltet (_handle_model_dispute).
+            stale = Path(workspace) / refmodel.model_testbench_path(top)
+            if stale.is_file():
+                stale.unlink()
+            return
         try:
             status = refmodel.write_model_testbench(workspace, top)
         except Exception as exc:
@@ -1902,6 +2141,14 @@ class SupervisorAgent(BaseAgent):
             stale = Path(workspace) / refmodel.model_testbench_path(top)
             if stale.is_file():
                 stale.unlink()
+        previous = self._design_state.metadata.get("model_testbench") or {}
+        if status.get("generics_default") and status.get("generics_default") != previous.get("generics_default"):
+            self._emit_event("REFERENCE_MODEL", {
+                "project_id": self._current_task.project_id, "status": "warning",
+                "message": "Referenzmodell nennt keine Werte für die Generics "
+                + ", ".join(status["generics_default"])
+                + "; der Entwurf läuft im Vergleich mit seinen Standardwerten.",
+            })
         self._design_state.metadata["model_testbench"] = status
 
     def _classify_model_mismatch(self, diagnostic: dict) -> dict:
@@ -1933,14 +2180,16 @@ class SupervisorAgent(BaseAgent):
             return RepairTarget.VERIFICATION
         return target
 
-    async def _regenerate_reference_model(self, diagnosis: dict) -> AgentResult:
+    async def _regenerate_reference_model(self, diagnosis: dict, finding: str = "") -> AgentResult:
         self._design_state.metadata["model_regenerated"] = True
         evidence = "; ".join(str(e) for e in diagnosis.get("evidence", [])[:2])[:1500]
         hint = (
-            "Der VHDL-Entwurf weicht nach zwei Reparaturen weiterhin vom Modell ab. Prüfe, ob das Modell "
-            "PROMPT.md korrekt auslegt (z. B. Takt-/Phasenzählung, Reset-Verhalten), und korrigiere es nur "
-            f"dann. Abweichung: {evidence}"
+            "Der VHDL-Entwurf weicht weiterhin vom Modell ab. Prüfe, ob das Modell PROMPT.md korrekt "
+            "auslegt (z. B. Takt-/Phasenzählung, Reset-Verhalten, Werte in GENERICS), und korrigiere es "
+            f"nur dann. Abweichung: {evidence}"
         )
+        if finding:
+            hint += f"\nBefund der Reparatur, die den Entwurf für korrekt hält: {finding[:1500]}"
         status = await self._ensure_reference_model(hint=hint, force=True)
         self._safe_transition_to(DesignStage.STATIC_CHECK)
         await self._save_design_state()
@@ -2019,7 +2268,7 @@ class SupervisorAgent(BaseAgent):
         evidence = diagnosis.get("evidence", [])
         failed_stage = diagnosis.get("stage") or self._design_state.metadata.get("failed_stage", "simulation")
 
-        before_hashes = self._capture_file_hashes(workspace, suspected_modules)
+        before_digest = self._sources_digest()
         contract_before = self._contract_checker.check(
             self._design_state.architecture.model_dump(), workspace,
         )
@@ -2034,10 +2283,14 @@ class SupervisorAgent(BaseAgent):
                     if fpath.exists():
                         affected_files.append(f"src/{module_name}{ext}")
 
+        # Alle Kernzeilen des Vorfilters (früher nur die ersten drei
+        # Kurzmeldungen; die eigentlichen GHDL-/Vivado-Zeilen fehlten).
         error_info = {
-            "message": "; ".join(evidence[:3]) if evidence else recommended_action,
+            "message": "\n".join(str(e) for e in evidence)[:6000] if evidence else recommended_action,
             "failure_type": failure_type,
             "stage": str(failed_stage).lower(),
+            "origin": diagnosis.get("origin", ""),
+            "previous_attempts": diagnosis.get("previous_attempts", []),
             "details": {
                 "suspected_modules": suspected_modules,
                 "recommended_action": recommended_action,
@@ -2122,7 +2375,7 @@ class SupervisorAgent(BaseAgent):
                             error_message=f"UART integration after repair failed: {exc}",
                         )
 
-            if self._detect_no_progress(before_hashes, workspace):
+            if self._sources_digest() == before_digest:
                 logger.warning("NO_PROGRESS detected: affected files unchanged after repair")
                 self._emit_event("NO_PROGRESS", {
                     "project_id": self._current_task.project_id,
@@ -2208,14 +2461,7 @@ class SupervisorAgent(BaseAgent):
                 error_message="ArchitectureAgent not configured for repair",
             )
         architecture = self._design_state.architecture
-        feedback = (
-            "Architekturreparatur: Die Module erfüllen ihre Contracts, passen aber "
-            f"nicht zusammen ({diagnosis.get('failure_type')}). Betroffene Module: "
-            f"{', '.join(diagnosis.get('suspected_modules', [])) or 'unbekannt'}. "
-            f"Evidenz: {' | '.join(str(e)[:500] for e in diagnosis.get('evidence', [])[:3])}. "
-            "Korrigiere Ports, Breiten und Verbindungen in der Architektur; "
-            "unbeteiligte Module unverändert lassen."
-        )
+        feedback = self._architecture_feedback(diagnosis)
         self._emit_event("REPAIR_STARTED", {
             "project_id": self._current_task.project_id,
             "task_type": "refine_architecture",
@@ -2254,6 +2500,7 @@ class SupervisorAgent(BaseAgent):
         if not new_architecture.top_module:
             new_architecture.top_module = architecture.top_module
         self._design_state.architecture = new_architecture
+        self._adopt_plan_requirements(result.outputs.get("manifest") or {})
         self._design_state.metadata["invalidated_modules"] = changed
         self._design_state.metadata.setdefault("repairs", []).append({
             "target": RepairTarget.ARCHITECTURE.value,
@@ -2272,6 +2519,44 @@ class SupervisorAgent(BaseAgent):
         self._safe_transition_to(DesignStage.UART_INTEGRATION)
         await self._save_design_state()
         return result
+
+    def _architecture_feedback(self, diagnosis: dict) -> str:
+        """Auftrag an den Planer passend zur Fehlerklasse.
+
+        Früher stand hier für jede Klasse „Die Module erfüllen ihre Contracts,
+        passen aber nicht zusammen“, auch bei fehlenden Anforderungen oder nach
+        gescheiterten Modulreparaturen (Lauf gray-countdown: requirement_gap).
+        """
+        failure_type = diagnosis.get("failure_type", "")
+        modules = ", ".join(diagnosis.get("suspected_modules", [])) or "unbekannt"
+        evidence = "\n".join(str(e) for e in diagnosis.get("evidence", []))[:3000]
+        if failure_type in ("interface_mismatch", "architecture_error"):
+            text = (
+                "Architekturreparatur: Die Module erfüllen ihre Contracts, passen aber nicht zusammen "
+                f"({failure_type}). Betroffene Module: {modules}. Korrigiere Ports, Breiten und "
+                "Verbindungen in der Architektur; unbeteiligte Module unverändert lassen."
+            )
+        elif failure_type == "requirement_missing":
+            text = (
+                "Architekturreparatur: Diese Anforderungen aus PROMPT.md fehlen im Plan. Nimm jede "
+                "unter requirements auf (wörtliches Zitat) und ergänze die dafür nötigen Ports und "
+                "Module; bestehende Anforderungen und Module bleiben erhalten."
+            )
+        else:
+            text = (
+                f"Architekturreparatur: Für '{failure_type}' in {modules} sind gezielte Reparaturen und "
+                "ein Neuschreiben gescheitert. Überarbeite den Plan für diesen Teil (Zerlegung, "
+                "Schnittstellen, Zuständigkeiten), damit er sich korrekt umsetzen lässt; "
+                "unbeteiligte Module unverändert lassen."
+            )
+        if evidence:
+            text += f"\nFehler (Kernzeilen):\n{evidence}"
+        if self._requirement_dicts():
+            text += (
+                f"\nAlle Einzelanforderungen aus {reqs.REQUIREMENTS_FILE} gehören weiterhin unter "
+                "requirements (gleiche Zitate); fehlende Ports oder Module für eine Anforderung ergänzen."
+            )
+        return text
 
     async def _run_testbench_repair(self, diagnosis: dict) -> AgentResult:
         if diagnosis.get("regenerate_model"):
@@ -2307,9 +2592,14 @@ class SupervisorAgent(BaseAgent):
                 project_id=self._current_task.project_id,
                 inputs={
                     "module": by_name[name], "workspace": workspace, "domain": "vhdl",
+                    "request": self._design_state.metadata.get("request_full", ""),
                     "mutation_hints": [
                         s["description"] for s in (self._design_state.metadata.get("mutation") or {}).get("survived", [])
                         if s.get("module") == name
+                    ],
+                    "requirement_hints": [
+                        f"{r['id']}: {r['text']}" for r in self._requirement_dicts()
+                        if r["check"] == "simulation" and name in r["modules"]
                     ],
                 },
             )))
@@ -2415,6 +2705,14 @@ class SupervisorAgent(BaseAgent):
         Synthesekontext, Infrastruktur/Board/Ressourcen → Benutzer.
         """
         normalized_stage = self._normalize_stage(stage)
+        if self._rollback_regression(normalized_stage):
+            self._safe_transition_to(DesignStage.STATIC_CHECK)
+            await self._save_design_state()
+            return AgentResult(
+                task_id=self._current_task.id,
+                status=AgentStatus.FAILED,
+                error_message=f"Repair rolled back: it broke the previously passing stage {normalized_stage.value}",
+            )
         stage_name = self._FAILURE_STAGE_NAMES.get(normalized_stage, normalized_stage.value.lower())
         self._design_state.metadata["failed_stage"] = stage_name
 
@@ -2426,7 +2724,7 @@ class SupervisorAgent(BaseAgent):
             self._design_state.synthesis.errors = synth.get("errors", [])
 
         diagnostics = [
-            self._classify_model_mismatch({**d, "stage": d.get("stage") or stage_name})
+            compact_diagnostic(self._classify_model_mismatch({**d, "stage": d.get("stage") or stage_name}))
             for d in (result.diagnostics or [{
                 "type": "stage_failure",
                 "message": result.error_message or f"{normalized_stage.value} failed",
@@ -2462,93 +2760,300 @@ class SupervisorAgent(BaseAgent):
 
         diagnosis = debug_result.outputs.get("diagnosis", {})
         failure_type = diagnosis.get("failure_type", "unknown")
-        target = RepairTarget(diagnosis.get("repair_target", RepairTarget.HDL.value))
+        routed = RepairTarget(diagnosis.get("repair_target", RepairTarget.HDL.value))
         if failure_type == "model_mismatch":
-            target = self._model_mismatch_target(diagnosis, target)
-        action = "repair"
-        if self._persistent and failure_type != "infrastructure":
-            target, action = self._escalate(failure_type, diagnosis, target)
-        logger.info(
-            "DEBUG_COMPLETED suspected_modules=%s failure_type=%s repair_target=%s",
-            diagnosis.get("suspected_modules", []), failure_type, target.value,
-        )
-        self._emit_event("REPAIR_ASSIGNED", {
-            "project_id": self._current_task.project_id,
-            "failure_type": failure_type,
-            "repair_target": target.value,
-            "modules": diagnosis.get("suspected_modules", []),
-            "failed_stage": normalized_stage.value,
-        })
+            routed = self._model_mismatch_target(diagnosis, routed)
 
-        if target == RepairTarget.HUMAN:
-            if failure_type == "infrastructure":
+        # Persistent: Bleibt eine Reparatur ohne jede Änderung (Zeitlimit,
+        # abgelehnte Lieferung ...), folgt sofort die nächste Eskalationsstufe.
+        # Früher lief danach die ganze Pipeline erneut (inkl. 5-8 min Synthese)
+        # nur um denselben Fehler wieder zu finden (Lauf gray-countdown).
+        rounds = self._MAX_INLINE_ESCALATIONS if self._persistent else 1
+        repair = None
+        for _ in range(rounds):
+            target, action = routed, "repair"
+            if self._persistent and failure_type != "infrastructure":
+                target, action = self._escalate(failure_type, diagnosis, routed)
+            logger.info(
+                "DEBUG_COMPLETED suspected_modules=%s failure_type=%s repair_target=%s action=%s",
+                diagnosis.get("suspected_modules", []), failure_type, target.value, action,
+            )
+            self._emit_event("REPAIR_ASSIGNED", {
+                "project_id": self._current_task.project_id,
+                "failure_type": failure_type,
+                "repair_target": target.value,
+                "modules": diagnosis.get("suspected_modules", []),
+                "failed_stage": normalized_stage.value,
+                "origin": diagnosis.get("origin", ""),
+            })
+            if target == RepairTarget.HUMAN:
+                return await self._block_for_human(failure_type, diagnosis, diagnostics, result, normalized_stage, target)
+
+            self._design_state.increment_repairs()
+            if action == "switch_model":
+                self._switch_to_fallback_model()
+            # Nur gezielte Patches zurückrollen; Neuschreiben und Architektur-
+            # überarbeitung dürfen anfangs auch frühere Phasen verletzen.
+            self._repair_snapshot = None
+            if action in ("repair", "switch_model") and target != RepairTarget.ARCHITECTURE:
+                self._take_repair_snapshot(normalized_stage)
+            before = self._sources_digest()
+            self._clear_repair_verdict()
+            repair = await self._dispatch_repair(action, target, failure_type, diagnosis)
+            verdict = self._read_repair_verdict()
+            self._collect_agent_notes()
+
+            # Scheitert die Reparatur an der Infrastruktur (Zeitlimit, Docker,
+            # Provider), bringt ein weiterer Versuch nichts: anhalten und melden.
+            infra = [d for d in repair.diagnostics or [] if d.get("failure_type") == "infrastructure"]
+            timed_out = bool(infra) and all(self._is_opencode_timeout(d) for d in infra)
+            if self._persistent and timed_out:
+                # Ein hängender Reparaturaufruf ist kein Werkzeugdefekt: weiter
+                # eskalieren (der Versuch ist gezählt) statt den Lauf zu beenden.
+                # Lauf traffic-light 2026-10-10 endete so nach 50 min Timeout.
+                # Halb angewandte Änderungen des abgebrochenen Aufrufs verwerfen.
+                if self._repair_snapshot:
+                    self._restore_snapshot(self._repair_snapshot)
+                self._repair_snapshot = None
+                self._emit_event("REPAIR_FAILED", {
+                    "project_id": self._current_task.project_id,
+                    "error": "OpenCode-Zeitlimit; nächster Eskalationsschritt folgt",
+                })
+            elif repair.status == AgentStatus.FAILED and infra:
+                self._record_attempt_outcome("infrastructure: " + (repair.error_message or ""))
+                self._design_state.diagnostics.history.extend(infra)
+                self._design_state.add_human_intervention(repair.error_message)
                 self._safe_transition_to(DesignStage.INFRASTRUCTURE_FAILURE)
-            specific_hint = next(
-                ((d.get("details") or {}).get("hint") for d in diagnostics if (d.get("details") or {}).get("hint")),
-                "",
-            )
-            reason = (
-                f"{failure_type}: {specific_hint or diagnosis.get('recommended_action', '')}\n"
-                f"{result.error_message}"
-            ).strip()
-            self._design_state.add_human_intervention(reason)
-            await self._save_design_state()
-            self._emit_event("HUMAN_INTERVENTION_REQUESTED", {
-                "project_id": self._current_task.project_id,
-                "reason": reason,
-                "stage": normalized_stage.value,
-            })
-            return AgentResult(
-                task_id=self._current_task.id,
-                status=AgentStatus.BLOCKED,
-                error_message=(
-                    "Infrastructure failure - cannot repair"
-                    if failure_type == "infrastructure"
-                    else f"Human intervention required: {reason}"
-                ),
-                outputs={
-                    "repair_target": (
-                        "INFRASTRUCTURE_FAILURE" if failure_type == "infrastructure" else target.value
-                    ),
-                    "diagnosis": diagnosis,
-                },
-            )
-        self._design_state.increment_repairs()
-        if action == "switch_model":
-            self._switch_to_fallback_model()
-        if action == "regenerate":
-            repair = await self._regenerate_module(diagnosis)
-        elif target == RepairTarget.ARCHITECTURE:
-            repair = await self._run_architecture_repair(diagnosis)
-        elif target == RepairTarget.VERIFICATION:
-            repair = await self._run_testbench_repair(diagnosis)
-        else:
-            repair = await self._run_repair(diagnosis, target)
+                await self._save_design_state()
+                self._emit_event("HUMAN_INTERVENTION_REQUESTED", {
+                    "project_id": self._current_task.project_id,
+                    "reason": repair.error_message,
+                    "stage": normalized_stage.value,
+                })
+                return AgentResult(
+                    task_id=self._current_task.id,
+                    status=AgentStatus.BLOCKED,
+                    error_message=repair.error_message,
+                    diagnostics=infra,
+                    outputs={"repair_target": "INFRASTRUCTURE_FAILURE"},
+                )
 
-        # Scheitert die Reparatur an der Infrastruktur (Zeitlimit, Docker,
-        # Provider), bringt ein weiterer Versuch nichts: anhalten und melden.
-        infra = [d for d in repair.diagnostics or [] if d.get("failure_type") == "infrastructure"]
-        if repair.status == AgentStatus.FAILED and infra:
-            self._design_state.diagnostics.history.extend(infra)
-            self._design_state.add_human_intervention(repair.error_message)
-            self._safe_transition_to(DesignStage.INFRASTRUCTURE_FAILURE)
-            await self._save_design_state()
-            self._emit_event("HUMAN_INTERVENTION_REQUESTED", {
-                "project_id": self._current_task.project_id,
-                "reason": repair.error_message,
-                "stage": normalized_stage.value,
-            })
-            return AgentResult(
-                task_id=self._current_task.id,
-                status=AgentStatus.BLOCKED,
-                error_message=repair.error_message,
-                diagnostics=infra,
-                outputs={"repair_target": "INFRASTRUCTURE_FAILURE"},
+            changed = self._sources_digest() != before
+            verdict_note = f"; Befund: {verdict['cause']}: {verdict['reason'][:200]}" if verdict else ""
+            if (
+                verdict and failure_type == "model_mismatch" and not changed
+                and verdict["cause"] in ("reference_model", "generated_check", "specification")
+            ):
+                # Die Reparatur hält den Entwurf für richtig und das Modell bzw.
+                # die erzeugte Vergleichs-Testbench für falsch (Lauf
+                # led-pattern-display: fünfmal richtig erkannt, nie ausgewertet).
+                self._record_attempt_outcome("Entwurf unverändert" + verdict_note)
+                return await self._handle_model_dispute(verdict, diagnosis)
+            if verdict and verdict["cause"] == "specification":
+                self._note_open_question(verdict["reason"])
+            if repair.status == AgentStatus.COMPLETED:
+                self._record_attempt_outcome(("ausgeführt, Dateien geändert" if changed else "ausgeführt") + verdict_note)
+                return repair
+            self._record_attempt_outcome(
+                ("Zeitlimit" if timed_out else f"fehlgeschlagen: {repair.error_message or ''}")
+                + ("" if changed else " (keine Änderung)") + verdict_note
             )
+            if changed or not self._persistent:
+                return repair
+            self._emit_event("REPAIR_RETRY", {
+                "project_id": self._current_task.project_id,
+                "message": "Reparatur ohne Änderung; nächste Eskalationsstufe direkt (keine erneute Synthese)",
+            })
+            await self._save_design_state()
         return repair
 
+    _MAX_INLINE_ESCALATIONS = 8
+
+    REPAIR_VERDICT_FILE = "reports/repair_verdict.json"
+    VERDICT_CAUSES = ("design", "testbench", "reference_model", "generated_check", "toolchain", "specification")
+
+    def _clear_repair_verdict(self) -> None:
+        path = Path(self._fs.workspace_path(self._current_task.project_id)) / self.REPAIR_VERDICT_FILE
+        path.unlink(missing_ok=True)
+
+    def _read_repair_verdict(self) -> dict | None:
+        """Strukturierter Befund der Reparatur (Ursache + Begründung).
+
+        Früher landeten Befunde nur als Freitext in reports/repair_notes.md und
+        reports/review.md; der Supervisor las sie nie.
+        """
+        path = Path(self._fs.workspace_path(self._current_task.project_id)) / self.REPAIR_VERDICT_FILE
+        try:
+            data = json.loads(path.read_text(errors="replace"))
+        except (OSError, ValueError):
+            return None
+        cause = str((data or {}).get("cause", "")).strip().lower() if isinstance(data, dict) else ""
+        if cause not in self.VERDICT_CAUSES:
+            return None
+        verdict = {"cause": cause, "reason": str(data.get("reason", "")).strip()[:2000]}
+        self._design_state.metadata.setdefault("repair_verdicts", []).append(
+            {**verdict, "at": datetime.now(timezone.utc).isoformat()})
+        return verdict
+
+    def _note_open_question(self, text: str) -> None:
+        questions = self._design_state.metadata.setdefault("open_questions", [])
+        if text and text not in questions:
+            questions.append(text)
+            self._emit_event("REQUIREMENTS_WARNING", {
+                "project_id": self._current_task.project_id,
+                "message": f"Unklare oder widersprüchliche Spezifikation: {text[:300]}",
+            })
+
+    def _collect_agent_notes(self) -> None:
+        """Neue Einträge in reports/review.md (Widersprüche, die Agenten melden) sichtbar machen."""
+        path = Path(self._fs.workspace_path(self._current_task.project_id)) / "reports" / "review.md"
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            return
+        meta = self._design_state.metadata
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        if meta.get("agent_notes_digest") == digest:
+            return
+        seen = meta.get("agent_notes_length", 0)
+        new = text[seen:] if len(text) >= seen else text
+        meta["agent_notes_digest"], meta["agent_notes_length"] = digest, len(text)
+        if new.strip():
+            meta.setdefault("agent_notes", []).append(new.strip()[:3000])
+            self._emit_event("AGENT_NOTE", {
+                "project_id": self._current_task.project_id,
+                "message": f"Hinweis eines Agenten (reports/review.md): {new.strip()[:600]}",
+            })
+
+    async def _handle_model_dispute(self, verdict: dict, diagnosis: dict) -> AgentResult:
+        """Modell oder erzeugte Vergleichs-Testbench ist laut Reparatur falsch.
+
+        Einmal: Modell mit der Begründung neu erzeugen. Besteht der Streit
+        danach weiter, wird der differentielle Test für diesen Lauf
+        abgeschaltet (Warnung, Begründung im DesignState). Das Modell ist eine
+        Zusatzprüfung; es darf einen korrekten Entwurf nicht endlos in
+        Reparaturen treiben.
+        """
+        meta = self._design_state.metadata
+        reason = verdict.get("reason", "")
+        if not meta.get("model_regenerated"):
+            return await self._regenerate_reference_model(diagnosis, finding=f"{verdict['cause']}: {reason}")
+        meta["reference_model"] = {"status": "disputed", "reason": reason[:1500], "cause": verdict["cause"]}
+        workspace = self._fs.workspace_path(self._current_task.project_id)
+        top = self._design_state.architecture.top_module
+        if top:
+            (Path(workspace) / refmodel.model_testbench_path(top)).unlink(missing_ok=True)
+        self._emit_event("REFERENCE_MODEL_DISPUTED", {
+            "project_id": self._current_task.project_id,
+            "message": "Differentieller Test für diesen Lauf abgeschaltet: Reparatur und neu erzeugtes "
+            f"Modell widersprechen sich weiter ({verdict['cause']}): {reason[:400]}",
+        })
+        self._safe_transition_to(DesignStage.STATIC_CHECK)
+        await self._save_design_state()
+        return AgentResult(task_id=self._current_task.id, status=AgentStatus.COMPLETED,
+                           outputs={"action": "reference_model_disabled"})
+
+    async def _dispatch_repair(
+        self, action: str, target: RepairTarget, failure_type: str, diagnosis: dict,
+    ) -> AgentResult:
+        """Gibt die Diagnose an den zuständigen Agenten (Ergebnis des Vorfilters)."""
+        if failure_type == "bitstream_config_error" and diagnosis.get("attempt", 1) == 1:
+            return await self._rebuild_bitstream(diagnosis)
+        if action == "regenerate":
+            return await self._regenerate_module(diagnosis)
+        if target == RepairTarget.ARCHITECTURE:
+            return await self._run_architecture_repair(diagnosis)
+        if target == RepairTarget.VERIFICATION:
+            return await self._run_testbench_repair(diagnosis)
+        return await self._run_repair(diagnosis, target)
+
+    async def _rebuild_bitstream(self, diagnosis: dict) -> AgentResult:
+        """Konfigurationsfehler des Bitstreams: zuerst ohne Sprachmodell neu bauen.
+
+        Das Build-Skript setzt die Board-Konfiguration jetzt immer (siehe
+        BOARD_BITSTREAM_CONFIG); ein vorhandener Bitstream kann aber noch aus
+        einem älteren Stand stammen. Erst wenn der Fehler danach bleibt, geht
+        er an die Reparatur mit Vivado-Kontext.
+        """
+        from src.agents.fpga import invalidate_synthesis_cache
+
+        invalidate_synthesis_cache(self._fs.workspace_path(self._current_task.project_id))
+        self._emit_event("REPAIR_STARTED", {
+            "project_id": self._current_task.project_id, "task_type": "rebuild_bitstream",
+            "repair_target": RepairTarget.FPGA.value, "failure_type": diagnosis.get("failure_type"),
+        })
+        self._safe_transition_to(DesignStage.SYNTHESIZING)
+        await self._save_design_state()
+        return AgentResult(task_id=self._current_task.id, status=AgentStatus.COMPLETED,
+                           outputs={"action": "rebuild_bitstream"})
+
+    def _sources_digest(self) -> str:
+        """Prüfsumme über alles, was eine Reparatur ändern darf."""
+        root = Path(self._fs.workspace_path(self._current_task.project_id))
+        digest = hashlib.sha256()
+        for folder, patterns in (
+            ("src", ("*.vhd", "*.vhdl")), ("tests", ("*.vhd", "*.vhdl")), ("constraints", ("*.xdc",)),
+            ("plan", ("*.json", "*.md")), ("model", ("*.py",)),
+        ):
+            directory = root / folder
+            if not directory.is_dir():
+                continue
+            for pattern in patterns:
+                for path in sorted(directory.glob(pattern)):
+                    if path.is_file() and not self._is_generated(path):
+                        digest.update(f"{folder}/{path.name}".encode())
+                        digest.update(path.read_bytes())
+        return digest.hexdigest()
+
+    async def _block_for_human(
+        self, failure_type: str, diagnosis: dict, diagnostics: list[dict],
+        result: AgentResult, normalized_stage: DesignStage, target: RepairTarget,
+    ) -> AgentResult:
+        if failure_type == "infrastructure":
+            self._safe_transition_to(DesignStage.INFRASTRUCTURE_FAILURE)
+        specific_hint = next(
+            ((d.get("details") or {}).get("hint") for d in diagnostics if (d.get("details") or {}).get("hint")),
+            "",
+        )
+        reason = (
+            f"{failure_type}: {specific_hint or diagnosis.get('recommended_action', '')}\n"
+            f"{result.error_message}"
+        ).strip()
+        verdicts = self._design_state.metadata.get("repair_verdicts") or []
+        if verdicts:
+            # Was die Agenten zuletzt als Ursache festgestellt haben, gehört in
+            # die Meldung (Lauf led-pattern-display: Ursache bekannt, Meldung leer).
+            last = verdicts[-1]
+            reason += f"\nLetzter Befund der Reparatur ({last['cause']}): {last['reason'][:600]}"
+        self._design_state.add_human_intervention(reason)
+        await self._save_design_state()
+        self._emit_event("HUMAN_INTERVENTION_REQUESTED", {
+            "project_id": self._current_task.project_id,
+            "reason": reason,
+            "stage": normalized_stage.value,
+        })
+        return AgentResult(
+            task_id=self._current_task.id,
+            status=AgentStatus.BLOCKED,
+            error_message=(
+                "Infrastructure failure - cannot repair"
+                if failure_type == "infrastructure"
+                else f"Human intervention required: {reason}"
+            ),
+            outputs={
+                "repair_target": (
+                    "INFRASTRUCTURE_FAILURE" if failure_type == "infrastructure" else target.value
+                ),
+                "diagnosis": diagnosis,
+            },
+        )
+
+    @staticmethod
+    def _is_opencode_timeout(diagnostic: dict) -> bool:
+        return "timed out after" in str(diagnostic.get("message", ""))
+
     async def _request_human_intervention(self, result: AgentResult) -> bool:
-        """Fragt User um Intervention (Approval, Hardware-Fix, etc.)."""
+        """Meldet, dass der Benutzer eingreifen muss (z. B. Hardware)."""
         self._design_state.add_human_intervention(result.error_message or "Manual intervention required")
         
         self._emit_event("HUMAN_INTERVENTION_REQUESTED", {
@@ -2601,15 +3106,72 @@ class SupervisorAgent(BaseAgent):
         return None
 
     def _safe_transition_to(self, target: DesignStage) -> None:
-        """Transitioniert sicher; fällt back auf erste erlaubte Transition falls Ziel nicht erreichbar."""
+        """Wechselt in die Zielphase, nötigenfalls über DEBUGGING.
+
+        Früher wurde bei einem nicht vorgesehenen Übergang still in den ersten
+        erlaubten Zustand gewechselt, z. B. VALIDATING -> SYNTHESIZING statt
+        STATIC_CHECK: Die Synthese lief dann mit ungeprüftem Code weiter. Jetzt
+        geht es über DEBUGGING oder, falls auch das nicht passt, direkt ins
+        Ziel (mit Warnung) - nie in eine andere Phase.
+        """
         from src.domain.state_machine import TRANSITIONS
         current = self._design_state.current_stage.value if isinstance(self._design_state.current_stage, DesignStage) else str(self._design_state.current_stage)
-        try:
+        wanted = target.value if isinstance(target, DesignStage) else str(target)
+        if wanted == current or wanted in TRANSITIONS.get(current, []):
             self._design_state.transition_to(target)
-        except Exception:
-            allowed = TRANSITIONS.get(current, [])
-            if allowed and allowed[0] != current:
-                self._design_state.transition_to(allowed[0])
+            return
+        debugging = DesignStage.DEBUGGING.value
+        if debugging in TRANSITIONS.get(current, []) and wanted in TRANSITIONS.get(debugging, []):
+            self._design_state.transition_to(DesignStage.DEBUGGING)
+            self._design_state.transition_to(target)
+            return
+        logger.warning("Stage transition %s -> %s is not in the state machine; applied directly", current, wanted)
+        self._design_state.current_stage = target
+
+    def _requirement_dicts(self) -> list[dict]:
+        return [
+            {"id": r.id, "text": r.description, "quote": r.quote, "modules": list(r.satisfied_by),
+             "ports": list(r.ports), "check": r.check or "structure"}
+            for r in self._design_state.requirements
+            if r.check  # nur Einzelanforderungen aus dem Plan
+        ]
+
+    def _adopt_plan_requirements(self, manifest: dict) -> bool:
+        """Übernimmt die Einzelanforderungen des Plans und legt sie als
+        plan/requirements.md für alle weiteren OpenCode-Aufträge ab."""
+        items = (manifest or {}).get("requirements") or []
+        if not items:
+            return False
+        previous = {r.id: r for r in self._design_state.requirements if r.check}
+        self._design_state.requirements = [
+            Requirement(
+                id=item["id"], description=item["text"], quote=item.get("quote", ""),
+                satisfied_by=list(item.get("modules") or []), ports=list(item.get("ports") or []),
+                check=item.get("check") or "structure",
+            )
+            for item in items
+        ]
+        # Von der Abschlussprüfung nachgetragene Anforderungen bleiben erhalten,
+        # auch wenn ein überarbeiteter Plan sie nicht wiederholt.
+        quotes = {reqs.normalize(r.quote) for r in self._design_state.requirements if r.quote}
+        for rid, old in previous.items():
+            if old.review == "added" and reqs.normalize(old.quote) not in quotes:
+                old.id = reqs.next_id(self._requirement_dicts())
+                self._design_state.requirements.append(old)
+        self._write_requirements_file()
+        if manifest.get("requirements_warnings"):
+            self._emit_event("REQUIREMENTS_WARNING", {
+                "project_id": self._current_task.project_id,
+                "message": "Anforderungsliste des Plans unvollständig; Sammelanforderung R0 ergänzt: "
+                + "; ".join(manifest["requirements_warnings"][:5]),
+            })
+        return True
+
+    def _write_requirements_file(self) -> None:
+        workspace = self._fs.workspace_path(self._current_task.project_id)
+        self._fs.write_file(
+            str(Path(workspace) / reqs.REQUIREMENTS_FILE), reqs.render_markdown(self._requirement_dicts())
+        )
 
     def _link_requirements_to_modules(self) -> None:
         """Verknüpft Requirements mit Modulen aus der Architektur."""

@@ -6,8 +6,9 @@ from typing import Any
 from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.domain.agents.communication import VerificationResult
 from src.domain.agents.test_plan import format_simulation_vectors
-from src.domain.agents.worker_instructions import TESTBENCH_RULES
+from src.domain.agents.worker_instructions import TESTBENCH_RULES, ghdl_selfcheck, source_compile_order
 from src.domain.agents import reference_model as refmodel
+from src.domain.agents import requirements as reqs
 from src.domain.agents.contract_check import ContractChecker
 from src.services.opencode_task_runner import OpenCodeTaskRunner
 from src.infrastructure.validation.ghdl_validator import GHDLValidator
@@ -45,7 +46,7 @@ class VerificationAgent(BaseAgent):
 
     @property
     def supported_task_types(self) -> list[str]:
-        return ["verify", "generate_testbench", "analyze_coverage", "reference_model"]
+        return ["verify", "generate_testbench", "analyze_coverage", "reference_model", "review_requirements"]
 
     async def execute(self, task: AgentTask) -> AgentResult:
         task_type = task.type
@@ -58,6 +59,8 @@ class VerificationAgent(BaseAgent):
             return await self._create_reference_model(task)
         elif task_type == "analyze_coverage":
             return await self._analyze_coverage(task)
+        elif task_type == "review_requirements":
+            return await self._review_requirements(task)
         else:
             return AgentResult(
                 task_id=task.id,
@@ -175,6 +178,17 @@ class VerificationAgent(BaseAgent):
             "Lässt PROMPT.md etwas offen (z. B. genaue Taktzahl einer Phase), wähle die naheliegendste "
             "Auslegung und begründe sie als Kommentar im Modell."
         )
+        generics = {str(k): v for k, v in (top_module.get("parameters") or {}).items()}
+        if generics:
+            listed = ", ".join(f"{name} = {value}" for name, value in generics.items())
+            instruction += (
+                f"\n\nGenerics von {top} (Standardwerte): {listed}.\n"
+                "Die Vergleichs-Testbench instanziiert den Entwurf mit den Werten aus dem Klassenattribut "
+                "GENERICS deines Modells, z. B. GENERICS = {\"TICK_CYCLES\": 4}. Wähle für Zeit- und "
+                "Zählkonstanten kleine Werte, mit denen in SUGGESTED_CYCLES Takten jede Funktion mehrfach "
+                "durchlaufen wird, und simuliere mit genau diesen Werten (ReferenceModel() ohne Argumente). "
+                "Nicht aufgeführte Generics behalten ihren Standardwert."
+            )
         if hint:
             instruction += f"\n\nHinweis aus der Verifikation (Modell kritisch prüfen, ggf. korrigieren):\n{hint}"
         delivery = self._task_runner.run(
@@ -206,6 +220,34 @@ class VerificationAgent(BaseAgent):
             outputs={"reference_model": status},
             error_message="" if ok else f"Selbsttest des Referenzmodells fehlgeschlagen: {detail}",
         )
+
+    async def _review_requirements(self, task: AgentTask) -> AgentResult:
+        """Abschlussprüfung jeder Einzelanforderung in einem frischen OpenCode-Lauf."""
+        workspace = task.inputs.get("workspace", "")
+        requirements = task.inputs.get("requirements") or []
+        prompt = task.inputs.get("request", "")
+        review_path = Path(workspace) / reqs.REVIEW_FILE
+        review_path.unlink(missing_ok=True)  # kein altes Urteil wiederverwenden
+        delivery = self._task_runner.run(
+            workspace=workspace,
+            request_full=prompt,
+            stage="requirements_review",
+            task_instruction=reqs.REVIEW_INSTRUCTION.format(
+                review_file=reqs.REVIEW_FILE, requirements_file=reqs.REQUIREMENTS_FILE),
+            expected_files=[reqs.REVIEW_FILE],
+            task_id=f"review_{uuid.uuid4().hex[:8]}",
+            skills_dir=self._skills_dir,
+            stop_when=lambda: reqs.review_complete(review_path, requirements),
+        )
+        if not review_path.is_file():
+            error = delivery.error("Abschlussprüfung") if not delivery.ok else RuntimeError("keine Bewertung geschrieben")
+            return AgentResult(task_id=task.id, status=AgentStatus.FAILED, error_message=str(error))
+        try:
+            review = reqs.parse_review(review_path.read_text(errors="replace"), requirements, prompt)
+        except (ValueError, KeyError) as exc:
+            return AgentResult(task_id=task.id, status=AgentStatus.FAILED,
+                               error_message=f"Abschlussprüfung nicht auswertbar: {exc}")
+        return AgentResult(task_id=task.id, status=AgentStatus.COMPLETED, outputs={"review": review})
 
     @staticmethod
     def _contract_ports(module: dict) -> list:
@@ -255,73 +297,86 @@ class VerificationAgent(BaseAgent):
                 "(Mutationsanalyse). Ergänze Prüfungen, die jede davon als Fehler melden würden:\n- "
                 + "\n- ".join(hints) + "\n"
             )
-        prompt = f"""Generiere eine vollständige VHDL-Testbench für folgendes Modul:
-
-VHDL-CODE DES MODULS:
-{vhdl_content if vhdl_content else 'Kein VHDL-Code verfügbar - generiere basierend auf Modul-Info'}
-
-MODUL-INFORMATIONEN:
-{module}
-
-ANFORDERUNGEN:
-- GHDL-kompatibel (VHDL-2008)
-- Clock-Generierung mit stabiler Periodendauer
-- Reset-Sequenz (aktiv für mindestens 2 Clock-Zyklen)
-- Vollständige Stimulus-Generierung für alle Input-Signale
-- Assertions mit Report-Text für fehlgeschlagene Prüfungen
-- Am Ende: assert false report "TB_COMPLETE" severity note;
-- Entity-Name muss "_tb" Suffix haben und zum Modul passen
-- Ports müssen exakt zum Entity-Declaration des Moduls passen
-
-{TESTBENCH_RULES}
-{vector_section}
-Antworte ausschließlich mit dem VHDL-Testbench-Code (Entity + Architecture). Ändere keine Dateien."""
+        requirement_hints = task.inputs.get("requirement_hints") or []
+        if requirement_hints:
+            vector_section += (
+                "\nEinzelanforderungen an dieses Modul (aus PROMPT.md, verbindlich). Prüfe JEDE mit mindestens "
+                "einer assert-Anweisung, deren report-Text mit `REQ <id>` beginnt "
+                '(z. B. report "REQ R3: ..."):\n- ' + "\n- ".join(requirement_hints) + "\n"
+            )
+        dut = module.get("name", "dut") if isinstance(module, dict) else module_name
+        target_file = f"tests/{dut}_tb.vhd"
+        existing = (Path(workspace) / target_file).is_file()
+        instruction = (
+            (f"Überarbeite die Testbench {target_file}: Behalte alle bestehenden Prüfungen bei und ergänze "
+             "die unten geforderten." if existing else f"Schreibe die VHDL-2008-Testbench direkt in {target_file}.")
+            + f"\nDUT-Entity: {dut} (Entity-Name der Testbench: {dut}_tb)\n"
+            "Lies PROMPT.md, plan/requirements.md (falls vorhanden) und die Quelldateien unter src/. "
+            "Die Testbench instanziiert den DUT, erzeugt Takt und Reset und prüft das Verhalten mit "
+            "Assertions. Schreibe die Datei selbst; stdout ist nur ein Log.\n"
+            f"{TESTBENCH_RULES}\n{vector_section}"
+        )
+        sources = source_compile_order(workspace)
+        instruction += "\n" + ghdl_selfcheck(
+            [*sources, target_file], f"build/ghdl/{dut}_tb_repair", tb_entity=f"{dut}_tb",
+        )
+        previous = (Path(workspace) / target_file).read_text(errors="replace") if existing else None
 
         try:
-            result = self._opencode.execute(workspace, prompt)
-            if not result.success:
-                cause, hint = describe_opencode_failure(result.returncode, result.stdout, result.stderr)
+            # Früher: Code aus der Konsolenausgabe von OpenCode übernommen. Mit
+            # longcat-2.5 stand dort Kopfzeile und ANSI-Steuerzeichen; GHDL
+            # lehnte die Datei viermal ab (Lauf gray-countdown 2026-10-11).
+            prompt_file = Path(workspace) / "PROMPT.md"
+            request = task.inputs.get("request") or (
+                prompt_file.read_bytes().decode("utf-8") if prompt_file.is_file() else "")
+            delivery = self._task_runner.run(
+                workspace=workspace,
+                request_full=request,
+                stage="repair_testbench",
+                task_instruction=instruction,
+                expected_files=[target_file],
+                task_id=f"tb_{dut}_{uuid.uuid4().hex[:8]}",
+                skills_dir=self._skills_dir,
+            )
+            if not delivery.ok:
+                if previous is not None:
+                    self._fs.write_file(str(Path(workspace) / target_file), previous)
+                raise delivery.error(f"Testbench für '{dut}'")
+            tb_code = (Path(workspace) / target_file).read_text(errors="replace")
+            if previous is not None and tb_code == previous:
+                # Nichts geändert: als Fehlschlag melden, damit die nächste
+                # Eskalationsstufe sofort folgt statt die Pipeline erneut den
+                # gleichen Fehler finden zu lassen.
                 raise OpenCodeDeliveryError(
-                    f"Testbench für '{module_name}': OpenCode-Aufruf fehlgeschlagen",
-                    cause=cause, hint=hint,
-                    context={"Exit-Code": result.returncode, "stderr (Ende)": (result.stderr or "")[-2000:]},
+                    f"Testbench für '{dut}' unverändert",
+                    cause="OpenCode hat die Testbench nicht geändert.",
+                    hint="Die bestehende Testbench bleibt erhalten.",
                 )
 
-            import re
-            tb_code = re.sub(r'^```vhdl\s*', '', result.stdout, flags=re.MULTILINE)
-            tb_code = re.sub(r'^```\s*$', '', tb_code, flags=re.MULTILINE).strip()
-            if not tb_code:
-                raise OpenCodeDeliveryError(
-                    f"Testbench für '{module_name}': keine Ausgabe",
-                    cause="OpenCode endete ohne Fehler, hat aber keinen Testbench-Code ausgegeben.",
-                    hint="Das Modell hat vermutlich eine Datei geschrieben statt den Code auszugeben; anderes Modell versuchen.",
-                )
-            
             # Testbench nur übernehmen, wenn sie den DUT instanziiert und der
             # Workspace damit weiterhin kompiliert, elaboriert und simuliert.
             from src.domain.agents.test_plan import _instantiations
 
-            dut = module.get("name", "dut")
-            if dut.lower() not in _instantiations(tb_code):
-                raise OpenCodeDeliveryError(
-                    f"Generated testbench does not instantiate DUT '{dut}'",
-                    cause=f"Die erzeugte Testbench enthält keine Instanz von '{dut}' und würde das Modul nicht prüfen.",
-                    hint="Die vorhandene Testbench bleibt unverändert; Auftrag erneut ausführen oder Testbench manuell ergänzen.",
-                )
+            file_path = Path(workspace) / target_file
+            file_name = file_path.name
 
-            tb_dir = Path(workspace) / "tests"
-            tb_dir.mkdir(parents=True, exist_ok=True)
-            file_name = f"{dut}_tb.vhd"
-            file_path = tb_dir / file_name
-            previous = file_path.read_text(errors="replace") if file_path.exists() else None
-            self._fs.write_file(str(file_path), tb_code)
-
-            check = self._validator.validate(workspace, domain)
-            if not check.passed:
+            def restore():
                 if previous is None:
                     file_path.unlink(missing_ok=True)
                 else:
                     self._fs.write_file(str(file_path), previous)
+
+            if dut.lower() not in _instantiations(tb_code):
+                restore()
+                raise OpenCodeDeliveryError(
+                    f"Generated testbench does not instantiate DUT '{dut}'",
+                    cause=f"Die erzeugte Testbench enthält keine Instanz von '{dut}' und würde das Modul nicht prüfen.",
+                    hint="Die vorherige Testbench wurde wiederhergestellt.",
+                )
+
+            check = self._validator.validate(workspace, domain)
+            if not check.passed:
+                restore()
                 raise OpenCodeDeliveryError(
                     "Generated testbench rejected",
                     cause=f"GHDL lehnt den Workspace mit der neuen Testbench ab: {check.message}",

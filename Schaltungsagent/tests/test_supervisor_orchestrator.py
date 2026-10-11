@@ -1,52 +1,15 @@
-import threading
-import time
+"""Orchestrator ohne Benutzerfreigabe vor dem Flashen (entfernt 2026-10-11)."""
+import inspect
 
 from src.domain.models import EventType
 from src.orchestrator.supervisor_orchestrator import SupervisorOrchestrator
 
 
-class EventRecorder:
-    def __init__(self):
-        self.events = []
-
-    def publish_event(self, event_type, task_id="", payload=None):
-        self.events.append((event_type, task_id, payload or {}))
+def test_orchestrator_has_no_approval_api():
+    assert not hasattr(SupervisorOrchestrator, "approve_task")
+    assert not hasattr(SupervisorOrchestrator, "reject_task")
+    assert "require_approval" not in inspect.signature(SupervisorOrchestrator.__init__).parameters
 
 
-def make_orchestrator():
-    orchestrator = SupervisorOrchestrator.__new__(SupervisorOrchestrator)
-    orchestrator._approval_events = {}
-    orchestrator._approval_results = {}
-    orchestrator._approval_lock = threading.Lock()
-    orchestrator._events = EventRecorder()
-    return orchestrator
-
-
-def test_approval_can_be_granted_from_another_thread():
-    orchestrator = make_orchestrator()
-    result = {}
-
-    worker = threading.Thread(
-        target=lambda: result.setdefault(
-            "value", orchestrator._wait_for_approval("task-1", "/tmp/design.bit")
-        )
-    )
-    worker.start()
-
-    for _ in range(100):
-        if "task-1" in orchestrator._approval_events:
-            break
-        time.sleep(0.001)
-
-    assert orchestrator.approve_task("task-1", "looks good") is True
-    worker.join(timeout=1)
-
-    assert result["value"] == (True, "looks good")
-    assert orchestrator._events.events[0][0] == EventType.APPROVAL_REQUESTED
-
-
-def test_unknown_approval_task_is_rejected():
-    orchestrator = make_orchestrator()
-
-    assert orchestrator.approve_task("unknown") is False
-    assert orchestrator.reject_task("unknown", "needs changes") is False
+def test_no_approval_events_remain():
+    assert not any(name.startswith("APPROVAL") for name in EventType.__members__)

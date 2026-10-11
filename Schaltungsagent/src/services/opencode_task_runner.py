@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from src.domain import yaml_io
+
 from src.domain.exceptions import OpenCodeDeliveryError, WorkflowError
 from src.services.opencode_service import describe_opencode_failure, is_provider_failure
 
@@ -95,6 +97,17 @@ class OpenCodeDelivery:
             context=context,
             failure_type="infrastructure" if is_provider_failure(self.reason) else "",
         )
+
+
+def _accepts(function, name: str) -> bool:
+    """Nimmt die Funktion den Parameter an? (Test-Doubles kennen stop_when nicht.)"""
+    import inspect
+
+    try:
+        parameters = inspect.signature(function).parameters
+    except (TypeError, ValueError):
+        return False
+    return name in parameters or any(p.kind == p.VAR_KEYWORD for p in parameters.values())
 
 
 def _tail(text: str, lines: int = 15) -> str:
@@ -258,14 +271,14 @@ class PromptStore:
             if metadata.get("prompt_sha256") == digest:
                 return
             metadata["prompt_sha256"] = digest
-            atomic_write_text(path, yaml.safe_dump(state, sort_keys=False, allow_unicode=True))
+            atomic_write_text(path, yaml_io.dump(state, allow_unicode=True))
 
     @staticmethod
     def _read_state(path: Path) -> dict:
         if not path.is_file():
             return {}
         try:
-            return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            return yaml_io.load(path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):
             raise PromptIntegrityError(f"Could not read state metadata from {path}")
 
@@ -293,6 +306,7 @@ class OpenCodeTaskRunner:
         task_id: str = "",
         timeout_seconds: int | None = None,
         skills_dir: str = ".opencode/skills",
+        stop_when=None,
     ) -> OpenCodeDelivery:
         digest = self._prompts.save(workspace, request_full)
         if self._prompts.verify(workspace) != digest:
@@ -309,6 +323,10 @@ class OpenCodeTaskRunner:
                 task_id=task_token,
             )
             task_instruction = task_instruction + knowledge_line
+
+        from src.domain.agents.requirements import task_instruction_suffix
+
+        task_instruction = task_instruction + task_instruction_suffix(workspace, stage)
 
         task_dir = Path(workspace) / ".opencode_tasks"
         task_dir.mkdir(parents=True, exist_ok=True)
@@ -337,8 +355,9 @@ class OpenCodeTaskRunner:
             attempt += 1
             attempt_started = time.monotonic()
             try:
+                extra = {"stop_when": stop_when} if stop_when and _accepts(self._opencode.execute, "stop_when") else {}
                 result = self._opencode.execute(
-                    workspace, short_instruction, timeout_seconds=timeout_seconds
+                    workspace, short_instruction, timeout_seconds=timeout_seconds, **extra
                 )
             except Exception as exc:
                 cause = getattr(exc, "cause", "") or str(exc)

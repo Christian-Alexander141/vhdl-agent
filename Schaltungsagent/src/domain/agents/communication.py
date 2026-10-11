@@ -12,7 +12,6 @@ class MessageType(str, Enum):
     ERROR = "ERROR"
     DIAGNOSTIC = "DIAGNOSTIC"
     REPAIR_REQUEST = "REPAIR_REQUEST"
-    APPROVAL_REQUEST = "APPROVAL_REQUEST"
     ARCHITECTURE_DECISION = "ARCHITECTURE_DECISION"
     VERIFICATION_RESULT = "VERIFICATION_RESULT"
     SYNTHESIS_RESULT = "SYNTHESIS_RESULT"
@@ -107,6 +106,9 @@ class DebugDiagnosis:
     evidence: list[str] = field(default_factory=list)
     recommended_action: str = ""
     severity: str = "medium"
+    # Herkunft aus dem Vorfilter (domain/agents/triage.py): design,
+    # verification, requirements, toolchain, hardware, infrastructure.
+    origin: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -117,4 +119,5 @@ class DebugDiagnosis:
             "evidence": self.evidence,
             "recommended_action": self.recommended_action,
             "severity": self.severity,
+            "origin": self.origin,
         }

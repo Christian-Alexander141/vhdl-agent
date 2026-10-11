@@ -35,13 +35,56 @@ def ensure_native_guard(project_path: str) -> None:
     das ganze Repo als Projekt. Workspaces gehören deshalb nicht ins Repo.
     Eine vorhandene opencode.json des Projekts bleibt unangetastet.
     """
+    isolate_workspace_repo(project_path)
     path = Path(project_path) / NATIVE_GUARD_FILE
     if path.exists() or not Path(project_path).is_dir():
         return
     path.write_text(json.dumps(NATIVE_GUARD_CONFIG, indent=2) + "\n", encoding="utf-8")
 
 
-def _run_via_pty(cmd: list[str], cwd: str | None, timeout: float) -> subprocess.CompletedProcess:
+def isolate_workspace_repo(project_path: str) -> None:
+    """Eigenes Git-Repo für einen Workspace, der in einem anderen Git-Repo liegt.
+
+    OpenCode nimmt das umschließende Repo als Projekt, und die Sperre
+    ``external_directory`` greift erst außerhalb dieses Repos. Die Dashboard-
+    Projekte liegen unter ``vhdl-agent/projects/``: Im Lauf led-pattern-display
+    (2026-10-11) führte eine Reparatur ``git status`` im System-Repo aus und las
+    Quellcode des MAS. Geprüft mit ``opencode debug scrap`` (OpenCode 1.18):
+    Mit eigenem Repo samt Start-Commit ist der Workspace selbst das Projekt.
+    """
+    workspace = Path(project_path)
+    if not workspace.is_dir() or (workspace / ".git").exists():
+        return
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(workspace), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return  # kein git: OpenCode nutzt den Ordner selbst
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() == workspace.resolve():
+        return
+    for args in (
+        ["init", "-q"],
+        ["-c", "user.name=vhdl-agent", "-c", "user.email=vhdl-agent@localhost", "-c", "commit.gpgsign=false",
+         "commit", "-q", "--allow-empty", "--no-verify", "-m", "vhdl-agent workspace"],
+    ):
+        try:
+            subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            logger.warning("Could not isolate workspace %s as its own git repository", workspace)
+            return
+    logger.info("Workspace %s isolated as its own git repository for OpenCode", workspace)
+
+
+# Wie lange das Ergebnis vollständig vorliegen muss, bevor ein Aufruf mit
+# stop_when vorzeitig beendet wird.
+STOP_WHEN_GRACE_SECONDS = 20.0
+
+
+def _run_via_pty(
+    cmd: list[str], cwd: str | None, timeout: float, stop_when=None,
+) -> subprocess.CompletedProcess:
     """Führt ``cmd`` mit einem echten Pseudo-Terminal für stdin/stdout/stderr aus.
 
     OpenCodes CLI verhält sich ohne TTY nicht zuverlässig: Reproduziert mit
@@ -80,12 +123,27 @@ def _run_via_pty(cmd: list[str], cwd: str | None, timeout: float) -> subprocess.
     chunks: list[bytes] = []
     deadline = time.monotonic() + timeout
     timed_out = False
+    stopped_early = False
+    complete_since = None
     try:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
                 break
+            # Ergebnis vollständig und stabil: nicht bis zum Zeitlimit warten.
+            # Lauf gray-countdown 2026-10-11: die Abschlussprüfung schrieb ihr
+            # Urteil nach 1,5 min und lief dann bis zum Zeitlimit (900 s).
+            if stop_when is not None:
+                try:
+                    complete = bool(stop_when())
+                except Exception:
+                    complete = False
+                now = time.monotonic()
+                complete_since = (complete_since or now) if complete else None
+                if complete_since is not None and now - complete_since >= STOP_WHEN_GRACE_SECONDS:
+                    stopped_early = True
+                    break
             ready, _, _ = select.select([master_fd], [], [], min(remaining, 1.0))
             if ready:
                 try:
@@ -109,6 +167,19 @@ def _run_via_pty(cmd: list[str], cwd: str | None, timeout: float) -> subprocess.
         os.close(master_fd)
 
     output = b"".join(chunks).decode(errors="replace")
+
+    if stopped_early and proc.poll() is None:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=output + "\n[vhdl-agent] Ergebnis vollständig; OpenCode vorzeitig beendet\n", stderr="",
+        )
 
     if timed_out and proc.poll() is None:
         try:
@@ -301,8 +372,8 @@ class ReconfigurableOpenCodeService(OpenCodeService):
         self._delegate = create_opencode_service(settings)
         logger.info("OpenCode runner switched to %s", type(self._delegate).__name__)
 
-    def execute(self, project_path: str, instruction: str, timeout_seconds: int | None = None) -> OpenCodeResult:
-        return self._delegate.execute(project_path, instruction, timeout_seconds=timeout_seconds)
+    def execute(self, project_path: str, instruction: str, timeout_seconds: int | None = None, **kwargs) -> OpenCodeResult:
+        return self._delegate.execute(project_path, instruction, timeout_seconds=timeout_seconds, **kwargs)
 
     def list_models(self, provider: str = "") -> list[str]:
         return self._delegate.list_models(provider)
@@ -326,6 +397,7 @@ class SubprocessOpenCodeService(OpenCodeService):
         project_path: str,
         instruction: str,
         timeout_seconds: int | None = None,
+        stop_when=None,
     ) -> OpenCodeResult:
         timeout = timeout_seconds or self._default_timeout
         logger.info(
@@ -334,7 +406,7 @@ class SubprocessOpenCodeService(OpenCodeService):
         )
 
         try:
-            result = self._run(project_path, instruction, timeout)
+            result = self._run(project_path, instruction, timeout, stop_when=stop_when)
             logger.info(
                 "OpenCode finished: returncode=%d",
                 result.returncode,
@@ -345,7 +417,7 @@ class SubprocessOpenCodeService(OpenCodeService):
                     self._fallback_model,
                 )
                 result = self._run(
-                    project_path, instruction, timeout, self._fallback_model
+                    project_path, instruction, timeout, self._fallback_model, stop_when=stop_when,
                 )
             return OpenCodeResult(
                 returncode=result.returncode,
@@ -381,6 +453,7 @@ class SubprocessOpenCodeService(OpenCodeService):
         instruction: str,
         timeout: int,
         model: str | None = None,
+        stop_when=None,
     ) -> subprocess.CompletedProcess:
         effective_model = model or self._model
         cmd = [self._binary, "run"]
@@ -388,7 +461,8 @@ class SubprocessOpenCodeService(OpenCodeService):
             cmd.extend(["--model", effective_model])
         cmd.append(instruction)
         ensure_native_guard(project_path)
-        return _run_via_pty(cmd, cwd=project_path, timeout=timeout)
+        extra = {"stop_when": stop_when} if stop_when is not None else {}
+        return _run_via_pty(cmd, cwd=project_path, timeout=timeout, **extra)
 
     def _should_use_fallback(self, result: subprocess.CompletedProcess) -> bool:
         if result.returncode == 0 or not self._fallback_model:
@@ -546,6 +620,7 @@ class DockerOpenCodeService(OpenCodeService):
         project_path: str,
         instruction: str,
         timeout_seconds: int | None = None,
+        stop_when=None,
     ) -> OpenCodeResult:
         timeout = timeout_seconds or self._default_timeout
         cmd = self.build_command(project_path, instruction)
@@ -554,7 +629,8 @@ class DockerOpenCodeService(OpenCodeService):
             self._isolation, project_path, timeout,
         )
         try:
-            result = _run_via_pty(cmd, cwd=None, timeout=timeout)
+            extra = {"stop_when": stop_when} if stop_when is not None else {}
+            result = _run_via_pty(cmd, cwd=None, timeout=timeout, **extra)
             self._raise_on_docker_failure(result)
             logger.info("Docker OpenCode finished: returncode=%d", result.returncode)
             if self._should_use_fallback(result):

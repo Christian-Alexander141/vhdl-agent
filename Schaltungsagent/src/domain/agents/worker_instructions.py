@@ -68,3 +68,28 @@ def entity_declarations(workspace: str, names: list[str]) -> str:
                 blocks.append(match.group(0).strip())
             break
     return "\n\n".join(blocks)
+
+
+def source_compile_order(workspace: str) -> list[str]:
+    """src/-Dateien in Analysereihenfolge (instanziierte Entities zuerst)."""
+    from src.domain.agents.test_plan import _entity_graph
+
+    src = Path(workspace) / "src"
+    graph = _entity_graph(src)
+    files = {
+        _ENTITY_BLOCK.search(_strip_comments(p.read_text(errors="replace"))).group(1).lower(): f"src/{p.name}"
+        for p in sorted(src.glob("*.vhd*"))
+        if p.is_file() and _ENTITY_BLOCK.search(_strip_comments(p.read_text(errors="replace")))
+    } if src.is_dir() else {}
+    ordered: list[str] = []
+
+    def visit(name: str, stack: tuple = ()) -> None:
+        if name in stack or files.get(name) in ordered or name not in files:
+            return
+        for dep in sorted(graph.get(name, ())):
+            visit(dep, stack + (name,))
+        ordered.append(files[name])
+
+    for name in sorted(files):
+        visit(name)
+    return ordered

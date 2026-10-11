@@ -11,7 +11,7 @@ Das eigentliche Ziel des Projekts ist nicht die Demonstration eines einzelnen Op
 3. über Verträge und Simulation gegen die Architektur verifiziert,
 4. bei Fehlern gezielt diagnostiziert und repariert,
 5. für ein konkretes FPGA synthetisiert und zeitlich bewertet,
-6. nach menschlicher Freigabe auf das Board programmiert und
+6. ohne Benutzerfreigabe auf das Board programmiert (die frühere Freigabe vor dem Flashen wurde am 2026-10-11 entfernt) und
 7. anschließend mit einem echten, projektspezifischen Hardwaretest validiert.
 
 Ein erfolgreicher LED-Blinker oder ein einzelner OpenCode-Lauf ist dafür nur ein Smoke-Test, kein Nachweis der Zielerreichung.
@@ -22,7 +22,7 @@ Ein erfolgreicher LED-Blinker oder ein einzelner OpenCode-Lauf ist dafür nur ei
 
 | # | Befund (2026-09-13) | Status 2026-10-07 |
 |---|---|---|
-| 1 | Approval nicht persistent / nicht wiederaufnehmbar | **behoben**: Freigabe an Bitstream (Pfad + SHA-256) gebunden; offene Freigabe setzt den Workflow nach Neustart fort |
+| 1 | Approval nicht persistent / nicht wiederaufnehmbar | **entfallen** (2026-10-11): Die Benutzerfreigabe vor dem Flashen wurde entfernt |
 | 2 | TaskGraph kein produktiver Scheduler | **behoben** für die Implementierung: persistierter, wiederaufnehmbarer Modul-DAG |
 | 3 | Hardwaretests standardmäßig simuliert, Dummy-CPU-Programm | **behoben**: Mock ⇒ `SKIPPED`, kein Erfolg; projektspezifische Testvektoren |
 | 4 | Statischer Check ohne Prüfung | **behoben** (schon vor diesem Stand) + Contract-Gate |
@@ -37,14 +37,9 @@ Ein erfolgreicher LED-Blinker oder ein einzelner OpenCode-Lauf ist dafür nur ei
 
 ## Befunde und Umsetzung
 
-### 1. Approval und Wiederaufnahme
+### 1. Freigabe vor dem Flashen (entfernt)
 
-**Befund:** Die Freigabe war pro Prozesslauf gespeichert. Zusätzlich galt eine einmal gespeicherte Entscheidung für *jeden* späteren Flash desselben Projekts: Ein neu synthetisierter Bitstream war automatisch freigegeben, eine alte Ablehnung blockierte ihn dauerhaft.
-
-**Umsetzung:** [supervisor_orchestrator.py](../Schaltungsagent/src/orchestrator/supervisor_orchestrator.py)
-- Die Freigabe in `state.json` speichert `bitstream_path` und `bitstream_sha256`. Eine gespeicherte Entscheidung gilt nur, wenn beide übereinstimmen.
-- Kommt eine Freigabe für eine persistierte offene Anfrage, auf die kein Thread mehr wartet (Prozessneustart), startet `resume_project()` den Workflow aus `design_state.yaml` neu. Der Supervisor steht dann in `FPGA_PROGRAMMING`, liest die Freigabe und flasht.
-- Ein fehlender `Path`-Import im Bootstrap-Pfad wurde nebenbei behoben.
+Die Benutzerfreigabe vor dem Flashen wurde am 2026-10-11 entfernt (Orchestrator, API, Zustandsautomat, Dashboard). Anlass: Im Lauf gray-countdown wartete der Workflow vor jedem Flash-Versuch auf die Freigabe, insgesamt mehrere Stunden. Der Benutzer wird nur noch gerufen, wenn die Eskalationsleiter erschöpft ist oder Werkzeug bzw. Board fehlen (siehe `docs/doku.html`, Abschnitt 15, #36).
 
 ### 2. TaskGraph als produktiver Scheduler
 
@@ -151,11 +146,10 @@ Typisierte Ports kommen aus dem erweiterten Manifest-Schema (`modules[].ports` m
 |---|---|
 | `design_state.yaml` | Phase, Architekturversion, Verifikation inkl. Testplan und Historie, Synthesewerte, Diagnosehistorie mit Reparaturziel, Reparaturprotokoll |
 | `task_graph.json` | Tasks mit Status, Fingerprint, Run-Key, Versuchszähler, Ergebnis, Ownership |
-| `state.json` | Freigabe, gebunden an den Bitstream |
 
 Resume ist idempotent: Abgeschlossene Tasks werden übernommen, laufende und fehlgeschlagene werden wiederholt.
 
-**Offen:** Events werden nicht persistiert. Automatisch fortgesetzt wird nach einem Neustart nur ein auf Freigabe wartender Workflow.
+**Offen:** Events werden nicht persistiert. Nach einem Neustart setzt der Benutzer unterbrochene Läufe mit `resume_project()` fort.
 
 ### 12. Parallelität
 
@@ -175,7 +169,7 @@ Neue Akzeptanztests: [test_multi_agent_gates.py](../Schaltungsagent/tests/test_m
 | 2 | Coverage- und Versions-Gate | `test_validation_gate_blocks_uncovered_modules`, `test_validation_gate_rejects_stale_simulation` |
 | 3 | Verletztes Timing / fehlender Constraint nicht erfolgreich | `test_timing_violation_blocks_success`, `test_missing_clock_constraint_blocks_success`, `test_missing_reports_and_overuse_block_success` |
 | 4 | Kein Erfolg aus Mock; CPU-Programm mit erwarteter UART-Ausgabe | `test_mock_hardware_never_reports_success`, `test_cpu_program_vectors_pass_and_fail_on_real_interface` |
-| – | Ziel-FPGA, Freigabe-Bindung, Resume nach Neustart | `test_fpga_target_*`, `test_approval_is_bound_to_bitstream_content`, `test_pending_approval_resumes_workflow_after_restart` |
+| – | Ziel-FPGA, Flashen ohne Freigabe | `test_fpga_target_*`, `test_flash_runs_without_waiting_for_approval` |
 
 Gesamte Testsuite (`tests`, `src/tests`, `test`): **365 bestanden, 37 fehlgeschlagen, 7 Fehler, 11 übersprungen**. Vor den Änderungen waren es 316 bestanden, 39 fehlgeschlagen und 7 Fehler. Keine neuen Fehlschläge; zwei API-Tests laufen jetzt wieder (fehlender `Path`-Import im Orchestrator). Die verbleibenden Fehlschläge bestanden schon vorher und gehen auf veraltete Test-APIs zurück. Behoben ist außerdem die frühere Regression in `test_multi_agent_collaboration.py::test_full_multi_agent_workflow`: Das Test-Mock kannte die `plan()`-Schnittstelle des ArchitectureAgent nicht.
 

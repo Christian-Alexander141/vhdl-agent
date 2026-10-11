@@ -856,67 +856,28 @@ def test_resolved_target_is_stored_and_used(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Freigabe und Wiederaufnahme
+# Flashen ohne Benutzerfreigabe (Freigabe entfernt 2026-10-11)
 # ---------------------------------------------------------------------------
 
-def make_orchestrator(tmp_path):
-    orchestrator = SupervisorOrchestrator.__new__(SupervisorOrchestrator)
-    orchestrator._fs = DiskFS(tmp_path)
-    orchestrator._approval_events = {}
-    orchestrator._approval_results = {}
-    orchestrator._approval_lock = threading.Lock()
-    orchestrator._events = EventRecorder()
-    (tmp_path / "proj").mkdir(exist_ok=True)
-    return orchestrator
+class _FlashingAgent:
+    def __init__(self):
+        self.calls = []
+
+    async def execute(self, task):
+        self.calls.append(task)
+        return AgentResult(task_id=task.id, status=AgentStatus.COMPLETED, outputs={"board_detected": True})
 
 
-def _wait_in_thread(orchestrator, bitstream):
-    result = {}
-    worker = threading.Thread(
-        target=lambda: result.setdefault("value", orchestrator._wait_for_approval("proj", bitstream)),
-        daemon=True,
-    )
-    worker.start()
-    for _ in range(200):
-        if "proj" in orchestrator._approval_events:
-            break
-        time.sleep(0.005)
-    return worker, result
-
-
-def test_approval_is_bound_to_bitstream_content(tmp_path):
-    orchestrator = make_orchestrator(tmp_path)
-    bitstream = tmp_path / "proj" / "top.bit"
-    bitstream.write_bytes(b"v1")
-
-    worker, result = _wait_in_thread(orchestrator, str(bitstream))
-    assert orchestrator.approve_task("proj", "ok")
-    worker.join(1)
-    assert result["value"] == (True, "ok")
-    # Gleicher Bitstream: gespeicherte Freigabe gilt (z. B. nach Neustart).
-    assert orchestrator._wait_for_approval("proj", str(bitstream)) == (True, "ok")
-
-    # Neuer Bitstream-Inhalt braucht eine neue Freigabe.
-    bitstream.write_bytes(b"v2")
-    worker, result = _wait_in_thread(orchestrator, str(bitstream))
-    assert worker.is_alive(), "geänderter Bitstream darf nicht automatisch freigegeben sein"
-    assert orchestrator.reject_task("proj", "nein")
-    worker.join(1)
-    assert result["value"] == (False, "nein")
-    stored = json.loads((tmp_path / "proj" / "state.json").read_text())["approval"]
-    assert stored["bitstream_sha256"] == hashlib.sha256(b"v2").hexdigest()
-
-
-def test_pending_approval_resumes_workflow_after_restart(tmp_path):
-    orchestrator = make_orchestrator(tmp_path)
-    orchestrator._write_approval("proj", {"status": "pending", "bitstream_path": "/x.bit", "bitstream_sha256": ""})
-    resumed = []
-    orchestrator._supervisor = object()
-    orchestrator.resume_project = lambda project_id: resumed.append(project_id)
-
-    assert orchestrator.approve_task("proj", "ok") is True
-    assert resumed == ["proj"]
-    assert orchestrator._read_approval("proj")["status"] == "approved"
+def test_flash_runs_without_waiting_for_approval(tmp_path):
+    fpga = _FlashingAgent()
+    supervisor, _, events = make_supervisor(tmp_path, fpga_agent=fpga)
+    supervisor._design_state.current_stage = DesignStage.SYNTHESIZING
+    supervisor._design_state.synthesis.bitstream_path = str(tmp_path / "top.bit")
+    result = run(supervisor._run_fpga_programming())
+    assert result.status == AgentStatus.COMPLETED
+    assert [t.type for t in fpga.calls] == ["flash"]
+    assert not any("APPROVAL" in e for e in events.types())
+    assert not hasattr(SupervisorOrchestrator, "approve_task")
 
 
 def test_manifest_port_list_and_validator():

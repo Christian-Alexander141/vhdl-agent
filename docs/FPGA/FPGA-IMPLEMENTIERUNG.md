@@ -157,10 +157,8 @@ Der `vhdl-agent` ist als **Multiagentensystem** strukturiert mit `SupervisorOrch
 - **Status**: ❌
 - **Keine Schwellenwerte** definiert. Keine Timing-Constraint-Prüfung, keine Ressourcen-Grenzwert-Validierung.
 
-### 4. Flashen nur nach Approval
-- **Status**: ⚠️
-- **Approval-Infrastruktur**: ✅ `approve_task()`/`reject_task()` existieren, `_write_approval()` mit atomic `os.replace()`
-- **Aber**: Flashen wird im Supervisor nicht explizit durch Approval blockiert — der `_handle_failure()`-Pfad prüft nicht, ob eine Genehmigung vorliegt
+### 4. Flashen ohne Benutzerfreigabe
+- **Status**: entfallen – die Benutzerfreigabe vor dem Flashen wurde am 2026-10-11 vollständig entfernt (Orchestrator, API, Zustandsautomat, Dashboard).
 
 ### 5. Projektspezifische Hardwaretests
 - **Status**: ❌
@@ -181,7 +179,7 @@ Der `vhdl-agent` ist als **Multiagentensystem** strukturiert mit `SupervisorOrch
 
 ### 1. Atomare Persistenz nach jedem Schritt
 - **Status**: ❌
-- **Nur eine atomare Schreiboperation** im gesamten Codebase: `_write_approval()` in `supervisor_orchestrator.py` (`.tmp` + `os.replace`)
+- **Nur eine atomare Schreiboperation** im damaligen Codebase (für die inzwischen entfernte Freigabe). Seit 2026-10-10 schreiben `atomic_write_text` und `LocalFileSystemService.write_file` atomar.
 - **Alle anderen Schreiboperationen** (`design_state.yaml`, `state.json`, `memory.md`) sind Plain-Writes ohne Atomarität
 - **Keine Checkpoint-Mechanismen** nach Agenten- oder Gate-Schritten
 
@@ -197,12 +195,8 @@ Der `vhdl-agent` ist als **Multiagentensystem** strukturiert mit `SupervisorOrch
 - `_capture_file_hashes()` existiert in `supervisor.py` aber wird nur für No-Progress-Detektion verwendet, nie persistiert
 - **Kein `input_hash` oder `source_revision`** Feld existiert auf irgendeinem Modell
 
-### 4. Approval-Status persistiert
-- **Status**: ✅ (atomar)
-- `_write_approval()` in `supervisor_orchestrator.py` Zeile 301-320 schreibt atomar nach `state.json`
-- `_read_approval()` liest zurück
-- `TaskState.approval` Feld existiert
-- **Aber**: `_read_approval()` wird nie bei Start aufgerufen → kein automatisches Wiederaufnahme-Verhalten
+### 4. Freigabe-Status persistiert
+- **Status**: entfallen (Freigabe am 2026-10-11 entfernt)
 
 ### 5. Externe Toolprozesse und Ergebnisse
 - **Status**: ❌
@@ -214,7 +208,6 @@ Der `vhdl-agent` ist als **Multiagentensystem** strukturiert mit `SupervisorOrch
 - `Workflow.run()` erstellt immer einen neuen `TaskState` von Grund auf
 - `SupervisorAgent._load_or_create_design_state()` lädt `design_state.yaml` falls existent — aber NICHT:
   - `TaskGraph`-Zustand
-  - `approval`-Status aus `state.json`
   - `_task_graph` mit Aufgaben
   - Reparaturhistorie
 - **API-Server**: `api_server.py` lädt `state.json` nur zur Anzeige, NICHT zum Wiederaufnehmen
@@ -243,7 +236,7 @@ Der `vhdl-agent` ist als **Multiagentensystem** strukturiert mit `SupervisorOrch
 
 ### Mittel (Kann nachträglich ergänzt werden)
 9. **OpenCode produziert keinen Maschinenlesbaren Plan**
-10. **Keine atomaren Schreiboperationen** außer für Approval
+10. **Keine atomaren Schreiboperationen** (behoben 2026-10-10)
 11. **Keine dedizierten Constructor-/DI-Tests**
 12. **`repair_owner` und `failure_id` fehlen** im Error-Contract
 
@@ -277,7 +270,7 @@ Der `vhdl-agent` ist als **Multiagentensystem** strukturiert mit `SupervisorOrch
 7. **ContractChecker im Pipeline einbinden** → Nach STATIC_CHECK
 8. **`DebugDiagnosis` um `failure_id`, `root_cause`, `repair_owner` erweitern**
 9. **OpenCodeContextBuilder → Maschinenlesbaren Plan** als JSON erzeugen
-10. **`_write_approval()` auf Start ausführen** → Automatisches Resume nach Neustart
+10. ~~Freigabe beim Start auswerten~~ (entfallen: Freigabe entfernt)
 
 ---
 

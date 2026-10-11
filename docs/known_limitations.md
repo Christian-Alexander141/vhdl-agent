@@ -34,16 +34,17 @@ endet dann mit dem ausdrücklichen Hinweis, dass die Board-Funktion nicht
 validiert ist. CPU-/Decoder-Vektoren müssen im Manifest (`hardware_tests`)
 oder in `tests/hardware_tests.yaml` stehen. GPIO-Beobachtung gibt es nicht.
 
-### 5. Constraint-, Ressourcen- und Board-Fehler werden nicht automatisch repariert
-Sie werden erkannt, blockieren den Abschluss und gehen an den Benutzer.
-Eine automatische Constraint-Erzeugung/-Reparatur durch einen Agenten fehlt.
+### 5. Ressourcen- und Board-Fehler werden nicht automatisch repariert
+Constraint- und Bitstream-Konfigurationsfehler gehen seit 2026-10-11 an die
+FPGA-Reparatur (Konfigurationsfehler zuerst durch Neubau ohne Sprachmodell).
+Ressourcenüberschreitung, fehlendes Board/Kabel und fehlende Werkzeuge gehen
+weiterhin an den Benutzer.
 
-### 6. Resume nur bei Approval automatisch
-`task_graph.json`, `design_state.yaml` und die an den Bitstream gebundene
-Freigabe in `state.json` erlauben idempotente Wiederaufnahme. Automatisch
-fortgesetzt wird nach einem Neustart aber nur ein Workflow, der auf Freigabe
-wartete; andere unterbrochene Läufe muss der Benutzer erneut anstoßen
+### 6. Kein automatisches Resume nach Neustart
+`task_graph.json` und `design_state.yaml` erlauben idempotente Wiederaufnahme,
+unterbrochene Läufe muss der Benutzer aber erneut anstoßen
 (`SupervisorOrchestrator.resume_project`). Events werden nicht persistiert.
+Eine Benutzerfreigabe vor dem Flashen gibt es seit 2026-10-11 nicht mehr.
 
 ### 7. Parallelität teilt einen Workspace
 HDL-Worker laufen parallel in eigenen Threads (`limits.max_parallel_workers`).

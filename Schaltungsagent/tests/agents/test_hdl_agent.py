@@ -161,6 +161,29 @@ class _StdoutOpenCode:
         return Result()
 
 
+class _FileWritingOpenCode:
+    """Wie echtes OpenCode: schreibt die Testbench-Datei selbst; stdout ist nur Log."""
+
+    def __init__(self, testbench, stdout="\x1b[0m> build · some-model\x1b[0m"):
+        self.testbench = testbench
+        self.stdout = stdout
+        self.instructions = []
+
+    def execute(self, workspace, instruction, timeout_seconds=None):
+        self.instructions.append(instruction)
+        if self.testbench is not None:
+            target = Path(workspace) / "tests" / "counter_tb.vhd"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(self.testbench)
+
+        class Result:
+            success = True
+            returncode = 0
+            stderr = ""
+        Result.stdout = self.stdout
+        return Result()
+
+
 _COUNTER_SRC = """library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 entity counter is
@@ -202,7 +225,7 @@ async def test_verification_testbench_uses_opencode(tmp_path):
 
     if not shutil.which("ghdl"):
         pytest.skip("GHDL is not installed")
-    opencode = _StdoutOpenCode(_COUNTER_TB)
+    opencode = _FileWritingOpenCode(_COUNTER_TB)
     agent = VerificationAgent(filesystem_service=_DiskFileSystem(), opencode_service=opencode)
     task = AgentTask(
         id="test-tb",
@@ -231,7 +254,7 @@ architecture sim of counter_tb is begin
     assert false report "TB_COMPLETE" severity note;
 end architecture;"""
     agent = VerificationAgent(
-        filesystem_service=_DiskFileSystem(), opencode_service=_StdoutOpenCode(fake_tb),
+        filesystem_service=_DiskFileSystem(), opencode_service=_FileWritingOpenCode(fake_tb),
     )
 
     result = await agent.execute(AgentTask(
@@ -298,3 +321,23 @@ architecture rtl of bad is begin process begin wait for 10 ns; end process; end 
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+@pytest.mark.asyncio
+async def test_verification_never_takes_testbench_code_from_console_output(tmp_path):
+    """Lauf gray-countdown 2026-10-11: ANSI-Codes und Kopfzeile aus stdout landeten
+    als Testbench im Projekt. Nur die von OpenCode geschriebene Datei zählt."""
+    from src.agents.verification import VerificationAgent
+
+    workspace = _counter_workspace(tmp_path)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "counter_tb.vhd").write_text(_COUNTER_TB)
+    agent = VerificationAgent(
+        filesystem_service=_DiskFileSystem(),
+        opencode_service=_FileWritingOpenCode(None, stdout="\x1b[0m> build · longcat\x1b[0m\n" + _COUNTER_TB),
+    )
+    result = await agent.execute(AgentTask(
+        id="test-tb-stdout", type="generate_testbench", project_id="proj-1",
+        inputs={"module": {"name": "counter"}, "workspace": workspace},
+    ))
+    assert result.status == AgentStatus.FAILED
+    assert (tmp_path / "tests" / "counter_tb.vhd").read_text() == _COUNTER_TB

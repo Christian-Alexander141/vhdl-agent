@@ -32,7 +32,6 @@ class MessageType(str, Enum):
     ERROR = "ERROR"
     DIAGNOSTIC = "DIAGNOSTIC"
     REPAIR_REQUEST = "REPAIR_REQUEST"
-    APPROVAL_REQUEST = "APPROVAL_REQUEST"
 
 
 @dataclass

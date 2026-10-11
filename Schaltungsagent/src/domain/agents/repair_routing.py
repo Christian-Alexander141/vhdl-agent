@@ -33,6 +33,11 @@ _ROUTES: dict[str, RepairTarget] = {
     "testbench_error": RepairTarget.VERIFICATION,
     "coverage_gap": RepairTarget.VERIFICATION,
     "weak_testbench": RepairTarget.VERIFICATION,
+    # Einzelanforderungen (domain/agents/requirements.py): ungeprüft -> Test
+    # ergänzen; verletzt -> Code; im Plan vergessen -> Plan samt Ports ergänzen.
+    "requirement_gap": RepairTarget.VERIFICATION,
+    "requirement_violation": RepairTarget.HDL,
+    "requirement_missing": RepairTarget.ARCHITECTURE,
     # Synthese/Timing
     "synthesis_error": RepairTarget.FPGA,
     "timing_error": RepairTarget.FPGA,
@@ -46,6 +51,9 @@ _ROUTES: dict[str, RepairTarget] = {
     # sind dagegen "infrastructure".
     "constraint_error": RepairTarget.FPGA,
     "bitstream_error": RepairTarget.FPGA,
+    # Konfigurationsspeicher-Einstellungen des Bitstreams (z. B. SPI_BUSWIDTH):
+    # Build-Konfiguration, kein HDL-Fehler.
+    "bitstream_config_error": RepairTarget.FPGA,
     # Nicht durch Code-Agenten reparierbar
     "resource_error": RepairTarget.HUMAN,
     "flash_error": RepairTarget.HUMAN,

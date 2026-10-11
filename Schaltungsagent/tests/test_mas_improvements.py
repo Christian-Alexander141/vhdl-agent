@@ -1,4 +1,6 @@
 """Tests für die Maßnahmen aus der MAS-vs-Einzel-OpenCode-Analyse (docs/doku.html, Abschnitt 15)."""
+import shutil
+import pytest
 import json
 from pathlib import Path
 
@@ -459,7 +461,7 @@ def _manifest(deps_a, deps_b):
     return {"project_name": "zyklus-test", "top_entity": "a", "modules": [
         {"entity": "a", "file": "src/a.vhd", "depends_on": deps_a},
         {"entity": "b", "file": "src/b.vhd", "depends_on": deps_b},
-    ]}
+    ], "requirements": [{"id": "R1", "text": "x", "quote": "x", "modules": ["a"], "check": "structure"}]}
 
 
 def test_cyclic_plan_is_sent_back_for_correction_with_the_cycle(tmp_path):
@@ -572,3 +574,118 @@ def test_fallback_model_is_restored_after_the_run(tmp_path):
     supervisor._switch_to_fallback_model()
     supervisor._restore_model()
     assert calls == [True, False] and "fallback_model_active" not in supervisor._design_state.metadata
+
+
+# --- Lauf traffic-light 2026-10-10: Synthese, Regression, Zeitlimit ------------
+
+@pytest.mark.skipif(shutil.which("ghdl") is None, reason="GHDL nicht installiert")
+def test_ghdl_synthesis_accepts_vhdl_2008(tmp_path):
+    """process(all) ist VHDL-2008; die Synthese lief ohne --std=08 und scheiterte,
+    obwohl Simulation und Mutationsanalyse bestanden hatten."""
+    from src.infrastructure.synthesis.ghdl_synthesis import GHDLSynthesisService
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "inv.vhd").write_text(
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity inv is port (a : in std_logic; y : out std_logic); end entity;\n"
+        "architecture rtl of inv is begin\n"
+        "  p : process(all) begin y <= not a; end process;\n"
+        "end architecture;\n"
+    )
+    result = GHDLSynthesisService().synthesize(str(tmp_path))
+    assert result.passed, result.details
+
+
+def test_ghdl_synthesis_failure_names_the_error_and_the_class(tmp_path):
+    from src.agents.debug import DebugAgent
+    from src.infrastructure.synthesis.ghdl_synthesis import GHDLSynthesisService
+
+    service = GHDLSynthesisService(ghdl_binary="ghdl")
+    service._run_step = lambda *a, **k: {"step": "synthesize", "label": "x", "returncode": 1, "stdout": "",
+                                         "stderr": "src/control.vhd:56:20:error: bad thing\n  p : process\n"}
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "control.vhd").write_text("entity control is end entity;")
+    result = service.synthesize(str(tmp_path))
+    assert "src/control.vhd:56:20:error: bad thing" in result.message
+    diagnosis = DebugAgent()._fallback_diagnosis(
+        [{"message": result.message, "failure_type": "synthesis_error"}], "synthesis",
+        {"modules": [{"name": "control"}]})
+    assert diagnosis.failure_type == "synthesis_error" and diagnosis.suspected_modules == ["control"]
+
+
+def _workspace_with_alu(supervisor, fs):
+    src = Path(fs.workspace_path("proj")) / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "alu.vhd").write_text("-- gruen\n")
+    return src
+
+
+def test_repair_that_breaks_an_earlier_stage_is_rolled_back(tmp_path):
+    supervisor, fs, events = make_supervisor(tmp_path, config={"repair_policy": "persistent"})
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+    src = _workspace_with_alu(supervisor, fs)
+    supervisor._take_repair_snapshot(DesignStage.SYNTHESIZING)
+    (src / "alu.vhd").write_text("-- kaputt repariert\n")
+    (src / "extra.vhd").write_text("-- neu\n")
+    supervisor._design_state.current_stage = DesignStage.STATIC_CHECK
+
+    failure = AgentResult(task_id="s", status=AgentStatus.FAILED, error_message="MODEL_MISMATCH")
+    result = run(supervisor._handle_failure(DesignStage.STATIC_CHECK, failure))
+    assert "rolled back" in result.error_message
+    assert (src / "alu.vhd").read_text() == "-- gruen\n" and not (src / "extra.vhd").exists()
+    assert "REPAIR_ROLLED_BACK" in events.types()
+    assert supervisor._design_state.current_stage == DesignStage.STATIC_CHECK
+    assert supervisor._design_state.metadata["rollbacks"][0]["restored_to_stage"] == "SYNTHESIZING"
+
+
+def test_failure_at_the_same_stage_is_not_rolled_back(tmp_path):
+    supervisor, fs, _ = make_supervisor(tmp_path, config={"repair_policy": "persistent"})
+    src = _workspace_with_alu(supervisor, fs)
+    supervisor._take_repair_snapshot(DesignStage.SYNTHESIZING)
+    (src / "alu.vhd").write_text("-- anders\n")
+    assert supervisor._rollback_regression(DesignStage.SYNTHESIZING) is False
+    assert (src / "alu.vhd").read_text() == "-- anders\n"
+
+
+class _HangingHDLAgent:
+    """Ändert eine Datei und läuft dann ins OpenCode-Zeitlimit."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def execute(self, task):
+        self.calls.append(task)
+        for rel in task.inputs.get("affected_files", []):
+            (Path(task.inputs["workspace"]) / rel).write_text("-- halb fertig\n")
+        message = "Reparatur von 'alu': OpenCode execution timed out after 3000s"
+        return AgentResult(task_id=task.id, status=AgentStatus.FAILED, error_message=message,
+                           diagnostics=[{"failure_type": "infrastructure", "message": message}])
+
+
+def _timeout_case(tmp_path, policy):
+    from src.agents.debug import DebugAgent
+
+    hdl = _HangingHDLAgent()
+    supervisor, fs, _ = make_supervisor(tmp_path, hdl_agent=hdl, debug_agent=DebugAgent(),
+                                        config={"repair_policy": policy})
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+    supervisor._design_state.architecture.modules[0].files = ["src/alu.vhd"]
+    src = _workspace_with_alu(supervisor, fs)
+    supervisor._design_state.current_stage = DesignStage.STATIC_CHECK
+    failure = AgentResult(task_id="s", status=AgentStatus.FAILED, error_message="x", diagnostics=[
+        {"failure_type": "syntax_error", "message": "src/alu.vhd:3: syntax error", "modules": ["alu"]}])
+    return run(supervisor._handle_failure(DesignStage.STATIC_CHECK, failure)), src, hdl
+
+
+def test_repair_timeout_escalates_in_persistent_mode_and_discards_partial_edits(tmp_path):
+    """Zeitlimit beendet den Lauf nicht; ohne Änderung folgt sofort die nächste
+    Stufe (keine erneute Pipeline/Synthese), am Ende der Mensch mit Zusammenfassung."""
+    result, src, hdl = _timeout_case(tmp_path, "persistent")
+    assert len(hdl.calls) >= 2, "nach einem Zeitlimit muss die nächste Stufe folgen"
+    assert result.status == AgentStatus.BLOCKED and "Nach" in result.error_message
+    assert (src / "alu.vhd").read_text() == "-- gruen\n"
+
+
+def test_repair_timeout_still_stops_in_standard_mode(tmp_path):
+    result, _, _ = _timeout_case(tmp_path, "standard")
+    assert result.status == AgentStatus.BLOCKED

@@ -257,7 +257,7 @@ SupervisorOrchestrator
 │  │  (939 Zeilen - Hauptorchestrierer)                    │   │
 │  │                                                      │   │
 │  │  Zuständig für: Autonomer Loop, Phasensteuerung,      │   │
-│  │  Reparatur-Management, Safety-Limits, Approval        │   │
+│  │  Reparatur-Management, Safety-Limits                  │   │
 │  └─────────────────────┬────────────────────────────────┘   │
 │                        │ nutzt                                │
 │  ┌─────────────────────▼────────────────────────────────┐   │
@@ -498,9 +498,7 @@ SupervisorOrchestrator
 │  │           (Produktions-Orchestrator)                 │  │
 │  │                                                     │  │
 │  │  API: execute(), execute_async(), handle_chat()     │  │
-│  │  Approval: approve_task(), reject_task()            │  │
 │  │  Delegation: _run_analysis() ... _run_hardware_test()│  │
-│  │  Persistenz: _write_approval() (atomar)             │  │
 │  └──────────────────┬──────────────────────────────────┘  │
 │                     │                                      │
 │  ┌──────────────────▼──────────────────────────────────┐  │
@@ -630,8 +628,6 @@ SupervisorOrchestrator
 │  • SYNTHESIS_STARTED/FINISHED            │
 │  • FLASH_STARTED/FINISHED                │
 │  • HARDWARE_TEST_STARTED/PASSED/FAILED   │
-│  • APPROVAL_REQUESTED                    │
-│  • APPROVAL_GRANTED/REJECTED             │
 │  • TASK_COMPLETED                        │
 │  • TASK_FAILED                           │
 │  • AUTONOMOUS_LIMIT_REACHED              │
@@ -743,8 +739,6 @@ SupervisorOrchestrator
 │                            ▼                          │
 │                     FPGA_PROGRAMMING                   │
 │                            │                          │
-│                     (Approval Gate)                    │
-│                            │                          │
 │                            ▼                          │
 │                     HARDWARE_TESTING                   │
 │                            │                          │
@@ -791,7 +785,7 @@ SupervisorOrchestrator
 │  │   implement_modB → verify_top                       │  │
 │  │   verify_top → synthesize                           │  │
 │  │   synthesize → build_bitstream                      │  │
-│  │   build_bitstream → flash (approval gate)           │  │
+│  │   build_bitstream → flash (ohne Benutzerfreigabe)   │  │
 │  │   flash → hardware_test                             │  │
 │  └─────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────┘
@@ -1033,8 +1027,6 @@ SupervisorOrchestrator
 │  GET    /api/projects/{project}                           │
 │  GET    /api/projects/{project}/memory                    │
 │  DELETE /api/projects/{project}                           │
-│  POST   /api/projects/{task_id}/approve                   │
-│  POST   /api/projects/{task_id}/reject                    │
 │  POST   /api/projects/{project}/open-tool                 │
 │  GET    /api/projects/{project}/file?path=...             │
 │  GET    /api/rag/files                                    │
@@ -1140,13 +1132,13 @@ SupervisorOrchestrator
 │  ┌────────────┐ ┌────────────┐                                  │
 │  │ SYNTHESIZING│ │FPGA_PROGRAM│                                  │
 │  │            │ │  MING      │                                  │
-│  │ GHDL synth │ │ Approval   │                                  │
-│  │+ Vivado    │ │ gate       │                                  │
-│  │ bitstream  │ │ (atomic    │                                  │
-│  │            │ │ state.json)│                                  │
+│  │ GHDL synth │ │ Vivado     │                                  │
+│  │+ Vivado    │ │ JTAG/QSPI  │                                  │
+│  │ bitstream  │ │ (ohne      │                                  │
+│  │            │ │ Freigabe)  │                                  │
 │  └─────┬──────┘ └─────┬──────┘                                  │
 │        │              │                                          │
-│        │         APPROVED ▼                                      │
+│        │        FLASHED ▼                                      │
 │        │         ┌────────────┐                                  │
 │        │         │HARDWARE    │                                  │
 │        │         │TESTING     │                                  │
@@ -1163,7 +1155,6 @@ SupervisorOrchestrator
 │                                                                  │
 │  ┌──────────────────────────────────────────┐                   │
 │  │    Persistenz (state.json)                │                   │
-│  │    • approval: {approved, feedback, ts}  │                   │
 │  │    • status, task_id, workspace          │                   │
 │  │    • design_state.yaml (SupervisorAgent)  │                   │
 │  │    • memory.md (ProjectMemoryService)     │                   │
@@ -1360,8 +1351,8 @@ SupervisorOrchestrator
 │      ├── Kein JSON-Struktur-Plan                         │
 │      └── → Kein strukturiertes Plan-Format               │
 │                                                           │
-│  🟡 P2: Keine atomaren Schreiboperationen außer für      │
-│         Approval                                          │
+│  🟡 P2: Keine atomaren Schreiboperationen (behoben       │
+│         2026-10-10)                                       │
 │      ├── design_state.yaml: Plain-Write                  │
 │      ├── state.json: Plain-Write                         │
 │      └── → Datei-Korruption bei Absturz möglich          │
@@ -1389,7 +1380,7 @@ SupervisorOrchestrator
 7. HardwareTestAgent → SKIPPED/BLOCKED
 8. ContractChecker im Pipeline einbinden
 9. DebugDiagnosis erweitern (failure_id, root_cause)
-10. _write_approval() auf Start ausführen → Resume
+10. (entfallen: Benutzerfreigabe am 2026-10-11 entfernt)
 ```
 
 ---

@@ -187,8 +187,25 @@ def load(name, file):
 mode = sys.argv[1]
 try:
     if mode == "meta":
+        import inspect
         mod = load("reference_model", "reference_model.py")
-        print(json.dumps({"cycles": getattr(mod.ReferenceModel, "SUGGESTED_CYCLES", None)}))
+        cls = mod.ReferenceModel
+        generics = getattr(cls, "GENERICS", None)
+        source = "GENERICS"
+        if not isinstance(generics, dict):
+            # Ersatz: Konstruktor-Parameter mit Standardwert (z. B. tick_cycles=4)
+            generics, source = {}, "constructor"
+            try:
+                for name, param in inspect.signature(cls.__init__).parameters.items():
+                    if name != "self" and isinstance(param.default, (int, bool)):
+                        generics[name] = param.default
+            except (TypeError, ValueError):
+                pass
+        print(json.dumps({
+            "cycles": getattr(cls, "SUGGESTED_CYCLES", None),
+            "generics": {str(k): v for k, v in generics.items() if isinstance(v, (int, bool))},
+            "generics_source": source,
+        }))
     elif mode == "selftest":
         mod = load("test_reference_model", "test_reference_model.py")
         tests = [n for n in dir(mod) if n.startswith("test_") and callable(getattr(mod, n))]
@@ -266,20 +283,63 @@ def run_model(workspace: str, ports: list[ModelPort], stimulus: list[dict]) -> t
     return normalized, ""
 
 
-def suggested_cycles(workspace: str) -> int:
+def model_meta(workspace: str) -> dict:
     result = _run(workspace, "meta")
-    cycles = result.get("cycles") if isinstance(result, dict) else None
+    return result if isinstance(result, dict) and "error" not in result else {}
+
+
+def suggested_cycles(workspace: str, meta: dict | None = None) -> int:
+    meta = model_meta(workspace) if meta is None else meta
+    cycles = meta.get("cycles")
     if isinstance(cycles, int) and cycles > 0:
         return min(cycles, MAX_CYCLES)
     return DEFAULT_CYCLES
+
+
+def entity_generics(workspace: str, top: str) -> dict[str, str]:
+    """Generics der Top-Entity (Name in Kleinbuchstaben -> Standardwert)."""
+    path = Path(workspace) / "src" / f"{top}.vhd"
+    info = ContractChecker()._parse_entity(path) if path.is_file() else None
+    return dict((info or {}).get("generics") or {})
+
+
+def resolve_generics(model_generics: dict, entity: dict[str, str]) -> tuple[dict[str, int | bool], list[str]]:
+    """Generic-Werte des Modells, die die Entity tatsächlich hat (VHDL: Groß-/Kleinschreibung egal).
+
+    Lauf led-pattern-display (2026-10-11): Das Modell simulierte mit
+    tick_cycles=4, die Vergleichs-Testbench instanziierte den Entwurf ohne
+    generic map, also mit TICK_CYCLES=25_000_000. Ergebnis: 7 vergebliche
+    Reparaturen eines korrekten Entwurfs.
+    """
+    mapped: dict[str, int | bool] = {}
+    ignored: list[str] = []
+    for name, value in (model_generics or {}).items():
+        if str(name).lower() in entity and isinstance(value, (int, bool)):
+            mapped[str(name).lower()] = value
+        else:
+            ignored.append(str(name))
+    return mapped, ignored
+
+
+def _generic_value(value: int | bool) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(int(value))
 
 
 # ---------------------------------------------------------------------------
 # VHDL-Vergleichs-Testbench
 # ---------------------------------------------------------------------------
 
-def build_model_testbench(top: str, ports: list[ModelPort], stimulus: list[dict], expected: list[dict]) -> str:
-    """Testbench mit eingebetteten Vektoren (keine Datei-I/O, keine Pfadabhängigkeit)."""
+def build_model_testbench(
+    top: str, ports: list[ModelPort], stimulus: list[dict], expected: list[dict],
+    generics: dict[str, int | bool] | None = None,
+) -> str:
+    """Testbench mit eingebetteten Vektoren (keine Datei-I/O, keine Pfadabhängigkeit).
+
+    ``generics``: Werte, mit denen das Referenzmodell rechnet; der Entwurf wird
+    mit genau diesen Werten instanziiert.
+    """
     clock = next((p for p in ports if p.direction == "in" and is_clock(p.name)), None)
     inputs = [p for p in ports if p.direction == "in" and p is not clock]
     outputs = [p for p in ports if p.direction == "out"]
@@ -334,7 +394,13 @@ def build_model_testbench(top: str, ports: list[ModelPort], stimulus: list[dict]
         step = f"            wait for {CLOCK_PERIOD_NS} ns;"
         clock_decl, clock_gen, finish = "", "", ""
 
-    return f"""-- Automatisch erzeugt aus model/reference_model.py (differentieller Test, nicht bearbeiten).
+    generic_map = ""
+    if generics:
+        assignments = ",\n".join(f"            {name} => {_generic_value(value)}" for name, value in generics.items())
+        generic_map = f"        generic map (\n{assignments}\n        )\n"
+
+    return f"""-- Automatisch erzeugt aus model/reference_model.py (differentieller Test, nicht bearbeiten:
+-- die Datei wird vor jedem Prüflauf neu erzeugt). Generics des Entwurfs = GENERICS des Modells.
 -- Je Zeile: Eingänge, danach die vom Referenzmodell berechneten Ausgänge.
 library ieee;
 use ieee.std_logic_1164.all;
@@ -352,7 +418,7 @@ architecture sim of {top}_model_tb is
 {signals}
 begin
     dut: entity work.{top}
-        port map (
+{generic_map}        port map (
 {port_map}
         );
 {clock_gen}
@@ -394,14 +460,26 @@ def write_model_testbench(workspace: str, top: str, seed: int = 0) -> dict:
     ok, detail = run_selftest(workspace)
     if not ok:
         return {"status": "model_error", "reason": f"Selbsttest des Referenzmodells fehlgeschlagen: {detail}"}
-    stimulus = generate_stimulus(ports, suggested_cycles(workspace), seed=seed)
+    meta = model_meta(workspace)
+    entity = entity_generics(workspace, top)
+    generics, ignored = resolve_generics(meta.get("generics") or {}, entity)
+    stimulus = generate_stimulus(ports, suggested_cycles(workspace, meta), seed=seed)
     expected, error = run_model(workspace, ports, stimulus)
     if expected is None:
         return {"status": "model_error", "reason": f"Referenzmodell nicht ausführbar: {error}"}
     path = ws / model_testbench_path(top)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_model_testbench(top, ports, stimulus, expected), encoding="utf-8")
-    return {"status": "written", "file": model_testbench_path(top), "cycles": len(stimulus), "selftest": detail}
+    path.write_text(build_model_testbench(top, ports, stimulus, expected, generics), encoding="utf-8")
+    status = {"status": "written", "file": model_testbench_path(top), "cycles": len(stimulus), "selftest": detail,
+              "generics": generics, "generics_source": meta.get("generics_source", "")}
+    unset = sorted(set(entity) - set(generics))
+    if unset:
+        # Ohne Wert läuft der Entwurf mit seinem Standardwert; bei Zeitkonstanten
+        # (z. B. 25 Mio. Takte) passiert dann im Vergleich nichts.
+        status["generics_default"] = unset
+    if ignored:
+        status["generics_ignored"] = ignored
+    return status
 
 
 def mismatch_line(output: str) -> str:

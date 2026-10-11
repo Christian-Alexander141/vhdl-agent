@@ -5,6 +5,7 @@ import json
 import logging
 import re
 
+from src.domain.agents import requirements as reqs
 from src.domain.exceptions import WorkflowError
 from src.services.opencode_task_runner import OpenCodeTaskRunner
 
@@ -210,9 +211,11 @@ class PlanService:
         change_request: str = "",
     ) -> dict:
         instruction = """Read PROMPT.md as the complete, authoritative request. Create plan/manifest.json using this shape:
-{"project_name":"short-kebab-name","top_entity":"entity","modules":[{"entity":"entity","file":"src/entity.vhd","role":"role","type":"combinational|sequential|structural","depends_on":[],"parameters":{"WIDTH":8},"ports":[{"name":"clk","direction":"in","type":"std_logic"},{"name":"data_out","direction":"out","type":"std_logic_vector(7 downto 0)"}]}],"testbenches":[{"entity":"entity_tb","file":"tests/entity_tb.vhd","dut":"entity"}],"hardware_tests":[{"name":"short_name","type":"uart_exchange|echo|cpu_program","send":"hex bytes","program":"hex bytes (cpu_program only)","expected":"hex bytes","requirement":"which requirement it proves"}],"open_questions":[]}
+{"project_name":"short-kebab-name","top_entity":"entity","reset_concept":"sync_active_high|async_active_high|sync_active_low|async_active_low|none","modules":[{"entity":"entity","file":"src/entity.vhd","role":"role","type":"combinational|sequential|structural","depends_on":[],"parameters":{"WIDTH":8},"ports":[{"name":"clk","direction":"in","type":"std_logic"},{"name":"data_out","direction":"out","type":"std_logic_vector(7 downto 0)"}]}],"testbenches":[{"entity":"entity_tb","file":"tests/entity_tb.vhd","dut":"entity"}],"hardware_tests":[{"name":"short_name","type":"uart_exchange|echo|cpu_program","send":"hex bytes","program":"hex bytes (cpu_program only)","expected":"hex bytes","requirement":"which requirement it proves"}],"requirements":[{"id":"R1","text":"precise, testable statement","quote":"exact verbatim excerpt of PROMPT.md","modules":["entity"],"ports":["entity.port"],"check":"simulation|structure"}],"open_questions":[]}
 Derive the hierarchy and modules from PROMPT.md without splitting, summarizing, replacing, or simplifying the request. Choose meaningful names: project_name is 3-40 characters of lowercase letters, digits and hyphens describing the design (e.g. "traffic-light", "sram-controller"), never starting with words like task, aufgabe, projekt, vhdl or fpga; entity names are lowercase snake_case VHDL identifiers and must keep any entity names that PROMPT.md prescribes. Do not write implementation code at this stage.
 Every module lists all entity ports with exact VHDL types and bit widths; these ports are a binding contract that the implementation is checked against. List every clock/reset port explicitly with the exact name you want; nothing is added implicitly. "parameters" are the entity generics (name: default value), omit it when there are none. The top_entity must itself be listed as a module whose depends_on names every module it instantiates.
+reset_concept is the reset behavior PROMPT.md demands (e.g. "synchroner Reset" -> sync_active_high); only if PROMPT.md says nothing about the reset, use async_active_high. Every module implements this reset concept.
+requirements lists EVERY individual requirement of PROMPT.md as its own entry: each behavior, each output or indicator (e.g. every LED or RGB LED that must light up), each timing value, the reset behavior, each interface/port, generic, file name and language standard. Do not merge, drop, weaken or reinterpret anything. "quote" is copied verbatim from PROMPT.md. "modules" are the entities responsible for it, "ports" the involved ports as entity.port; every port named there must exist in that module's ports, so add ports the requirement needs (e.g. an RGB output) to the module. "check" is "simulation" when a testbench can observe it, otherwise "structure".
 hardware_tests are optional UART test vectors that prove the requested behavior on the real board; only add them when the design exposes a UART protocol whose responses can be predicted exactly.
 """
         if change_request:
@@ -260,10 +263,22 @@ hardware_tests are optional UART test vectors that prove the requested behavior 
             if self._name_resolver:
                 manifest = self._name_resolver.resolve(request_full, manifest).manifest
             self._autofix(manifest)
-            problems = PlanValidator.validate(manifest)
+            structural = PlanValidator.validate(manifest)
+            valid_reqs, req_problems = reqs.check_requirements(manifest, request_full)
+            problems = structural + req_problems
             if not problems:
+                manifest["requirements"] = valid_reqs
                 if attempt > 1:
                     logger.info("Plan valid after %d attempts", attempt)
+                return manifest
+            if not structural and attempt == self._max_attempts:
+                # Eine unvollständige Anforderungsliste beendet den Lauf nicht:
+                # gültige Einträge bleiben, der ganze Prompt wird Sammel-
+                # anforderung R0 für die Abschlussprüfung.
+                logger.warning("Plan requirements incomplete, using fallback: %s", "; ".join(req_problems))
+                manifest["requirements"] = reqs.fallback_requirements(
+                    valid_reqs, request_full, manifest.get("top_entity", ""))
+                manifest["requirements_warnings"] = req_problems
                 return manifest
             logger.warning("Plan attempt %d invalid: %s", attempt, "; ".join(problems))
             instruction = self._correction(problems)
@@ -292,3 +307,12 @@ hardware_tests are optional UART test vectors that prove the requested behavior 
                 continue
             own = module.get("entity")
             module["depends_on"] = [d for d in dict.fromkeys(module["depends_on"]) if d != own]
+        reset = str(manifest.get("reset_concept", "")).strip().lower()
+        if reset and reset not in _RESET_CONCEPTS:
+            logger.warning("Ignoring invalid reset_concept %r in plan", manifest.get("reset_concept"))
+            manifest.pop("reset_concept", None)
+        elif reset:
+            manifest["reset_concept"] = reset
+
+
+_RESET_CONCEPTS = {"sync_active_high", "async_active_high", "sync_active_low", "async_active_low", "none"}

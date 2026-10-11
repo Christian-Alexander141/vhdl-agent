@@ -72,7 +72,6 @@ def make_orchestrator(base_dir):
         filesystem_service=LocalFileSystemService(base_dir=base_dir),
         opencode_service=MockOpenCodeService(),
         event_publisher=EventBus(),
-        require_approval=False,
     )
 
 
@@ -133,21 +132,10 @@ class TestAPIContracts:
         tasks = orch.list_tasks()
         assert isinstance(tasks, list)
 
-    def test_approve_reject(self):
+    def test_orchestrator_has_no_flash_approval(self):
+        """Die Benutzerfreigabe vor dem Flashen wurde entfernt (2026-10-11)."""
         orch = make_orchestrator(tempfile.mkdtemp())
-        # approve_task returns bool
-        result = orch.approve_task("test-task-id")
-        assert isinstance(result, bool)
-
-    def test_approval_persistence(self):
-        base_dir = tempfile.mkdtemp()
-        orch = make_orchestrator(base_dir)
-        task_id = "test-approval"
-        orch._fs.create_workspace(task_id)
-        orch._write_approval(task_id, {"status": "approved", "approved": True, "feedback": "Approved"})
-        approval = orch._read_approval(task_id)
-        assert approval is not None
-        assert approval.get("status") == "approved"
+        assert not hasattr(orch, "approve_task") and not hasattr(orch, "reject_task")
 
     def test_task_id_validation(self):
         """Projekt-IDs muessen sicher sein."""

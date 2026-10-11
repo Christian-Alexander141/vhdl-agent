@@ -5,6 +5,7 @@ from typing import Any
 
 from src.domain.agents import BaseAgent, AgentTask, AgentResult, AgentStatus
 from src.domain.agents.communication import DebugDiagnosis
+from src.domain.agents.triage import triage
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,24 @@ _ERROR_PATTERNS: list[tuple[str, list[re.Pattern], str, str]] = [
         "medium",
     ),
     (
+        "requirement_gap",
+        [re.compile(r"requirement\s+gap", re.I)],
+        "Add testbench assertions whose report text starts with 'REQ <id>' for each listed requirement",
+        "high",
+    ),
+    (
+        "requirement_violation",
+        [re.compile(r"requirements?\s+not\s+met|requirement\s+violation", re.I)],
+        "Change the design so it satisfies the listed requirements (see plan/requirements.md and the evidence)",
+        "high",
+    ),
+    (
+        "requirement_missing",
+        [re.compile(r"requirements?\s+(?:from\s+PROMPT\.md\s+)?missing", re.I)],
+        "Add the missing requirements to the plan, including any ports or modules they need",
+        "high",
+    ),
+    (
         "functional_simulation_error",
         [
             re.compile(r"runtime\s+error|simulation\s+failed|index\s+(?:out\s+of|range)", re.I),
@@ -227,6 +246,39 @@ _ERROR_PATTERNS: list[tuple[str, list[re.Pattern], str, str]] = [
         "high",
     ),
 ]
+
+
+REPAIR_ACTIONS = {
+    "infrastructure": "Install missing system dependency or check tool installation",
+    "syntax_error": "Fix VHDL syntax in the file and line named in the error",
+    "type_error": "Fix type mismatches and undeclared identifiers",
+    "elaboration_error": "Check generics, port maps, and component declarations",
+    "interface_mismatch": "Align port definitions between modules",
+    "clock_reset_error": "Check clock and reset signal connections",
+    "testbench_error": "Fix the testbench (assertions, TB_COMPLETE marker, DUT instance)",
+    "functional_simulation_error": "Fix the behavior that the failing assertion reports",
+    "synthesis_error": "Make the reported construct synthesizable",
+    "timing_error": "Add pipeline registers or optimize the critical path",
+    "resource_error": "Reduce resource usage or target a larger FPGA device",
+    "bitstream_error": "Check constraints and re-run implementation",
+    "bitstream_config_error": (
+        "Bitstream configuration does not match the board's configuration memory "
+        "(e.g. SPI_BUSWIDTH/CONFIG_MODE): fix the build/constraint settings and rebuild; not an HDL problem"
+    ),
+    "flash_error": "Check board connection (USB/JTAG), drivers and programmer; not an HDL problem",
+    "hardware_error": "Check board connection, JTAG/SPI cable, and re-flash bitstream",
+    "constraint_error": "Fix pin/clock/IO-standard constraints in constraints/*.xdc",
+    "contract_violation": "Align the module entity with its architecture contract",
+    "coverage_gap": "Add or adapt testbenches for uncovered modules",
+    "model_mismatch": (
+        "The design differs from the executable reference model at the reported cycle/port; "
+        "check against PROMPT.md which side is wrong"
+    ),
+    "weak_testbench": "Add checks that detect the surviving mutants",
+    "requirement_gap": "Add testbench assertions whose report text starts with 'REQ <id>'",
+    "requirement_violation": "Change the design so it satisfies the listed requirements",
+    "requirement_missing": "Add the missing requirements to the plan, including ports or modules",
+}
 
 
 def classify_error(message: str, stage: str = "") -> tuple[str, str, str]:
@@ -329,60 +381,35 @@ class DebugAgent(BaseAgent):
     def _fallback_diagnosis(
         self, diagnostics: list[dict], stage: str, architecture: dict
     ) -> DebugDiagnosis:
-        """Regex-basierte Diagnose als Fallback (nutzt classify_error)."""
+        """Vorfilter und Klassifikation (domain/agents/triage.py).
 
+        Klassifiziert auf den Kernzeilen aus Meldung UND Details (GHDL-/Vivado-
+        Ausgabe, fehlgeschlagene Assertion), ordnet eine Herkunft zu und nennt
+        Module nur, wenn der Erzeuger sie angibt oder eine Fehlerzeile auf ihre
+        Quelldatei verweist. Ausdrückliche Fehlerklassen der Gates haben Vorrang.
+        """
         modules = [
             m.get("name", "") if isinstance(m, dict) else getattr(m, "name", "")
             for m in architecture.get("modules", [])
         ]
-
-        evidence: list[str] = []
-        failure_type = "unknown"
-        recommended = "Manual investigation required"
-        severity = "medium"
-
-        for d in diagnostics:
-            msg = d.get("message", "")
-            if len(msg.encode("utf-8")) > 200_000:
-                half = 100_000
-                msg = msg[:half] + "\n...[truncated middle of diagnostic]...\n" + msg[-half:]
-            evidence.append(msg)
-
-            ft, rec, sev = classify_error(msg, stage)
-            # Strukturierte Fehlerklassen der Gates (Contract, Coverage,
-            # Timing ...) sind verlässlicher als Regex auf dem Freitext.
-            explicit = d.get("failure_type")
-            if explicit:
-                ft = explicit
-                fallback = classify_error(explicit.replace("_", " "), stage)
-                if ft == fallback[0]:
-                    rec, sev = fallback[1], fallback[2]
-            # Höchste Schwere gewinnt; erster konkreter Treiber gewinnt Typ
-            if ft != "unknown" and failure_type == "unknown":
-                failure_type = ft
-                recommended = rec
-                severity = sev
-            elif ft != "unknown":
-                _SEVERITY_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-                if _SEVERITY_ORDER.get(sev, 0) > _SEVERITY_ORDER.get(severity, 0):
-                    severity = sev
-                    recommended = rec
-
-        # Only modules explicitly matched to known architecture names are listed.
-        suspected = self._extract_modules_from_errors(evidence, modules)
-        for d in diagnostics:
-            for module in d.get("modules", []) or []:
-                if module in modules and module not in suspected:
-                    suspected.insert(0, module)
-
+        result = triage(diagnostics, stage, [m for m in modules if m])
+        failure_type = result["failure_type"]
+        known = {ft: (action, severity) for ft, _, action, severity in _ERROR_PATTERNS}
+        recommended, severity = known.get(failure_type, ("Manual investigation required", "medium"))
+        recommended = REPAIR_ACTIONS.get(failure_type, recommended)
+        if failure_type == "bitstream_config_error":
+            severity = "critical"
+        elif failure_type not in known and failure_type != "unknown":
+            severity = "high"
         return DebugDiagnosis(
             status="failed",
             stage=stage,
-            suspected_modules=suspected,
+            suspected_modules=result["modules"],
             failure_type=failure_type,
-            evidence=evidence,
+            evidence=result["key_lines"],
             recommended_action=recommended,
             severity=severity,
+            origin=result["origin"],
         )
 
     @staticmethod

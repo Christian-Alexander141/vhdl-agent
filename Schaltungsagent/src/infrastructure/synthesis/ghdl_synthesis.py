@@ -12,7 +12,10 @@ VHDL_EXTENSIONS = (".vhd", ".vhdl")
 
 # Basis-Flags für die VHDL-Synthese mit GHDL (vgl. CologneChip-GateMate-Quickstart:
 # explizite IEEE-Auflösung und Synopsys-Konstrukte für bessere Synthesefähigkeit).
-SYNTH_FLAGS = ["-fexplicit", "-fsynopsys"]
+# --std=08: Planung, Worker und Simulation arbeiten mit VHDL-2008. Ohne den
+# Schalter lehnte die Synthese z. B. process(all) ab, obwohl die Simulation
+# bestanden hatte (Lauf traffic-light 2026-10-10).
+SYNTH_FLAGS = ["--std=08", "-fexplicit", "-fsynopsys"]
 
 # GHDL schreibt die Netlist (--out=verilog) auf stdout; Diagnose geht auf stderr.
 NETLIST_EXTENSION = ".v"
@@ -122,8 +125,15 @@ class GHDLSynthesisService(SynthesisService):
 
         # --- Keine Entity synthetisierbar ---
         last_step = steps[-1] if steps else {}
+        errors = list(dict.fromkeys(
+            line.strip()
+            for step in steps
+            for line in (step.get("stderr") or "").splitlines()
+            if ":error:" in line or "error:" in line.lower()
+        ))
         return self._fail(
-            "GHDL synthesis failed for all entities",
+            "GHDL synthesis failed for all entities"
+            + (": " + " | ".join(errors[:8]) if errors else ""),
             steps,
             details=self._attach_artifacts(
                 {

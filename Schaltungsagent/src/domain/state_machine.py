@@ -59,7 +59,6 @@ class WorkflowState:
     TESTING = "TESTING"
     FPGA_PROGRAMMING = "FPGA_PROGRAMMING"
     HARDWARE_TESTING = "HARDWARE_TESTING"
-    AWAITING_APPROVAL = "AWAITING_APPROVAL"
     FLASHING = "FLASHING"
     FLASHED = "FLASHED"
     BLOCKED = "BLOCKED"
@@ -187,19 +186,14 @@ _TRANSITIONS: dict[str, list[str]] = {
     ],
     WorkflowState.FPGA_PROGRAMMING: [
         WorkflowState.COMPLETED, WorkflowState.HARDWARE_TESTING,
-        WorkflowState.DEBUGGING, WorkflowState.AWAITING_APPROVAL,
-        WorkflowState.FAILED,
+        WorkflowState.DEBUGGING, WorkflowState.FAILED,
     ],
     WorkflowState.HARDWARE_TESTING: [
         WorkflowState.COMPLETED, WorkflowState.SUCCESS, WorkflowState.DEBUGGING,
         WorkflowState.FAILED,
     ],
-    WorkflowState.AWAITING_APPROVAL: [
-        WorkflowState.FLASHING, WorkflowState.REPAIRING, WorkflowState.FAILED,
-    ],
     WorkflowState.FLASHING: [
-        WorkflowState.FLASHED, WorkflowState.AWAITING_APPROVAL,
-        WorkflowState.FAILED,
+        WorkflowState.FLASHED, WorkflowState.FAILED,
     ],
     WorkflowState.FLASHED: [WorkflowState.COMPLETED, WorkflowState.SUCCESS],
     WorkflowState.COMPLETED: [WorkflowState.IMPLEMENTING],

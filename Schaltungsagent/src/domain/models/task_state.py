@@ -14,7 +14,6 @@ class WorkflowStatus(str):
     REPAIRING = "REPAIRING"
     VALIDATING = "VALIDATING"
     SYNTHESIZING = "SYNTHESIZING"
-    AWAITING_APPROVAL = "AWAITING_APPROVAL"
     FLASHING = "FLASHING"
     FLASHED = "FLASHED"
     COMPLETED = "COMPLETED"
@@ -47,7 +46,6 @@ class TaskState(BaseModel):
     error_message: str = ""
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    approval: dict | None = Field(default=None, description="Approval status for bitstream flashing")
 
     def add_log(self, message: str) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -57,16 +55,6 @@ class TaskState(BaseModel):
     def set_status(self, new_status: str) -> None:
         self.status = new_status
         self.updated_at = datetime.now(timezone.utc).isoformat()
-
-    def set_approval(self, approved: bool, feedback: str = "") -> None:
-        self.approval = {
-            "approved": approved,
-            "feedback": feedback,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-    def clear_approval(self) -> None:
-        self.approval = None
 
     def to_dict(self) -> dict:
         return self.model_dump(mode="json")

@@ -51,6 +51,12 @@ class Requirement(BaseModel):
     status: RequirementStatus = RequirementStatus.PENDING
     satisfied_by: list[str] = Field(default_factory=list)
     verified: bool = False
+    # Aus dem Plan (siehe domain/agents/requirements.py): wörtliches Zitat aus
+    # PROMPT.md, beteiligte Ports (entity.port), Prüfart simulation|structure.
+    quote: str = ""
+    ports: list[str] = Field(default_factory=list)
+    check: str = ""
+    review: str = ""
 
 
 class ModuleInfo(BaseModel):
@@ -218,13 +224,13 @@ class DesignState(BaseModel):
         self.project["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     def to_yaml(self) -> str:
-        import yaml
-        return yaml.dump(self.model_dump(mode="json"), default_flow_style=False, sort_keys=False)
+        from src.domain import yaml_io
+        return yaml_io.dump(self.model_dump(mode="json"))
 
     @classmethod
     def from_yaml(cls, yaml_str: str) -> "DesignState":
-        import yaml
-        data = yaml.safe_load(yaml_str)
+        from src.domain import yaml_io
+        data = yaml_io.load(yaml_str)
         return cls(**data)
 
     def to_json(self) -> str:

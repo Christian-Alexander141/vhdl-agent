@@ -13,6 +13,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from src.domain import yaml_io
 from src.domain.ports import (
     ArtifactGenerator,
     FileSystemService,
@@ -57,7 +58,6 @@ class SupervisorOrchestrator:
         max_repair_iterations: int = 5,
         cleanup_on_failure: bool = False,
         cleanup_temp_files: bool = True,
-        require_approval: bool = False,
         name_resolver=None,
         plan_timeout_seconds: int = 180,
         max_prompt_bytes: int = 200_000,
@@ -75,7 +75,6 @@ class SupervisorOrchestrator:
         self._max_repair_iterations = max_repair_iterations
         self._cleanup_on_failure = cleanup_on_failure
         self._cleanup_temp_files = cleanup_temp_files
-        self._require_approval = require_approval
         self._name_resolver = name_resolver
         self._plan_service = PlanService(
             OpenCodeTaskRunner(
@@ -89,9 +88,6 @@ class SupervisorOrchestrator:
         )
         self._settings = settings or Settings()
         self._knowledge_provisioner = KnowledgeProvisioner(self._settings)
-        self._approval_events: dict[str, threading.Event] = {}
-        self._approval_results: dict[str, tuple[bool, str]] = {}
-        self._approval_lock = threading.Lock()
         
         self._supervisor = build_supervisor_agent(
             filesystem_service=filesystem_service,
@@ -99,7 +95,6 @@ class SupervisorOrchestrator:
             opencode_service=opencode_service,
             fpga_registry=fpga_registry,
             max_repair_iterations=max_repair_iterations,
-            approval_handler=self._wait_for_approval if require_approval else None,
             validation_service=validation_service,
             name_resolver=name_resolver,
             plan_timeout_seconds=plan_timeout_seconds,
@@ -365,7 +360,7 @@ class SupervisorOrchestrator:
         if state_path.is_file():
             import yaml
 
-            state = yaml.safe_load(state_path.read_text(encoding="utf-8")) or {}
+            state = yaml_io.load(state_path.read_text(encoding="utf-8")) or {}
         return self.execute(
             request_full,
             task_id=project_id,
@@ -387,7 +382,7 @@ class SupervisorOrchestrator:
         if state_path.is_file():
             import yaml
 
-            state = yaml.safe_load(state_path.read_text(encoding="utf-8")) or {}
+            state = yaml_io.load(state_path.read_text(encoding="utf-8")) or {}
         # AP10: Re-provision knowledge for existing projects (updated skills)
         self._knowledge_provisioner.provision(
             str(workspace), board_id=self._settings.synthesis.default_fpga
@@ -496,129 +491,6 @@ class SupervisorOrchestrator:
         return self._supervisor._run_hardware_test()
 
     
-    def approve_task(self, task_id: str, feedback: str = "") -> bool:
-        return self._resolve_approval(task_id, True, feedback)
-    
-    def reject_task(self, task_id: str, feedback: str = "") -> bool:
-        return self._resolve_approval(task_id, False, feedback)
-
-    def _approval_state_path(self, task_id: str) -> str:
-        return os.path.join(self._fs.workspace_path(task_id), "state.json")
-
-    def _read_approval(self, task_id: str) -> dict | None:
-        if not hasattr(self, "_fs"):
-            return getattr(self, "_memory_approvals", {}).get(task_id)
-        path = self._approval_state_path(task_id)
-        if not self._fs.file_exists(path):
-            return None
-        try:
-            state = json.loads(self._fs.read_file(path))
-        except (OSError, TypeError, ValueError):
-            return None
-        return state.get("approval") if isinstance(state, dict) else None
-
-    def _write_approval(self, task_id: str, approval: dict) -> None:
-        if not hasattr(self, "_fs"):
-            if not hasattr(self, "_memory_approvals"):
-                self._memory_approvals = {}
-            self._memory_approvals[task_id] = approval
-            return
-        path = self._approval_state_path(task_id)
-        state: dict = {}
-        if self._fs.file_exists(path):
-            try:
-                loaded = json.loads(self._fs.read_file(path))
-                if isinstance(loaded, dict):
-                    state = loaded
-            except (OSError, TypeError, ValueError):
-                pass
-        state["approval"] = approval
-        content = json.dumps(state, indent=2, ensure_ascii=False)
-        temporary_path = f"{path}.tmp"
-        self._fs.write_file(temporary_path, content)
-        os.replace(temporary_path, path)
-
-    @staticmethod
-    def _bitstream_digest(bitstream_path: str) -> str:
-        try:
-            import hashlib
-
-            return hashlib.sha256(Path(bitstream_path).read_bytes()).hexdigest()
-        except (OSError, TypeError):
-            return ""
-
-    def _wait_for_approval(self, task_id: str, bitstream_path: str) -> tuple[bool, str]:
-        digest = self._bitstream_digest(bitstream_path)
-        current = self._read_approval(task_id)
-        # Eine gespeicherte Entscheidung gilt nur für genau diesen Bitstream
-        # (Pfad + Inhalt). Ein neu synthetisierter Bitstream braucht eine
-        # neue Freigabe; eine alte Ablehnung blockiert ihn nicht.
-        if (
-            current
-            and current.get("status") in {"approved", "rejected"}
-            and current.get("bitstream_path") == bitstream_path
-            and current.get("bitstream_sha256", "") == digest
-        ):
-            return bool(current.get("approved")), current.get("feedback", "")
-
-        from datetime import datetime, timezone
-        self._write_approval(task_id, {
-            "status": "pending",
-            "approved": None,
-            "feedback": "",
-            "bitstream_path": bitstream_path,
-            "bitstream_sha256": digest,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        event = threading.Event()
-        with self._approval_lock:
-            self._approval_events[task_id] = event
-            self._approval_results.pop(task_id, None)
-        if hasattr(self, "_events"):
-            self._events.publish_event(
-                EventType.APPROVAL_REQUESTED,
-                task_id,
-                {"project_id": task_id, "bitstream_path": bitstream_path},
-            )
-        event.wait()
-        with self._approval_lock:
-            result = self._approval_results.pop(task_id, (False, "Approval unavailable"))
-            self._approval_events.pop(task_id, None)
-        return result
-
-    def _resolve_approval(self, task_id: str, approved: bool, feedback: str) -> bool:
-        current = self._read_approval(task_id)
-        with self._approval_lock:
-            event = self._approval_events.get(task_id)
-            if event is None and not (current and current.get("status") == "pending"):
-                return False
-            self._approval_results[task_id] = (approved, feedback)
-            if event:
-                event.set()
-        # Kein wartender Thread, aber persistierte offene Freigabe: der Prozess
-        # wurde neu gestartet. Der Workflow wird nach dem Schreiben der
-        # Entscheidung aus dem gespeicherten DesignState fortgesetzt.
-        resume_after_restart = event is None
-
-        from datetime import datetime, timezone
-        self._write_approval(task_id, {
-            "status": "approved" if approved else "rejected",
-            "approved": approved,
-            "feedback": feedback,
-            "bitstream_path": (current or {}).get("bitstream_path", ""),
-            "bitstream_sha256": (current or {}).get("bitstream_sha256", ""),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        if hasattr(self, "_events"):
-            self._events.publish_event(
-                EventType.APPROVAL_GRANTED if approved else EventType.APPROVAL_REJECTED,
-                task_id,
-                {"project_id": task_id, "feedback": feedback, "resumed": resume_after_restart},
-            )
-        if resume_after_restart and approved and hasattr(self, "_supervisor"):
-            self.resume_project(task_id)
-        return True
-
     def resume_project(self, project_id: str) -> str:
         """Setzt einen unterbrochenen Workflow aus dem persistierten Zustand fort.
 
@@ -633,7 +505,7 @@ class SupervisorOrchestrator:
         if state_path.is_file():
             import yaml
 
-            state = yaml.safe_load(state_path.read_text(encoding="utf-8")) or {}
+            state = yaml_io.load(state_path.read_text(encoding="utf-8")) or {}
         metadata = state.get("metadata") or {}
         request_full = (
             prompt_path.read_bytes().decode("utf-8")

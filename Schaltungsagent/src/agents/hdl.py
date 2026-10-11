@@ -11,6 +11,7 @@ from src.services.deterministic_design import DeterministicDesignService
 from src.services.design_fallback import RuleBasedFallback
 from src.services.opencode_task_runner import OpenCodeTaskRunner
 from src.services.opencode_service import describe_opencode_failure
+from src.domain.agents.requirements import task_instruction_suffix as requirements_suffix
 from src.domain.exceptions import OpenCodeDeliveryError, WorkflowError
 from src.domain.agents.test_plan import _instantiations, format_simulation_vectors
 from src.domain.agents.worker_instructions import (
@@ -1076,6 +1077,38 @@ class HDLAgent(BaseAgent):
                 error_message=str(error),
             )
 
+    @staticmethod
+    def _repair_history_block(workspace: str, error_info: dict) -> str:
+        """Bisherige Versuche für denselben Fehler und die Notizen des letzten
+        Versuchs: ohne sie wiederholte jede Stufe dieselben Ansätze."""
+        lines = []
+        for attempt in error_info.get("previous_attempts") or []:
+            lines.append(
+                f"- attempt {attempt.get('attempt')}: {attempt.get('action')} -> {attempt.get('outcome', 'unknown outcome')}"
+            )
+        notes_path = Path(workspace) / "reports" / "repair_notes.md"
+        # Notizen nur, wenn sie zu diesem Fehler gehören (vorheriger Versuch).
+        notes = notes_path.read_text(errors="replace")[:3000] if lines and notes_path.is_file() else ""
+        if not lines and not notes:
+            return ""
+        block = "\nPREVIOUS ATTEMPTS FOR THIS FAILURE (do not repeat what did not work):\n" + "\n".join(lines) + "\n"
+        if notes:
+            block += f"\nNotes of the previous attempt (reports/repair_notes.md):\n{notes}\n"
+        return block
+
+    @staticmethod
+    def _toolchain_block(error_info: dict) -> str:
+        """Synthese-/Flash-Fehler: Vivado-Kontext statt reinem GHDL-Auftrag."""
+        if error_info.get("stage") not in ("synthesis", "flash") and error_info.get("origin") != "toolchain":
+            return ""
+        return (
+            "\nTOOLCHAIN CONTEXT: This failure comes from Vivado (synthesis/implementation/bitstream/flash), "
+            "not from GHDL. You may change src/*.vhd and constraints/*.xdc. Do NOT run Vivado or program "
+            "the board yourself (that takes minutes and the pipeline does it after your change); keep the GHDL "
+            "checks below green. If the cause is outside the project files (tool installation, cable, board), "
+            "change nothing and explain it in reports/repair_notes.md.\n"
+        )
+
     def _repair_verification(self, workspace: str, architecture: dict, failed_module: str) -> str:
         """GHDL-Befehle für die Reparatur: alle Quellen, dann jede Testbench simulieren."""
         modules = self._module_order([
@@ -1131,6 +1164,8 @@ class HDLAgent(BaseAgent):
         )
 
         verification = self._repair_verification(workspace, architecture, failed_module)
+        history = self._repair_history_block(workspace, error_info)
+        toolchain = self._toolchain_block(error_info)
         instruction = f"""{context}
 
 =====================================================================
@@ -1146,9 +1181,9 @@ ARCHITECTURE:
 FAILED MODULE: {failed_module}
 AFFECTED FILES: {', '.join(affected_files) if affected_files else 'auto-detect'}
 
-GHDL ERROR:
+ERROR (key lines from the failing stage '{error_info.get('stage', '')}'):
 {error_info.get('message', 'Unknown error')}
-
+{history}{toolchain}
 DEBUG DIAGNOSIS:
 - failure_type: {diagnosis.get('failure_type', 'unknown')}
 - suspected_modules: {diagnosis.get('suspected_modules', [])}
@@ -1169,7 +1204,7 @@ INSTRUCTIONS:
 3. Fix ONLY the root cause in the identified file(s)
 4. Preserve all working code - do NOT rewrite unrelated files
 5. Verify with exactly the commands below (same checks as the pipeline's validator)
-6. Stop only when they pass
+6. Stop when they pass (or at the round limit below)
 
 VERIFICATION:
 {verification}
@@ -1178,7 +1213,23 @@ IMPORTANT:
 - This is a REPAIR, not a rewrite. Patch the existing code.
 - Preserve working modules. Do not rewrite unrelated files.
 - Fix the root cause of the reported verification failure.
-- Run the relevant verification after the modification."""
+- Run the relevant verification after the modification.
+- If the checks still fail after about five fix-and-verify rounds, stop and write your analysis
+  (suspected cause, what you tried) to reports/repair_notes.md instead of looping until the time limit.
+
+GENERATED FILES (do not edit): tests/*_model_tb.vhd is generated from model/reference_model.py and
+rewritten before every check, so edits there are lost. If such a generated check or the reference model
+is wrong, leave src/ unchanged and report it in the verdict below.
+
+VERDICT (required, last step): write reports/repair_verdict.json as
+{{"cause": "<one of: design | testbench | reference_model | generated_check | toolchain | specification>",
+ "reason": "<one or two sentences with the concrete evidence>"}}
+design = you fixed src/; testbench = you fixed a hand-written testbench; reference_model =
+model/reference_model.py interprets PROMPT.md wrongly; generated_check = an automatically generated
+check (e.g. tests/*_model_tb.vhd) is wrong; toolchain = the cause is outside the project files;
+specification = PROMPT.md is ambiguous or contradictory for this case."""
+        testbench_repair = any(str(f).startswith("tests/") for f in affected_files)
+        instruction += requirements_suffix(workspace, "repair_testbench" if testbench_repair else "repair")
 
         logger.info("OPENCODE_STARTED module=%s files=%s", failed_module, affected_files)
         self.emit_event("OPENCODE_STARTED", {

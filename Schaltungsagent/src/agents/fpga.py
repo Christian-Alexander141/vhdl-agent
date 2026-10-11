@@ -8,8 +8,57 @@ from src.infrastructure.synthesis.vivado_synthesis import VivadoBitstreamService
 from src.infrastructure.synthesis.vivado_flash import VivadoFlashService
 from src.services.flash_service import OpenFPGALoaderFlashService
 from src.config import load_fpga_registry
+from src.domain.agents.triage import classify_flash_output
 
 logger = logging.getLogger(__name__)
+
+
+SYNTHESIS_CACHE = "build/bitstream/synthesis_cache.json"
+
+
+def synthesis_digest(workspace: str, target_fpga: str, timing_gate: bool) -> str:
+    """Prüfsumme über alles, was den Bitstream bestimmt."""
+    import hashlib
+    from src.infrastructure.synthesis.vivado_synthesis import BUILD_SCRIPT_VERSION
+
+    root = Path(workspace)
+    digest = hashlib.sha256(f"{BUILD_SCRIPT_VERSION}|{target_fpga}|{timing_gate}".encode())
+    for folder, pattern in (("src", "*.vhd*"), ("constraints", "*.xdc")):
+        for path in sorted((root / folder).glob(pattern)) if (root / folder).is_dir() else []:
+            if path.name == "auto_generated.xdc":  # wird aus src und Board abgeleitet
+                continue
+            digest.update(f"{folder}/{path.name}".encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def read_synthesis_cache(workspace: str, digest: str) -> dict | None:
+    import json
+
+    path = Path(workspace) / SYNTHESIS_CACHE
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    outputs = data.get("outputs") or {}
+    if data.get("digest") != digest or not Path(outputs.get("bitstream_path") or "/nonexistent").is_file():
+        return None
+    return outputs
+
+
+def write_synthesis_cache(workspace: str, digest: str, outputs: dict) -> None:
+    import json
+
+    path = Path(workspace) / SYNTHESIS_CACHE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"digest": digest, "outputs": outputs}, default=str))
+    except OSError:
+        logger.warning("Could not write synthesis cache %s", path)
+
+
+def invalidate_synthesis_cache(workspace: str) -> None:
+    (Path(workspace) / SYNTHESIS_CACHE).unlink(missing_ok=True)
 
 
 class FPGAAgent(BaseAgent):
@@ -82,7 +131,21 @@ class FPGAAgent(BaseAgent):
             "task_id": task.id,
             "target_fpga": target_fpga,
         })
-        
+
+        digest = synthesis_digest(workspace, target_fpga, self._require_timing_closure)
+        cached = read_synthesis_cache(workspace, digest)
+        if cached:
+            # Lauf gray-countdown 2026-10-11: Nach jeder (ergebnislosen)
+            # Reparatur wurde der unveränderte Entwurf erneut 5-8 min
+            # synthetisiert. Gleiche Quellen + Constraints + Build-Skript
+            # ergeben denselben Bitstream.
+            self.emit_event("SYNTHESIS_FINISHED", {
+                "task_id": task.id, "passed": True, "cached": True,
+                "bitstream_path": cached["bitstream_path"],
+                "message": "Synthese übersprungen: Quellen, Constraints und Build-Skript unverändert",
+            })
+            return AgentResult(task_id=task.id, status=AgentStatus.COMPLETED, outputs=cached)
+
         # 1. GHDL Synthese-Prüfung (Stufe 1)
         from src.infrastructure.synthesis.ghdl_synthesis import GHDLSynthesisService
         ghdl_synth = GHDLSynthesisService()
@@ -104,6 +167,9 @@ class FPGAAgent(BaseAgent):
                 diagnostics=[{
                     "type": "synthesis_failure",
                     "stage": "ghdl_synthesis",
+                    # Sonst "unknown" ohne Modul: die Reparatur änderte dann
+                    # ziellos den ganzen Entwurf.
+                    "failure_type": "synthesis_error",
                     "message": ghdl_result.message,
                     "details": ghdl_result.details,
                 }],
@@ -174,6 +240,7 @@ class FPGAAgent(BaseAgent):
             )
 
         synthesis_result["status"] = "passed"
+        write_synthesis_cache(workspace, digest, {"bitstream_path": bitstream_path, "synthesis_result": synthesis_result})
         self.emit_event("SYNTHESIS_FINISHED", {
             "task_id": task.id,
             "passed": True,
@@ -266,6 +333,10 @@ class FPGAAgent(BaseAgent):
                 task_id=task.id,
                 status=AgentStatus.FAILED,
                 error_message=f"Flash toolchain not available: {programmer}",
+                diagnostics=[{
+                    "type": "flash_failure", "stage": "flash", "failure_type": "infrastructure",
+                    "message": f"Flash toolchain not available: {programmer}",
+                }],
             )
         
         # Flash durchführen
@@ -300,15 +371,22 @@ class FPGAAgent(BaseAgent):
                 "board_count": flash_result.board_count,
             })
             
+            # Fehlerklasse und Vivado-Ausgabe mitgeben: früher nur die ersten
+            # 500 Zeichen der Meldung, ohne Klasse -> "unknown" -> HDL-Reparatur.
+            details = dict(flash_result.details or {})
+            output = f"{details.get('stdout', '')}\n{details.get('stderr', '')}\n{flash_result.message}"
             return AgentResult(
                 task_id=task.id,
                 status=AgentStatus.FAILED,
                 error_message=f"Flash failed: {flash_result.message}",
                 diagnostics=[{
                     "type": "flash_failure",
+                    "stage": "flash",
+                    "failure_type": classify_flash_output(output, flash_result.board_detected),
                     "message": flash_result.message,
                     "board_detected": flash_result.board_detected,
                     "board_count": flash_result.board_count,
+                    "details": {k: details.get(k) for k in ("stdout", "stderr", "error", "detected_devices") if details.get(k)},
                 }],
             )
 

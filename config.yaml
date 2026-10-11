@@ -7,15 +7,15 @@ workspace:
   max_workspaces: 100
 opencode:
   binary: opencode
-  model: opencode/nemotron-3.5-lightning-free
-  fallback_model: opencode/muse-spark-1.3-contributor-free
-  default_timeout: 3000
+  model: opencode/muse-spark-1.3-contributor-free
+  fallback_model: opencode/mimo-v2.6-flash-free
+  default_timeout: 900
   plan_timeout_seconds: 1200
   skills_dir: .opencode/skills
   max_repair_iterations: 3
   test_mode: true
   implementation_mode: modular
-  repair_policy: persistent   # persistent | standard
+  repair_policy: persistent
   docker_isolation: per_task
   docker_image: ghcr.io/anomalyco/opencode:latest
   docker_binary: opencode
@@ -67,8 +67,9 @@ hardware_test:
   uart_port: ''
   baudrate: 115200
   timeout_seconds: 5.0
-  uart_integration: auto   # auto | always | off
+  uart_integration: auto
 gates:
   min_module_coverage: 1.0
   enforce_contracts: true
   require_timing_closure: true
+  requirements_review: true

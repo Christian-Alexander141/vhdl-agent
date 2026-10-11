@@ -162,6 +162,9 @@ class VerificationGateConfig:
     # erkennbar sind; nach einem Nachbesserungsversuch nur noch Warnung.
     min_mutation_score: float = 0.6
     max_mutants: int = 10
+    # Unabhängige Abschlussprüfung jeder Einzelanforderung durch einen
+    # frischen OpenCode-Lauf (siehe domain/agents/requirements.py).
+    requirements_review: bool = True
 
 
 @dataclass

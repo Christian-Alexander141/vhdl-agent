@@ -67,8 +67,8 @@ def _check_ddr3_clock(lines: list[str], board: dict[str, Any]) -> list[Finding]:
                 findings.append(Finding(
                     rule="DDR3_CLOCK_WRONG_IOSTANDARD",
                     line=i,
-                    text=f"Pin R2 has IOSTANDARD {std}; board fact says R2 is DDR3 clock (SSTL135). "
-                         "Using R2 as general user clock requires MMCM/Clocking Wizard.",
+                    text=f"Pin R2 has IOSTANDARD {std}; R2 (100 MHz clock) is in bank 34 at 1.35 V "
+                         "and needs IOSTANDARD SSTL135.",
                 ))
     return findings
 

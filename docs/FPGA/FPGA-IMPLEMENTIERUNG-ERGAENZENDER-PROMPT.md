@@ -21,7 +21,7 @@ OpenCode bleibt Planungs- und Coding-Agent. Es darf VHDL/RTL und zugehoerige Art
 - Entscheide, welches Modell die autoritative Zustandsmaschine ist.
 - Fuehre jeden erlaubten Uebergang ueber eine zentrale Transition-Funktion.
 - Persistiere Zustand, letzte Transition, Grund, Task-ID und Zeitstempel.
-- Modellier `INFRASTRUCTURE_FAILURE`, `BLOCKED`, `SKIPPED`, `FAILED` und `AWAITING_APPROVAL` konsistent in Zustand, API und Resume-Logik.
+- Modellier `INFRASTRUCTURE_FAILURE`, `BLOCKED`, `SKIPPED` und `FAILED` konsistent in Zustand, API und Resume-Logik (`AWAITING_APPROVAL` entfällt seit 2026-10-11).
 - Ungueltige Uebergaenge muessen deterministisch mit strukturiertem Fehler abgelehnt werden.
 
 **Abnahme:** Ein Test prueft fuer jede Produktionsphase die Synchronitaet von `DesignState` und `StateMachine`, ungueltige Uebergaenge und den Resume-Zustand nach einem Prozessneustart.
@@ -32,10 +32,10 @@ OpenCode bleibt Planungs- und Coding-Agent. Es darf VHDL/RTL und zugehoerige Art
 
 - Erzeuge pro Lauf eine isolierte Supervisor-Instanz oder fuehre eine nachweisbar thread-sichere per-project Session ein.
 - Keine gemeinsam genutzten mutable Agentenzustaende zwischen Projekten.
-- Events, Logs, Artefakte, Approvals und Reparaturzaehler muessen immer eine `project_id` und `task_id` tragen.
+- Events, Logs, Artefakte und Reparaturzaehler muessen immer eine `project_id` und `task_id` tragen.
 - Definiere Cancellation, Timeout und Cleanup fuer Threads und externe Prozesse.
 
-**Abnahme:** Zwei parallele Projekte mit unterschiedlichen Workspaces, Reparaturen und Approvals duerfen weder Dateien noch DesignState noch Events vermischen.
+**Abnahme:** Zwei parallele Projekte mit unterschiedlichen Workspaces, Reparaturen duerfen weder Dateien noch DesignState noch Events vermischen.
 
 ## P0: Workspace- und OpenCode-Isolation
 
@@ -66,7 +66,7 @@ OpenCode bleibt Planungs- und Coding-Agent. Es darf VHDL/RTL und zugehoerige Art
 ### 1. API-Vertraege vollstaendig pruefen
 
 - Implementiere und teste alle vom API-Server aufgerufenen Methoden, insbesondere `handle_chat_async`.
-- Verwende fuer Chat, Task-Start, Upload, Status, Dateilesen, Loeschen und Approval ein dokumentiertes Request-/Response-Schema.
+- Verwende fuer Chat, Task-Start, Upload, Status, Dateilesen und Loeschen ein dokumentiertes Request-/Response-Schema.
 - Ein synchroner EDA-Lauf darf den FastAPI-/WebSocket-Eventloop nicht blockieren. Verwende einen kontrollierten Worker-Pool oder eine Job-Queue.
 - Cancellation, Disconnect, Timeout und Worker-Absturz muessen einen definierten Taskstatus hinterlassen.
 - Keine doppelte Ausfuehrung bei wiederholten Requests oder Retries.
@@ -77,13 +77,12 @@ OpenCode bleibt Planungs- und Coding-Agent. Es darf VHDL/RTL und zugehoerige Art
 
 Da der Server standardmaessig an `0.0.0.0` bindet, muessen alle schreibenden und sicherheitskritischen Endpunkte geschuetzt werden:
 
-- Authentisierung fuer Projektzugriff, Upload, Loeschen, Taskstart und Approval.
+- Authentisierung fuer Projektzugriff, Upload, Loeschen und Taskstart.
 - Rollen oder Policies fuer Viewer, Developer und FPGA-Operator.
-- Approval fuer Flashen muss auditierbar sein und darf nicht nur aus einer frei erreichbaren HTTP-Anfrage bestehen.
 - CORS/Origin, Requestgroessen, Rate Limits und sensible Logdaten pruefen.
 - Dateilesen nur fuer das angeforderte Projekt und erlaubte Artefakte.
 
-**Abnahme:** Nicht authentisierte und falsch autorisierte Requests werden fuer Lesen, Schreiben, Loeschen und Flash-Freigabe abgewiesen.
+**Abnahme:** Nicht authentisierte und falsch autorisierte Requests werden fuer Lesen, Schreiben und Loeschen abgewiesen.
 
 ## P1: Board-, Top-Level- und Constraint-Vertrag
 

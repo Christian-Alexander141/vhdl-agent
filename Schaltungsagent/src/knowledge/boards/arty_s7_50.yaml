@@ -1,6 +1,10 @@
 # Arty S7-50 Board Facts
 # Quelle: Arty_S7-50_RAG_Wissenspaket.pdf, Abschnitt 9 (kompakter Faktenblock als YAML)
 # Abschnitt 8 (RAG-Regeln) und Abschnitt 2-6 (Hardware-Fakten)
+# Korrigiert 2026-10-11 nach dem offiziellen Digilent Arty-S7-50-Master.xdc (Rev. E),
+# wie im Repo dokumentiert (benchmark/small_vhdl_bench-main/bench/benchmark_api.py,
+# docs/fpgagent-implementation-prompt.md): Taster BTN1/BTN3, Schalter SW1-SW3 und
+# der 100-MHz-Takt an R2 waren falsch. Pmod- und UART-Angaben sind nicht geprüft.
 
 board_id: "arty_s7_50"
 vendor: "Digilent"
@@ -15,18 +19,14 @@ clocks:
     frequency_hz: 12000000
     iostandard: "LVCMOS33"
     description: "On-board 12 MHz oscillator – general purpose system clock"
-  # DDR3/MIG reference clock (100 MHz differential, SSTL135, pins R2/T2)
-  # Not a general-purpose user clock; do not use as 'clk' without MMCM/clocking wizard
-  - name: "ddr3_clk_100mhz_p"
+  # 100 MHz single-ended clock at R2 (Master-XDC: CLK100MHZ, bank 34 = 1.35 V):
+  # usable as user clock with IOSTANDARD SSTL135 (+ INTERNAL_VREF 0.675 on bank 34).
+  # Default of the XDC generator and of the FPGA registry (clock_hz 100 MHz).
+  - name: "clk100mhz"
     pin: "R2"
     frequency_hz: 100000000
     iostandard: "SSTL135"
-    description: "DDR3 memory reference clock (positive) – NOT a general user clock"
-  - name: "ddr3_clk_100mhz_n"
-    pin: "T2"
-    frequency_hz: 100000000
-    iostandard: "SSTL135"
-    description: "DDR3 memory reference clock (negative)"
+    description: "100 MHz user clock (Master-XDC CLK100MHZ); SSTL135 because bank 34 runs at 1.35 V"
 
 leds:
   - name: "led0"
@@ -50,7 +50,7 @@ buttons:
     iostandard: "LVCMOS33"
     description: "Active HIGH when pressed"
   - name: "btn1"
-    pin: "H13"
+    pin: "K16"
     iostandard: "LVCMOS33"
     description: "Active HIGH when pressed"
   - name: "btn2"
@@ -58,7 +58,7 @@ buttons:
     iostandard: "LVCMOS33"
     description: "Active HIGH when pressed"
   - name: "btn3"
-    pin: "J15"
+    pin: "H13"
     iostandard: "LVCMOS33"
     description: "Active HIGH when pressed"
 
@@ -67,15 +67,16 @@ switches:
     pin: "H14"
     iostandard: "LVCMOS33"
   - name: "sw1"
-    pin: "G14"
+    pin: "H18"
     iostandard: "LVCMOS33"
   - name: "sw2"
-    pin: "K18"
+    pin: "G18"
     iostandard: "LVCMOS33"
   - name: "sw3"
-    pin: "K17"
-    iostandard: "LVCMOS33"
+    pin: "M5"
+    iostandard: "SSTL135"   # bank 34 (1.35 V), INTERNAL_VREF 0.675
 
+# Pmod- und UART-Belegung ungeprüft (K16/H13 sind laut Master-XDC BTN1/BTN3).
 pmods:
   - name: "ja"
     header: "JA"
@@ -115,9 +116,10 @@ rag_rules:
   - "Do not choose a top entity by first-file order"
   - "Do not generate a real board build without XDC constraints"
   - "Do not suppress NSTD-1 or UCIO-1 as a workaround"
-  - "System clock is 12 MHz at F14 (LVCMOS33); 100 MHz at R2/T2 is SSTL135 for DDR3 only"
-  - "Only four user LEDs: E18, F13, E13, H15"
-  - "BTN0-3 are active HIGH (G15, H13, J16, J15)"
+  - "Clocks: 100 MHz at R2 (SSTL135, generator default) or 12 MHz at F14 (LVCMOS33); set the design's clock-frequency generic to the chosen clock"
+  - "Only four user LEDs: E18, F13, E13, H15 (led[0..3] = LD2..LD5)"
+  - "BTN0-3 are active HIGH (G15, K16, J16, H13)"
+  - "SW0-3: H14, H18, G18 (LVCMOS33), M5 (SSTL135)"
   - "UART pins: RX=R12, TX=V12 (LVCMOS33)"
   - "Pmod JA pins N14/G13/F15/E15 are NOT LEDs"
 
@@ -128,8 +130,8 @@ pin_assignment_rules:
     direction: "in"
     width: 1
     pin: "R2"
-    iostandard: "LVCMOS33"
-    note: "Generator uses R2 with LVCMOS33; board fact says R2 is SSTL135 DDR3 clock – see BOARD_FACT_WARNING"
+    iostandard: "SSTL135"
+    note: "100 MHz; generator writes SSTL135 for R2 (and M5) since 2026-10-10"
   - port_patterns: ["RESET", "RST", "RESET_N", "RST_N"]
     direction: "in"
     width: 1

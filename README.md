@@ -158,10 +158,10 @@ Der Supervisor lässt eine Phase nur weiterlaufen, wenn ihr Gate bestanden ist:
 | Statischer Check | Architektur-Contracts (Ports, Richtung, Typ, Bitbreite, Top-Level) + GHDL-Analyse |
 | Validierung | Simulation bestanden, Ergebnis gehört zur aktuellen Architekturversion, jedes Modul von einer Testbench erreicht |
 | Synthese | Vivado-Reports vorhanden, Clock-Constraint gesetzt, WNS/WHS ≥ 0, Auslastung ≤ 100 % |
-| Flash | Freigabe gilt nur für genau diesen Bitstream (Pfad + SHA-256) |
+| Flash | Ohne Benutzerfreigabe; das Build-Skript setzt die Konfigurationsspeicher-Einstellungen des Boards (z. B. `SPI_BUSWIDTH 4`) immer |
 | Hardwaretest | Nur mit echter UART-Schnittstelle; ohne sie wird kein Erfolg gemeldet |
 
-Fehler werden vom DebugAgent klassifiziert und nach `src/domain/agents/repair_routing.py` an die zuständige Rolle gegeben: Interfacefehler zwischen contract-treuen Modulen an den ArchitectureAgent, Modul- und Contractfehler an den HDLAgent, Test- und Abdeckungslücken an den VerificationAgent, Timing an den HDLAgent mit Synthesekontext; Infrastruktur, Board, Constraints und Ressourcen an den Benutzer.
+Jeder Fehler läuft zuerst durch den Vorfilter (`src/domain/agents/triage.py`): Er holt die Kernzeilen aus der GHDL-/Vivado-Ausgabe, bestimmt die Herkunft (Entwurf, Testbench, Anforderungen, Werkzeug/Konfiguration, Hardware, Infrastruktur) und ordnet Module nur über belegbare Dateiverweise zu. Danach gibt der Supervisor ihn nach `src/domain/agents/repair_routing.py` an die zuständige Rolle: Interfacefehler zwischen contract-treuen Modulen an den ArchitectureAgent, Modul- und Contractfehler an den HDLAgent, Test- und Abdeckungslücken an den VerificationAgent, Synthese-, Timing-, Constraint- und Bitstream-Konfigurationsfehler an die FPGA-Reparatur; fehlende Werkzeuge und Board-/Kabelprobleme an den Benutzer.
 
 Konfiguration (`config.yaml`):
 

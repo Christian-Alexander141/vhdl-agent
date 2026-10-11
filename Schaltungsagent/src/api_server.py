@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from src.domain import yaml_io
 from src.config import load_config, load_fpga_registry
 from src.domain.event_bus import EventBus
 from src.domain.models import Event, EventType
@@ -119,7 +120,6 @@ orchestrator = SupervisorOrchestrator(
     max_repair_iterations=settings.opencode.max_repair_iterations,
     cleanup_on_failure=settings.workspace.cleanup_on_failure,
     cleanup_temp_files=settings.workspace.cleanup_temp_files,
-    require_approval=True,
     name_resolver=NameResolver(),
     plan_timeout_seconds=settings.opencode.plan_timeout_seconds,
     max_prompt_bytes=settings.limits.max_prompt_bytes,
@@ -136,7 +136,7 @@ def _project_chat_context(project_id: str) -> dict:
     state = {}
     if state_path.is_file():
         try:
-            state = yaml.safe_load(state_path.read_text(encoding="utf-8")) or {}
+            state = yaml_io.load(state_path.read_text(encoding="utf-8")) or {}
         except (OSError, yaml.YAMLError):
             logger.warning("Could not load chat context for %s", project_id)
     return {
@@ -595,13 +595,12 @@ async def list_projects():
                     "workspace": state.get("workspace", ""),
                     "generated_files": state.get("generated_files", []),
                     "error_message": state.get("error_message", ""),
-                    "approval": state.get("approval", None),
                 })
             design_state_file = entry / "design_state.yaml"
             if design_state_file.exists():
                 try:
                     import yaml
-                    design_state = yaml.safe_load(
+                    design_state = yaml_io.load(
                         design_state_file.read_text(encoding="utf-8")
                     ) or {}
                     current_stage = design_state.get("current_stage")
@@ -633,7 +632,7 @@ async def get_project(project: str):
     if design_state_file.exists():
         try:
             import yaml
-            design_state = yaml.safe_load(
+            design_state = yaml_io.load(
                 design_state_file.read_text(encoding="utf-8")
             ) or {}
             current_stage = design_state.get("current_stage")
@@ -697,34 +696,6 @@ async def delete_project(project: str):
 
 class OpenToolRequest(BaseModel):
     tool: str
-
-
-class ApprovalRequest(BaseModel):
-    feedback: str = ""
-
-
-@app.post("/api/projects/{task_id}/approve")
-async def approve_project(task_id: str, body: ApprovalRequest):
-    """Genehmigt den Bitstream für das Flashen auf das FPGA."""
-    ok = orchestrator.approve_task(task_id, body.feedback)
-    if not ok:
-        return JSONResponse(
-            {"error": "Task not found or not awaiting approval"},
-            status_code=404,
-        )
-    return JSONResponse({"approved": True, "task_id": task_id})
-
-
-@app.post("/api/projects/{task_id}/reject")
-async def reject_project(task_id: str, body: ApprovalRequest):
-    """Lehnt den Bitstream ab und sendet Feedback für Reparatur."""
-    ok = orchestrator.reject_task(task_id, body.feedback)
-    if not ok:
-        return JSONResponse(
-            {"error": "Task not found or not awaiting approval"},
-            status_code=404,
-        )
-    return JSONResponse({"rejected": True, "task_id": task_id, "feedback": body.feedback})
 
 
 @app.get("/api/eda-tools")

@@ -37,9 +37,11 @@ class TestStateMachine:
         sm = StateMachine(WorkflowState.DEBUGGING)
         assert WorkflowState.INFRASTRUCTURE_FAILURE in sm.get_allowed_transitions()
 
-    def test_blocked_from_fpga_programming(self):
+    def test_flash_failure_goes_to_debugging_without_approval(self):
+        # Benutzerfreigabe vor dem Flashen entfernt (2026-10-11).
         sm = StateMachine(WorkflowState.FPGA_PROGRAMMING)
-        assert WorkflowState.AWAITING_APPROVAL in sm.get_allowed_transitions()
+        assert WorkflowState.DEBUGGING in sm.get_allowed_transitions()
+        assert not hasattr(WorkflowState, "AWAITING_APPROVAL")
 
     def test_same_state_no_error(self):
         sm = StateMachine(WorkflowState.COMPLETED)

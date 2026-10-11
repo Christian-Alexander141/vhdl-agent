@@ -181,6 +181,12 @@ function handleServerMessage(msg) {
     case 'PROJECT_IMPLEMENTED':
     case 'FALLBACK_USED':
     case 'ESCALATION':
+    case 'REPAIR_ROLLED_BACK':
+    case 'REPAIR_RETRY':
+    case 'REFERENCE_MODEL_DISPUTED':
+    case 'AGENT_NOTE':
+    case 'REQUIREMENTS_REVIEW':
+    case 'REQUIREMENTS_WARNING':
     case 'IMPLEMENTATION_GRAPH_FAILED':
     case 'STAGE_STARTED':
     case 'STAGE_FINISHED':
@@ -254,20 +260,6 @@ function handleServerMessage(msg) {
       addLogEntry('event', humanizeEvent(eventType) + (message ? ': ' + message : ''));
       break;
 
-    case 'APPROVAL_REQUESTED':
-      handleApprovalRequested(payload);
-      break;
-
-    case 'APPROVAL_GRANTED':
-      addLogEntry('done', 'Bitstream freigegeben');
-      addAgentMessage('Freigabe erteilt – FPGA wird geflasht …', 'success');
-      break;
-
-    case 'APPROVAL_REJECTED':
-      addLogEntry('warning', 'Bitstream abgelehnt: ' + (payload.feedback || 'kein Feedback'));
-      addAgentMessage('Freigabe abgelehnt: ' + (payload.feedback || 'kein Feedback'), 'warning');
-      break;
-
     case 'TASK_COMPLETED':
       updateWorkflow('COMPLETED');
       taskStatusEl.textContent = stageLabel('COMPLETED');
@@ -332,97 +324,6 @@ function handleServerMessage(msg) {
         addLogEntry('info', message);
       }
   }
-}
-
-function handleApprovalRequested(payload) {
-  const bitstreamPath = payload.bitstream_path || 'unknown';
-  const vhdlCode = payload.vhdl_code || '';
-  const flashError = payload.flash_error || '';
-  
-  updateWorkflow('AWAITING_APPROVAL');
-  taskStatusEl.textContent = stageLabel('AWAITING_APPROVAL');
-  setBadge('warning', 'Freigabe erforderlich');
-
-  let msg = `Bitstream bereit zum Flashen: ${bitstreamPath}`;
-  if (flashError) {
-    msg += `\n\nVorheriger Flash-Versuch fehlgeschlagen: ${flashError}`;
-    msg += `\nBitte Board-Verbindung prüfen und erneut versuchen.`;
-  }
-  addLogEntry('warning', msg);
-  
-  // Freigabe-UI anzeigen (Button im Chat-Bereich)
-  showApprovalButtons(payload);
-}
-
-function showApprovalButtons(payload) {
-  const bitstreamPath = payload.bitstream_path || '';
-  const vhdlCode = payload.vhdl_code || '';
-  const flashError = payload.flash_error || '';
-
-  const existing = document.getElementById('approval-buttons');
-  if (existing) existing.remove();
-
-  const card = document.createElement('div');
-  card.id = 'approval-buttons';
-  card.className = 'approval-card';
-  card.innerHTML = `
-    <h4>Freigabe zum Flashen erforderlich</h4>
-    <div class="approval-path">${escapeHtml(bitstreamPath)}</div>
-    ${flashError ? `<p class="hint" style="margin:8px 0 0">Vorheriger Flash-Versuch fehlgeschlagen: ${escapeHtml(flashError)}</p>` : ''}
-    <div class="approval-actions"></div>`;
-  const actions = card.querySelector('.approval-actions');
-
-  const approveBtn = document.createElement('button');
-  approveBtn.type = 'button';
-  approveBtn.className = 'btn btn-success';
-  approveBtn.textContent = '✓ Freigeben & flashen';
-  approveBtn.onclick = () => sendApproval(true, '');
-  actions.appendChild(approveBtn);
-
-  const rejectBtn = document.createElement('button');
-  rejectBtn.type = 'button';
-  rejectBtn.className = 'btn danger';
-  rejectBtn.textContent = '✕ Ablehnen';
-  rejectBtn.onclick = () => {
-    const feedback = prompt('Feedback für die Reparatur (optional):');
-    if (feedback !== null) sendApproval(false, feedback);
-  };
-  actions.appendChild(rejectBtn);
-
-  if (vhdlCode) {
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'btn';
-    toggle.textContent = 'VHDL-Code anzeigen';
-    toggle.onclick = () => showVhdlModal(vhdlCode);
-    actions.appendChild(toggle);
-  }
-
-  messagesEl.appendChild(card);
-  scrollChat();
-}
-
-function sendApproval(approve, feedback) {
-  if (!currentTaskId) return;
-  
-  const endpoint = approve ? '/api/projects/' + currentTaskId + '/approve' 
-                           : '/api/projects/' + currentTaskId + '/reject';
-  
-  fetch(`${API_BASE}${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ feedback }),
-  }).then(res => res.json()).then(data => {
-    if (data.error) {
-      addAgentMessage(`Fehler: ${data.error}`);
-    } else {
-      const btnContainer = document.getElementById('approval-buttons');
-      if (btnContainer) btnContainer.remove();
-      addSystemMessage(approve ? 'Freigabe gesendet — Flash wird gestartet' : 'Abgelehnt — Reparatur wird angestoßen');
-    }
-  }).catch(e => {
-    addAgentMessage(`Fehler bei Freigabe: ${e}`);
-  });
 }
 
 function showVhdlModal(code, title = 'VHDL-Code') {
@@ -511,7 +412,7 @@ const STAGE_LABELS = {
   ARCHITECTING: 'Architektur', UART_INTEGRATION: 'UART-Integration',
   IMPLEMENTING: 'Implementierung', STATIC_CHECK: 'Statischer Check',
   SIMULATING: 'Simulation', VALIDATING: 'Validierung', DEBUGGING: 'Diagnose',
-  REPAIRING: 'Reparatur', SYNTHESIZING: 'Synthese', AWAITING_APPROVAL: 'Freigabe',
+  REPAIRING: 'Reparatur', SYNTHESIZING: 'Synthese',
   FPGA_PROGRAMMING: 'FPGA flashen', HARDWARE_TESTING: 'Hardwaretest',
   COMPLETED: 'Abgeschlossen', FAILED: 'Fehlgeschlagen', BLOCKED: 'Blockiert',
   INFRASTRUCTURE_FAILURE: 'Infrastrukturfehler', AUTONOMOUS_LIMIT_REACHED: 'Limit erreicht',
@@ -591,7 +492,7 @@ function setBadgeFromStatus(status) {
   const s = normalizeStage(status);
   if (s === 'COMPLETED' || s === 'SUCCESS') setBadge('success', 'Abgeschlossen');
   else if (['FAILED', 'INFRASTRUCTURE_FAILURE', 'AUTONOMOUS_LIMIT_REACHED'].includes(s)) setBadge('error', stageLabel(s));
-  else if (['DEBUGGING', 'REPAIRING', 'AWAITING_APPROVAL', 'BLOCKED'].includes(s)) setBadge('warning', stageLabel(s));
+  else if (['DEBUGGING', 'REPAIRING', 'BLOCKED'].includes(s)) setBadge('warning', stageLabel(s));
   else if (STAGE_LABELS[s]) setBadge('active', stageLabel(s));
   else setBadge('', 'Bereit');
 }
@@ -676,7 +577,7 @@ const EVENT_TITLES = {
   NO_PROGRESS: 'Kein Fortschritt', IDENTICAL_ERROR: 'Gleicher Fehler wiederholt',
   REFERENCE_MODEL: 'Referenzmodell', MUTATION_ANALYSIS: 'Mutationsanalyse', MUTATION_WARNING: 'Testbench-Güte niedrig',
   TOOLCHAIN_WARNING: 'Werkzeug fehlt', PROJECT_IMPLEMENTED: 'Projekt implementiert',
-  FALLBACK_USED: 'Vorlage statt OpenCode-Ergebnis', ESCALATION: 'Eskalation', TOP_INTEGRATED: 'Top-Level integriert',
+  FALLBACK_USED: 'Vorlage statt OpenCode-Ergebnis', ESCALATION: 'Eskalation', REPAIR_ROLLED_BACK: 'Reparatur zurückgenommen', REPAIR_RETRY: 'Nächste Eskalationsstufe', REFERENCE_MODEL_DISPUTED: 'Referenzmodell abgeschaltet', AGENT_NOTE: 'Hinweis eines Agenten', REQUIREMENTS_REVIEW: 'Abschlussprüfung Anforderungen', REQUIREMENTS_WARNING: 'Hinweis Anforderungen', TOP_INTEGRATED: 'Top-Level integriert',
   IMPLEMENTATION_GRAPH_COMPLETED: 'Implementierung abgeschlossen', IMPLEMENTATION_GRAPH_FAILED: 'Implementierung fehlgeschlagen',
   SYNTHESIS_STARTED: 'Synthese gestartet', SYNTHESIS_FINISHED: 'Synthese beendet',
   FLASH_STARTED: 'Flash gestartet', FLASH_FINISHED: 'Flash beendet',
@@ -1096,7 +997,7 @@ function formatDate(iso) {
 }
 
 connect();
-addAgentMessage('Hallo! Beschreibe eine Schaltung und das Ziel-Board. Die Agenten planen die Architektur, implementieren und simulieren die Module, synthetisieren das Design und flashen es nach deiner Freigabe.');
+addAgentMessage('Hallo! Beschreibe eine Schaltung und das Ziel-Board. Die Agenten planen die Architektur, implementieren und simulieren die Module, synthetisieren das Design und flashen es auf das Board.');
 
 // ── Settings View ──
 // Alle Felder mit data-setting="abschnitt.feld" kommen vom Server

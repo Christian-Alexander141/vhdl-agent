@@ -411,17 +411,6 @@ button { cursor: pointer; }
   background: var(--bg-inset); border: 1px solid var(--border);
 }
 
-/* Freigabe-Karte */
-.approval-card {
-  align-self: stretch; max-width: 860px;
-  padding: 16px; border-radius: var(--radius);
-  background: var(--warning-soft);
-  border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
-}
-.approval-card h4 { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--warning); margin-bottom: 6px; }
-.approval-path { font-family: var(--font-mono); font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
-.approval-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-
 /* Eingabe */
 #input-area { padding: 14px 20px 12px; border-top: 1px solid var(--border); background: var(--bg-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
 #file-chips { display: flex; flex-wrap: wrap; gap: 6px; }

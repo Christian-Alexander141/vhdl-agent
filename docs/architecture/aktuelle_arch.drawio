@@ -100,7 +100,7 @@
         <mxCell id="ae14" edge="1" parent="1" source="a6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" target="a16" value="nach bestandener Validierung">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="ae15" edge="1" parent="1" source="a16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" target="a17" value="nach Approval, falls konfiguriert">
+        <mxCell id="ae15" edge="1" parent="1" source="a16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" target="a17" value="nach erfolgreicher Synthese">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="ae16" edge="1" parent="1" source="a6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#777777;dashed=1;" target="a18" value="Status-Events">
@@ -155,12 +155,6 @@
         </mxCell>
         <mxCell id="f15" value="SYNTHESIZING&#xa;FPGAAgent erstellt Bitstream (Vivado)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9ead3;strokeColor=#6c9b54;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="650" y="1250" width="280" height="75" as="geometry" />
-        </mxCell>
-        <mxCell id="f16" value="Approval handler konfiguriert?&#xa;(FastAPI: ja; CLI: nein)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff0c2;strokeColor=#c8a84b;fontSize=12;" vertex="1" parent="1">
-          <mxGeometry x="675" y="1360" width="230" height="100" as="geometry" />
-        </mxCell>
-        <mxCell id="f17" value="User Approval&#xa;Ablehnung/kein Approval -&gt; BLOCKED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0c2;strokeColor=#c8a84b;fontSize=12;" vertex="1" parent="1">
-          <mxGeometry x="1030" y="1375" width="260" height="75" as="geometry" />
         </mxCell>
         <mxCell id="f18" value="FPGA_PROGRAMMING&#xa;Flash ueber Vivado oder openFPGALoader" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d9ead3;strokeColor=#6c9b54;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="650" y="1510" width="280" height="75" as="geometry" />
@@ -237,22 +231,7 @@
         <mxCell id="fe13" value="ja" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" edge="1" parent="1" source="f14" target="f15">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="fe14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" edge="1" parent="1" source="f15" target="f16">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="fe15" value="nein -&gt; FAILED" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#b85450;" edge="1" parent="1" source="f16" target="f27">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="fe16" value="ja" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#c8a84b;" edge="1" parent="1" source="f16" target="f17">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="fe17" value="freigegeben" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" edge="1" parent="1" source="f17" target="f18">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="fe18" value="abgelehnt -&gt; FAILED" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#b85450;" edge="1" parent="1" source="f17" target="f27">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="fe19" value="ohne Approval handler" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" edge="1" parent="1" source="f16" target="f18">
+        <mxCell id="fe14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" edge="1" parent="1" source="f15" target="f18">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="fe20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c9b54;" edge="1" parent="1" source="f18" target="f19">
