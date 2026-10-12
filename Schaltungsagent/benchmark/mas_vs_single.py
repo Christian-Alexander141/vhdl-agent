@@ -253,6 +253,9 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1, help="Runden; jede Runde führt jeden Prompt in jeder Variante aus")
     parser.add_argument("--out", default=str(Path.home() / "vhdl-agent-benchmark"),
                         help="Ablage der Workspaces; muss außerhalb jedes Git-Repos liegen")
+    parser.add_argument("--opencode-timeout", type=int, default=0,
+                        help="Zeitlimit je OpenCode-Aufruf in Sekunden (0 = opencode.default_timeout aus config.yaml); "
+                             "für die Variante single, die die ganze Aufgabe in einem Aufruf lösen muss")
     parser.add_argument("--max-provider-wait", type=int, default=120,
                         help="Minuten, die auf einen ausgefallenen Modell-Provider gewartet wird, bevor der Benchmark endet")
     parser.add_argument("--results-dir", default=str(ROOT.parent / "docs" / "benchmark" / "ergebnisse"),
@@ -295,7 +298,7 @@ def main() -> None:
         "prompts": {p.stem: hashlib.sha256(p.read_bytes()).hexdigest()[:16] for p in prompts},
         "model": probe.opencode.model,
         "fallback_model": probe.opencode.fallback_model,
-        "opencode_timeout_s": probe.opencode.default_timeout,
+        "opencode_timeout_s": args.opencode_timeout or probe.opencode.default_timeout,
         "max_repair_iterations": probe.opencode.max_repair_iterations,
         "opencode_version": _tool_version([probe.opencode.binary, "--version"]),
         "ghdl_version": _tool_version([probe.ghdl.binary, "--version"]),
@@ -321,6 +324,8 @@ def main() -> None:
             prompt = prompt_file.read_text(encoding="utf-8")
             for variant in args.variants:
                 settings = load_config()  # frisch je Lauf, MAS verändert die Settings
+                if args.opencode_timeout:
+                    settings.opencode.default_timeout = args.opencode_timeout
                 if not wait_for_provider(settings, out_dir / "_health", args.max_provider_wait):
                     meta["aborted"] = "Modell-Provider nicht erreichbar"
                     meta["finished_at"] = datetime.now().isoformat(timespec="seconds")
