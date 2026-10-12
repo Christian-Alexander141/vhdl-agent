@@ -230,6 +230,9 @@ class SupervisorOrchestrator:
             if result.status == AgentStatus.COMPLETED
             else EventType.TASK_FAILED
         )
+        # Ohne Projektzustand: das Dashboard nutzt davon nichts, er machte aber
+        # 101 von 163 KB Ereignisverkehr eines Laufs aus (Lauf mini_cpu). Der
+        # vollständige Zustand bleibt im Ergebnis (/api/tasks) und in design_state.yaml.
         self._events.publish_event(
             terminal_event,
             task_id,
@@ -237,7 +240,10 @@ class SupervisorOrchestrator:
                 "task_id": task_id,
                 "status": result_dict["status"],
                 "error": result.error_message,
-                "outputs": result.outputs,
+                "outputs": {
+                    key: value for key, value in (result.outputs or {}).items()
+                    if key not in ("design_state", "task_graph")
+                },
             },
         )
         return result_dict

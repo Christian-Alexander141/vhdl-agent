@@ -19,8 +19,20 @@ use ieee.numeric_std.all;
 
 ## Prozesse & Sensitivity Lists
 ```vhdl
--- Synthesizable clocked process (ein Takt, async reset)
-p_seq: process(clk, rst)
+-- Synthesizable clocked process, reset_concept = sync_active_high
+p_seq: process(clk)
+begin
+  if rising_edge(clk) then
+    if rst = '1' then
+      state <= IDLE;
+    else
+      state <= next_state;
+    end if;
+  end if;
+end process;
+
+-- dasselbe mit reset_concept = async_active_high
+p_seq_async: process(clk, rst)
 begin
   if rst = '1' then
     state <= IDLE;
@@ -44,8 +56,10 @@ end process;
 - Sensitivity List: `process(all)` (VHDL-2008) oder alle gelesenen Signale explizit
 
 ## Reset-Konvention
-- Default: **asynchron, active-high** (`rst` in Sensitivity List, `if rst = '1' then`)
-- Wenn Prompt `reset_n` oder `active low` verlangt: synchron oder asynchron active-low
+- Maßgeblich ist `reset_concept` in `plan/manifest.json` (aus PROMPT.md abgeleitet):
+  `sync_active_high` / `sync_active_low` → Reset innerhalb von `rising_edge(clk)`;
+  `async_active_high` / `async_active_low` → `rst` in der Sensitivity List; `_low` prüft `rst_n = '0'`.
+- Nur wenn PROMPT.md nichts zum Reset sagt: asynchron, active-high.
 - Reset **alle** State-Signale (Register, Zähler, FSM-State, Output-Register)
 
 ## Arithmetik & Typen

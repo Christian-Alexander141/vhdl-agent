@@ -130,6 +130,7 @@ classDiagram
         -_run_analysis()
         -_run_architecture()
         -_run_implementation()
+        -_schedule_priority(graph) dict
         -_run_static_check()
         -_run_simulation()
         -_run_validation()
@@ -234,7 +235,8 @@ classDiagram
 
     class TaskGraph {
         +add_task(task, owned_files)
-        +get_parallel_batches() list
+        +get_dependencies(task_id) list
+        +get_dependents(task_id) list
         +update_task_status(task_id, status)
         +to_dict() dict
     }

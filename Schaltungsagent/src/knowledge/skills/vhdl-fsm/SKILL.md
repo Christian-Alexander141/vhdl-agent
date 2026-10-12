@@ -92,7 +92,7 @@ begin
   end if;
 end process;
 ```
-- Asynchroner Reset auf definierten Start-State (`IDLE`, `S_RESET`, `RESET`)
+- Reset auf definierten Start-State (`IDLE`, `S_RESET`, `RESET`); synchron oder asynchron nach `reset_concept` in `plan/manifest.json` (Beispiel oben: asynchron)
 - Alle Output-Register im selben Prozess zurücksetzen
 
 ## Timer / Counter im FSM

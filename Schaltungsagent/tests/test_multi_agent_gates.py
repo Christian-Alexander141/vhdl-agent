@@ -88,8 +88,9 @@ end architecture;
 class RecordingHDLAgent:
     """Blockierender Stub wie der echte HDLAgent (OpenCode-Subprozess)."""
 
-    def __init__(self, delay=0.0, fail=()):
+    def __init__(self, delay=0.0, fail=(), delays=None):
         self.delay = delay
+        self.delays = delays or {}
         self.fail = set(fail)
         self.calls = []
         self.windows = {}
@@ -99,7 +100,8 @@ class RecordingHDLAgent:
         start = time.monotonic()
         with self._lock:
             self.calls.append(task)
-        time.sleep(self.delay)
+        module_name = (task.inputs.get("module") or {}).get("name", "")
+        time.sleep(self.delays.get(module_name, self.delay))
         workspace = Path(task.inputs["workspace"])
         if task.type == "fix_hdl":
             for rel in task.inputs.get("affected_files", []):
@@ -176,7 +178,67 @@ def test_independent_modules_run_in_parallel(tmp_path):
     assert hdl.windows["implement_module_cpu"][0] >= max(
         w[1] for k, w in hdl.windows.items() if k != "implement_module_cpu"
     )
-    assert "PARALLEL_BATCH_STARTED" in events.types()
+    assert "WORKER_ASSIGNED" in events.types() and "WORKER_COMPLETED" in events.types()
+
+
+def test_dependent_task_starts_as_soon_as_its_own_dependencies_are_done(tmp_path):
+    # Früher paketweise: mid wartete auf das langsame, unabhängige Modul slow.
+    modules = [
+        {"name": "slow", "type": "sequential", "inputs": ["clk"], "outputs": ["q"]},
+        {"name": "fast", "type": "sequential", "inputs": ["clk"], "outputs": ["q"]},
+        {"name": "mid", "type": "sequential", "inputs": ["clk"], "outputs": ["q"], "dependencies": ["fast"]},
+        {"name": "top", "type": "structural", "inputs": ["clk"], "outputs": ["led"], "dependencies": ["slow", "mid"]},
+    ]
+    hdl = RecordingHDLAgent(delays={"slow": 0.6, "fast": 0.05, "mid": 0.05, "top": 0.0})
+    supervisor, _, _ = make_supervisor(tmp_path, hdl_agent=hdl)
+    set_architecture(supervisor, modules, "top")
+
+    assert run(supervisor._run_implementation()).status == AgentStatus.COMPLETED
+    assert hdl.windows["implement_module_mid"][0] < hdl.windows["implement_module_slow"][1]
+    assert hdl.windows["implement_module_top"][0] >= hdl.windows["implement_module_slow"][1]
+
+
+def test_task_on_the_critical_path_starts_first(tmp_path):
+    # c1 -> c2 -> top ist die längste Kette; leaf steht im Manifest vorne.
+    modules = [
+        {"name": "leaf", "type": "sequential", "inputs": ["clk"], "outputs": ["q"]},
+        {"name": "c1", "type": "sequential", "inputs": ["clk"], "outputs": ["q"]},
+        {"name": "c2", "type": "sequential", "inputs": ["clk"], "outputs": ["q"], "dependencies": ["c1"]},
+        {"name": "top", "type": "structural", "inputs": ["clk"], "outputs": ["led"], "dependencies": ["leaf", "c2"]},
+    ]
+    hdl = RecordingHDLAgent()
+    supervisor, _, _ = make_supervisor(tmp_path, config={"max_parallel_workers": 1}, hdl_agent=hdl)
+    set_architecture(supervisor, modules, "top")
+
+    assert run(supervisor._run_implementation()).status == AgentStatus.COMPLETED
+    order = [t.id for t in hdl.calls]
+    assert order[0] == "implement_module_c1" and order[-1] == "implement_module_top"
+
+
+def test_persisted_task_graph_keeps_status_but_not_task_inputs(tmp_path):
+    hdl = RecordingHDLAgent()
+    supervisor, fs, _ = make_supervisor(tmp_path, hdl_agent=hdl)
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+    assert run(supervisor._run_implementation()).status == AgentStatus.COMPLETED
+
+    data = json.loads((Path(fs.workspace_path("proj")) / "task_graph.json").read_text())
+    task = data["tasks"]["implement_module_alu"]
+    assert task["status"] == "COMPLETED" and task["context"]["fingerprint"]
+    assert set(task["inputs"]) == {"module"} and task["inputs"]["module"]["name"] == "alu"
+
+
+def test_dependency_cycle_is_reported_instead_of_silently_skipped(tmp_path):
+    modules = [
+        {"name": "a", "type": "sequential", "inputs": ["clk"], "outputs": ["q"], "dependencies": ["b"]},
+        {"name": "b", "type": "sequential", "inputs": ["clk"], "outputs": ["q"], "dependencies": ["a"]},
+    ]
+    hdl = RecordingHDLAgent()
+    supervisor, _, _ = make_supervisor(tmp_path, hdl_agent=hdl)
+    set_architecture(supervisor, modules, "a")
+
+    result = run(supervisor._run_implementation())
+    assert result.status == AgentStatus.FAILED and "Zyklus" in result.error_message
+    assert hdl.calls == []
 
 
 def test_contract_change_invalidates_only_dependent_tasks(tmp_path):
@@ -928,3 +990,36 @@ def test_manifest_simulation_vectors_become_module_field_and_validated():
         "simulation_vectors" in e and "must be a list" in e
         for e in PlanValidator.validate(wrong_shape)
     )
+
+
+def test_terminal_event_omits_the_design_state():
+    from src.orchestrator.supervisor_orchestrator import SupervisorOrchestrator
+
+    class Supervisor:
+        async def execute(self, task):
+            return AgentResult(task_id=task.id, status=AgentStatus.COMPLETED, outputs={
+                "design_state": {"huge": "x" * 100_000}, "message": "fertig", "hardware_validated": False})
+
+    events = EventRecorder()
+    orchestrator = object.__new__(SupervisorOrchestrator)
+    orchestrator._supervisor, orchestrator._events = Supervisor(), events
+    result = orchestrator.execute("x", task_id="proj")
+
+    payload = next(e for e in events.events if e[0] == "TASK_COMPLETED")[1]
+    assert payload["outputs"] == {"message": "fertig", "hardware_validated": False}
+    assert result["status"] == "COMPLETED"
+
+
+def test_heartbeat_only_after_a_quiet_interval(tmp_path):
+    supervisor, _, events = make_supervisor(tmp_path, config={"heartbeat_interval_seconds": 0.1})
+    stop = threading.Event()
+    worker = threading.Thread(target=supervisor._emit_stage_heartbeats, args=(stop, "IMPLEMENTING"))
+    worker.start()
+    for _ in range(8):  # laufend andere Ereignisse: kein Lebenszeichen nötig
+        supervisor._emit_event("WORKER_ASSIGNED", {"project_id": "proj"})
+        time.sleep(0.04)
+    busy = events.types().count("AGENT_HEARTBEAT")
+    time.sleep(0.35)  # Stille: jetzt kommen Lebenszeichen
+    stop.set()
+    worker.join()
+    assert busy == 0 and events.types().count("AGENT_HEARTBEAT") >= 2

@@ -140,41 +140,6 @@ class TaskGraph:
         
         return ready
     
-    def get_parallel_batches(self) -> list[list[AgentTask]]:
-        """Compute batches of tasks that can run in parallel.
-        
-        Returns a list of batches. Each batch contains tasks whose
-        dependencies are all COMPLETED (not just in the same batch).
-        Tasks within a batch have no mutual dependencies.
-        """
-        batches = []
-        # Start with already completed tasks
-        completed: set[str] = {
-            tid for tid, t in self._tasks.items()
-            if t.status in (TaskStatus.PASSED, TaskStatus.COMPLETED)
-        }
-        remaining = {tid for tid, t in self._tasks.items()
-                     if t.status in (TaskStatus.CREATED, TaskStatus.QUEUED)}
-        
-        while remaining:
-            batch = []
-            for task_id in list(remaining):
-                task = self._tasks[task_id]
-                deps = self._dependency_map.get(task_id, set())
-                # All deps must be completed (not in same batch)
-                deps_met = all(d in completed for d in deps)
-                if deps_met:
-                    batch.append(task)
-            
-            if not batch:
-                break  # Safety: avoid infinite loop on circular deps
-            
-            batches.append(batch)
-            completed |= {t.id for t in batch}
-            remaining -= {t.id for t in batch}
-        
-        return batches
-    
     def update_task_status(
         self,
         task_id: str,

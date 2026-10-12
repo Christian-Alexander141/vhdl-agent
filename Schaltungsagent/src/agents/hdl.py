@@ -22,6 +22,20 @@ from src.domain_plugins.vhdl.templates import VHDLTemplates
 logger = logging.getLogger(__name__)
 
 
+# Prozesse, Takt-Flanken oder bedingte Zuweisungen: das Modul tut mehr als
+# Untermodule zu verdrahten.
+_OWN_LOGIC = re.compile(
+    r"\bprocess\b|\brising_edge\b|\bfalling_edge\b|<=[^;]*\bwhen\b|\bwith\b[^;]*\bselect\b",
+    re.IGNORECASE,
+)
+
+
+def has_own_logic(vhdl_code: str) -> bool:
+    """Enthält der Code Logik außer Instanzen und einfachen Zuweisungen?"""
+    code = re.sub(r"--[^\n]*", "", vhdl_code or "")
+    return bool(_OWN_LOGIC.search(code))
+
+
 class HDLAgent(BaseAgent):
     """Implementiert VHDL-Code basierend auf der Architektur.
     
@@ -204,11 +218,15 @@ class HDLAgent(BaseAgent):
                 "file": file_name,
             })
 
-            # Testbench für Leaf-/Top-Module
+            # Testbench für Leaf- und Top-Module sowie für Zwischenmodule mit
+            # eigener Logik. Früher bekamen Zwischenmodule nie eine: die Register
+            # ACC, Z, C und OUT in cpu_core (Lauf mini_cpu 2026-10-12) waren nur
+            # über das Top-Level geprüft. Reine Verdrahtung braucht weiter keine.
             if (
                 module.type == "combinational"
                 or not module.dependencies
                 or module.name == architecture.get("top_module")
+                or has_own_logic(vhdl_code)
             ):
                 if module.name == "uart":
                     tb_code = task.inputs.get("uart_testbench") or VHDLTemplates.render(

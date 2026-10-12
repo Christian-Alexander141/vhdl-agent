@@ -313,8 +313,11 @@ def test_opencode_call_events_reach_the_dashboard_serializer():
     seen = []
     bus = EventBus()
     bus.on_event(lambda event: seen.append(event.to_dict()))
-    OpenCodeTaskRunner(opencode_service=None, event_publisher=bus)._emit("plan", "t1", "abc", 10, True, "")
+    OpenCodeTaskRunner(opencode_service=None, event_publisher=bus)._emit(
+        "plan", "t1", "abc", {"prompt_length": 3617, "request_length": 7516}, True, "", 158.94)
     assert seen and seen[0]["event_type"] == "OPENCODE_CALL"
+    payload = seen[0]["payload"]
+    assert (payload["prompt_length"], payload["request_length"], payload["duration_s"]) == (3617, 7516, 158.9)
     assert Event(event_type="FREITEXT").to_dict()["event_type"] == "FREITEXT"
     assert EventType.OPENCODE_CALL.value == "OPENCODE_CALL"
 
@@ -395,3 +398,24 @@ def test_scrubber_replaces_the_full_hostname_before_the_user_name(tmp_path, monk
     monkeypatch.setenv("USER", "anna")
     scrub = trajectory.Scrubber(tmp_path)
     assert scrub.text(f"Host: anna-Laptop-15, user anna, {tmp_path}/src") == "Host: <host>, user <host>, <workspace>/src"
+
+
+def test_trajectory_records_model_plan_and_final_sources(tmp_path):
+    supervisor, _, _, _, workspace, _ = _mismatch_case(tmp_path)
+    supervisor._runs_dir = str(tmp_path / "runs")
+    supervisor._config.update({"opencode_model": "opencode/muse-spark", "fallback_model": "opencode/mimo"})
+    supervisor._current_task.inputs["plan_manifest"] = {
+        "top_entity": "top", "modules": [{"entity": "top", "type": "sequential", "depends_on": [], "ports": []}],
+        "requirements": [{"id": "R1"}], "plan_attempts": {"count": 2, "problems": [["cycle"]]},
+        "board_checks": [{"setup": "BTN0", "expected": "LED an"}],
+    }
+    supervisor._start_trajectory()
+    path = supervisor._trajectory.path
+    supervisor._finish_trajectory(AgentResult(task_id="s", status=AgentStatus.COMPLETED, outputs={"message": "ok"}))
+
+    entries = {e["kind"]: e for e in map(json.loads, path.read_text().splitlines())}
+    assert entries["run_started"]["model"] == "opencode/muse-spark"
+    plan = entries["plan"]
+    assert plan["modules"] == [{"entity": "top", "type": "sequential", "depends_on": []}]
+    assert plan["attempts"]["count"] == 2 and plan["requirements"] == 1 and plan["board_checks"]
+    assert entries["run_finished"]["sources"]["src/top.vhd"] == "-- korrekt\n"

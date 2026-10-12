@@ -23,7 +23,7 @@ plan/manifest.json        # OpenCode-generated plan
 - No inferred latches – complete sensitivity lists
 - One clock domain per process (`clk` + `rst` synchronous)
 - Arithmetic only via `numeric_std` (`signed`/`unsigned`)
-- Reset style: async active-high unless prompt specifies otherwise
+- Reset style: as `reset_concept` in plan/manifest.json (derived from PROMPT.md); async active-high only if the prompt says nothing about the reset
 - Entity name = file name (lowercase, underscores)
 
 ## 4. GHDL Commands (used by the pipeline)

@@ -689,3 +689,93 @@ def test_repair_timeout_escalates_in_persistent_mode_and_discards_partial_edits(
 def test_repair_timeout_still_stops_in_standard_mode(tmp_path):
     result, _, _ = _timeout_case(tmp_path, "standard")
     assert result.status == AgentStatus.BLOCKED
+
+
+# --- Testbenches für Zwischenmodule mit eigener Logik (#52) -----------------
+
+CORE_WITH_REGISTERS = """architecture rtl of cpu_core is
+begin
+    u_alu: entity work.alu port map (a => acc, b => b, op => op, result => res);
+    process(clk) begin
+        if rising_edge(clk) then acc <= res; end if;
+    end process;
+end architecture;"""
+
+WIRING_ONLY = """architecture rtl of board_top is
+begin
+    -- process: nur ein Kommentar
+    u_core: entity work.core port map (clk => clk, q => q_int);
+    led <= q_int;
+end architecture;"""
+
+
+def test_own_logic_is_detected_but_plain_wiring_is_not():
+    from src.agents.hdl import has_own_logic
+
+    assert has_own_logic(CORE_WITH_REGISTERS)
+    assert has_own_logic("y <= a when sel = '1' else b;")
+    assert not has_own_logic(WIRING_ONLY)
+
+
+@pytest.mark.parametrize("code, expect_tb", [(CORE_WITH_REGISTERS, True), (WIRING_ONLY, False)])
+def test_intermediate_module_gets_a_testbench_only_with_own_logic(tmp_path, code, expect_tb):
+    from src.agents.hdl import HDLAgent as Agent
+
+    class FS:
+        def write_file(self, path, content):
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(content)
+
+    agent = Agent(opencode_service=None, filesystem_service=FS(), task_runner=object())
+    calls = []
+
+    async def module_vhdl(*args, **kwargs):
+        return code
+
+    async def testbench(module, *args, **kwargs):
+        calls.append(module.name)
+        return "-- tb"
+
+    agent._generate_module_vhdl, agent._generate_testbench = module_vhdl, testbench
+    agent.emit_event = lambda *args, **kwargs: None
+    from src.domain.agents import AgentTask
+    task = AgentTask(id="t", type="implement_module", project_id="p", inputs={
+        "module": {"name": "cpu_core", "type": "structural", "dependencies": ["alu"]},
+        "architecture": {"top_module": "mini_cpu"}, "workspace": str(tmp_path)})
+    result = run(agent._implement_module(task))
+    assert result.status == AgentStatus.COMPLETED
+    assert (calls == ["cpu_core"]) is expect_tb
+
+
+# --- Prüfanleitung fürs Board und Verlauf der Planung (#55, #54) -------------
+
+def test_plan_records_attempt_history_and_keeps_only_complete_board_checks(tmp_path):
+    from src.services.plan_service import PlanService
+
+    good = _manifest(["b"], [])
+    good["board_checks"] = [
+        {"setup": "alle Schalter unten, BTN0", "expected": "LEDs 0001, 0010, 0011", "requirements": ["R1"]},
+        {"setup": "nur Aufbau"},
+        "kein Objekt",
+    ]
+    runner = _PlanRunner([_manifest(["b"], ["a"]), good])
+    manifest = PlanService(runner, name_resolver=None).plan(str(tmp_path), "x", task_id="t")
+
+    assert manifest["plan_attempts"]["count"] == 2
+    assert "a -> b -> a" in " ".join(manifest["plan_attempts"]["problems"][0])
+    assert manifest["board_checks"] == [
+        {"setup": "alle Schalter unten, BTN0", "expected": "LEDs 0001, 0010, 0011", "requirements": ["R1"]}]
+    assert "board_checks" in runner.instructions[0]
+
+
+def test_completion_message_contains_the_board_checklist(tmp_path):
+    supervisor, _, _ = make_supervisor(tmp_path)
+    assert "Bitte teste die Hardware" in supervisor._completion_message()
+
+    supervisor._design_state.metadata["plan_manifest"] = {"board_checks": [
+        {"setup": "alle Schalter unten, BTN0 drücken", "expected": "LEDs 0001, 0010, …, 1101, dann Halt"},
+        {"setup": "SW1–SW0 = 01", "expected": "Akkumulator"},
+    ]}
+    message = supervisor._completion_message()
+    assert "nicht validiert" in message and "Bitte am Board prüfen:" in message
+    assert "1. alle Schalter unten, BTN0 drücken → LEDs 0001" in message and "\n2. SW1–SW0 = 01 → Akkumulator" in message

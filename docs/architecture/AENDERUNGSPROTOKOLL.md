@@ -192,6 +192,13 @@ Commits `63a4752`, `943b9dd`, `fbacfdc`.
 - **#46:** Lauf-Trajektorien als Trainingsdaten unter `~/vhdl-agent-runs/`, außerhalb des
   Workspaces. Werkzeugausgaben sind per `.gitignore` von OpenCodes Suche ausgeschlossen und werden
   nach erfolgreichem Lauf aufgeräumt.
+- **#47:** Testsuite bereinigt (veraltete Tests gelöscht, drei echte Fehler behoben).
+- **Benchmark-Aufgabe 04 (4-Bit-Akkumulator-CPU):** zwei reale Läufe ohne Reparatur bis zum
+  Flashen (37:42 und 37:59 min), LED-Ausgabe am Board bestätigt.
+- **#48–#55 aus diesen Läufen:** Planung nach dem kritischen Pfad statt paketweise, schlanke
+  `task_graph.json`, weniger Ereignisverkehr, richtige Auftragsgröße und Dauer im Protokoll,
+  Testbenches für Zwischenmodule mit eigener Logik, Reset-Konvention der Skills, vollständigere
+  Trajektorie und eine Prüfanleitung fürs Board in der Abschlussmeldung.
 
 ---
 

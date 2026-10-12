@@ -6,6 +6,7 @@ import os
 import re
 import uuid
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -99,9 +100,12 @@ class SupervisorAgent(BaseAgent):
         self._persistent = self._config.get("repair_policy", "standard") == "persistent"
         self._repair_snapshot: dict | None = None
         self._max_hardware_failures = self._config.get("max_hardware_failures", 5)
+        # Lebenszeichen nur nach dieser Zeit ohne anderes Ereignis; früher fest
+        # alle 20 s (Lauf mini_cpu: 103 von 177 Ereignissen).
         self._heartbeat_interval_seconds = max(
-            float(self._config.get("heartbeat_interval_seconds", 20)), 0.1
+            float(self._config.get("heartbeat_interval_seconds", 60)), 0.1
         )
+        self._last_event_at = time.monotonic()
         self._min_module_coverage = float(self._config.get("min_module_coverage", 1.0))
         self._max_parallel_workers = max(int(self._config.get("max_parallel_workers", 2)), 1)
         self._enforce_contracts = bool(self._config.get("enforce_contracts", True))
@@ -281,9 +285,29 @@ class SupervisorAgent(BaseAgent):
             "run_started",
             request=meta.get("request_full") or self._current_task.inputs.get("request", ""),
             repair_policy="persistent" if self._persistent else "standard",
+            model=self._config.get("opencode_model", ""),
+            fallback_model=self._config.get("fallback_model", ""),
             fpga=self._design_state.fpga.model_dump(),
             stage=self._normalize_stage(self._design_state.current_stage).value,
         )
+        manifest = self._current_task.inputs.get("plan_manifest") or meta.get("plan_manifest") or {}
+        if isinstance(manifest, dict) and manifest.get("modules"):
+            # Die Planung läuft vor dem Supervisor (Bootstrap); ohne diesen
+            # Eintrag fehlte sie in der Trajektorie.
+            self._trajectory.record(
+                "plan",
+                top_entity=manifest.get("top_entity", ""),
+                reset_concept=manifest.get("reset_concept", ""),
+                modules=[
+                    {key: module.get(key) for key in ("entity", "type", "depends_on")}
+                    for module in manifest.get("modules", []) if isinstance(module, dict)
+                ],
+                requirements=len(manifest.get("requirements") or []),
+                attempts=manifest.get("plan_attempts") or {},
+                open_questions=manifest.get("open_questions") or [],
+                requirements_warnings=manifest.get("requirements_warnings") or [],
+                board_checks=manifest.get("board_checks") or [],
+            )
 
     def _finish_trajectory(self, result: AgentResult | None) -> None:
         if not self._trajectory:
@@ -294,6 +318,9 @@ class SupervisorAgent(BaseAgent):
             stage=self._normalize_stage(self._design_state.current_stage).value,
             message=(result.error_message or result.outputs.get("message", "")) if result else "",
             repairs=self._design_state.metadata.get("escalation_log", []),
+            # Endstand als Positiv- bzw. Negativbeispiel; bei einem Lauf ohne
+            # Reparatur enthielt die Trajektorie sonst nur Phasenergebnisse.
+            sources=self._repair_sources(),
         )
         self._trajectory = None
 
@@ -464,12 +491,26 @@ class SupervisorAgent(BaseAgent):
                 f"FPGA erfolgreich geflasht und Hardwaretest bestanden "
                 f"({hardware.passed} Test(s), {hardware.test_mode}). Workflow abgeschlossen."
             )
-        return (
+        message = (
             "FPGA erfolgreich geflasht. Workflow abgeschlossen. Es wurde KEIN "
             "automatischer Hardwaretest ausgeführt (keine echte UART-Schnittstelle "
-            "konfiguriert); die Board-Funktion ist nicht validiert. Bitte teste die "
-            "Hardware und sende bei Problemen deine Änderungswünsche."
+            "konfiguriert); die Board-Funktion ist nicht validiert."
         )
+        checks = self._board_checks()
+        if not checks:
+            return message + " Bitte teste die Hardware und sende bei Problemen deine Änderungswünsche."
+        # Prüfanleitung aus dem Plan: früher musste der Benutzer selbst
+        # herausfinden, was die LEDs zeigen sollen (Lauf mini_cpu 2026-10-12).
+        steps = "\n".join(
+            f"{number}. {check['setup']} → {check['expected']}"
+            for number, check in enumerate(checks, start=1)
+        )
+        return f"{message} Bitte am Board prüfen:\n{steps}\nBei Abweichungen beschreibe sie als Änderungswunsch."
+
+    def _board_checks(self) -> list[dict]:
+        manifest = self._design_state.metadata.get("plan_manifest") or self._current_task.inputs.get("plan_manifest") or {}
+        checks = manifest.get("board_checks") if isinstance(manifest, dict) else None
+        return [c for c in checks or [] if isinstance(c, dict) and c.get("setup") and c.get("expected")]
 
     def _normalize_stage(self, stage: DesignStage | str | None) -> DesignStage:
         """Normalize persisted string stages back to the enum used by the runtime."""
@@ -565,6 +606,8 @@ class SupervisorAgent(BaseAgent):
         elapsed = 0
         while not stop_event.wait(self._heartbeat_interval_seconds):
             elapsed += self._heartbeat_interval_seconds
+            if time.monotonic() - self._last_event_at < self._heartbeat_interval_seconds:
+                continue  # es gab gerade ein anderes Ereignis
             self._emit_event("AGENT_HEARTBEAT", {
                 "project_id": self._current_task.project_id,
                 "stage": stage_name,
@@ -918,16 +961,14 @@ class SupervisorAgent(BaseAgent):
             if not name:
                 continue
 
-            uart_template = VHDLTemplates.render("uart", "vhdl")
-            uart_testbench = VHDLTemplates.render("uart", "testbench")
+            # Vorlagen rendert der HDLAgent bei Bedarf selbst; früher steckten
+            # sie (8,7 KB) in jeder Modulaufgabe, auch ohne UART.
             uart_handoff = {
                 "uart_required": bool(self._design_state.metadata.get("uart_required")),
                 "uart_module": "uart",
                 "uart_template_path": self._design_state.metadata.get("uart_template_path", ""),
-                "uart_template": uart_template,
                 "uart_interface": UART_INTERFACE,
                 "uart_adaptation_required": True,
-                "uart_testbench": uart_testbench,
             }
             
             task_id = f"implement_module_{name}"
@@ -1026,8 +1067,6 @@ class SupervisorAgent(BaseAgent):
                         "change_request": change_request,
                         "analysis": analysis,
                         "uart_required": bool(self._design_state.metadata.get("uart_required")),
-                        "uart_template": VHDLTemplates.render("uart", "vhdl"),
-                        "uart_testbench": VHDLTemplates.render("uart", "testbench"),
                     },
                     acceptance_criteria=[
                         "Alle Module und das Top-Level sind implementiert",
@@ -1051,7 +1090,12 @@ class SupervisorAgent(BaseAgent):
         })
         self._persist_task_graph(workspace, graph)
 
-        # --- Batches sequentiell, Tasks innerhalb eines Batches parallel ---
+        # --- Planung: jede Aufgabe startet, sobald ihre Abhängigkeiten fertig sind ---
+        # Früher liefen die Aufgaben paketweise: das nächste Paket begann erst, wenn
+        # das ganze vorige fertig war, und innerhalb eines Pakets in Manifest-
+        # Reihenfolge (Lauf mini_cpu 2026-10-12: control_unit lag auf dem kritischen
+        # Pfad, startete aber als viertes Modul; cpu_core wartete 2,3 min auf
+        # Module, die es nicht braucht).
         graph_files: list[str] = []
         all_errors: list[dict] = []
         for task_id in reused:
@@ -1061,24 +1105,27 @@ class SupervisorAgent(BaseAgent):
             self._current_task.project_id, len(modules), len(graph.get_all_tasks()), len(reused),
         )
 
-        semaphore = asyncio.Semaphore(self._max_parallel_workers)
-
         async def run_task(task: AgentTask) -> AgentResult:
             # HDL-Aufträge blockieren (OpenCode-Subprozess); jeder Worker
             # bekommt daher einen eigenen Thread mit eigener Event-Loop.
-            async with semaphore:
-                try:
-                    return await asyncio.to_thread(asyncio.run, self._hdl_agent.execute(task))
-                except Exception as exc:  # Worker-Absturz isolieren
-                    logger.exception("HDL worker failed for %s", task.id)
-                    return AgentResult(task_id=task.id, status=AgentStatus.FAILED, error_message=str(exc))
+            try:
+                return await asyncio.to_thread(asyncio.run, self._hdl_agent.execute(task))
+            except Exception as exc:  # Worker-Absturz isolieren
+                logger.exception("HDL worker failed for %s", task.id)
+                return AgentResult(task_id=task.id, status=AgentStatus.FAILED, error_message=str(exc))
 
-        for batch in graph.get_parallel_batches():
-            runnable = []
-            for task in batch:
+        pending = (TaskStatus.CREATED, TaskStatus.QUEUED)
+        done = (TaskStatus.COMPLETED, TaskStatus.PASSED)
+        priority = self._schedule_priority(graph)
+        free_workers = [f"hdl_worker_{i}" for i in range(self._max_parallel_workers, 0, -1)]
+        running: dict[asyncio.Future, tuple[AgentTask, str, float]] = {}
+        while True:
+            for task in graph.get_all_tasks():
+                if task.status not in pending:
+                    continue
                 failed_deps = [
                     dep.id for dep in graph.get_dependencies(task.id)
-                    if dep.status not in (TaskStatus.COMPLETED, TaskStatus.PASSED)
+                    if dep.status in (TaskStatus.FAILED, TaskStatus.BLOCKED)
                 ]
                 if failed_deps:
                     graph.update_task_status(
@@ -1090,21 +1137,41 @@ class SupervisorAgent(BaseAgent):
                         "task": task.id,
                         "blocked_by": failed_deps,
                     })
-                    continue
+            ready = sorted(
+                (
+                    task for task in graph.get_all_tasks()
+                    if task.status in pending
+                    and all(dep.status in done for dep in graph.get_dependencies(task.id))
+                ),
+                key=lambda task: priority[task.id],
+            )
+            while ready and free_workers:
+                task = ready.pop(0)
+                worker = free_workers.pop()
                 task.context["attempts"] = int(task.context.get("attempts", 0)) + 1
-                graph.mark_running(task.id, worker_id=f"hdl_worker_{len(runnable) + 1}")
-                runnable.append(task)
-            if not runnable:
-                continue
-
-            self._emit_event("PARALLEL_BATCH_STARTED", {
-                "project_id": self._current_task.project_id,
-                "batch": [t.id for t in runnable],
-                "max_parallel_workers": self._max_parallel_workers,
-            })
-            results = await asyncio.gather(*[run_task(t) for t in runnable])
-
-            for task, result in zip(runnable, results):
+                graph.mark_running(task.id, worker_id=worker)
+                self._emit_event("WORKER_ASSIGNED", {
+                    "project_id": self._current_task.project_id,
+                    "task": task.id,
+                    "module": self._task_module_name(task),
+                    "worker": worker,
+                })
+                future = asyncio.ensure_future(run_task(task))
+                running[future] = (task, worker, time.monotonic())
+            if not running:
+                break
+            finished, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            for future in finished:
+                task, worker, started = running.pop(future)
+                free_workers.append(worker)
+                result = future.result()
+                payload = {
+                    "project_id": self._current_task.project_id,
+                    "task": task.id,
+                    "module": self._task_module_name(task),
+                    "worker": worker,
+                    "duration_s": round(time.monotonic() - started, 1),
+                }
                 if result.status == AgentStatus.COMPLETED:
                     graph.update_task_status(
                         task.id,
@@ -1112,6 +1179,7 @@ class SupervisorAgent(BaseAgent):
                         result=result.outputs or {},
                     )
                     graph_files.extend(result.outputs.get("files", []) or [])
+                    self._emit_event("WORKER_COMPLETED", payload)
                 else:
                     graph.update_task_status(
                         task.id,
@@ -1121,22 +1189,27 @@ class SupervisorAgent(BaseAgent):
                     )
                     all_errors.append({
                         "task": task.id,
-                        "module": (task.inputs.get("module") or {}).get("name", task.id)
-                        if isinstance(task.inputs.get("module"), dict)
-                        else task.id,
+                        "module": self._task_module_name(task),
                         "error": result.error_message,
                         "failure_type": next(
                             (d.get("failure_type") for d in result.diagnostics or [] if d.get("failure_type")), ""
                         ),
                     })
-            self._emit_event("PARALLEL_BATCH_COMPLETED", {
-                "project_id": self._current_task.project_id,
-                "batch": [t.id for t in runnable],
-                "failed": [e["task"] for e in all_errors],
-            })
-            # Checkpoint nach jedem Batch: ein Neustart wiederholt nur offene Tasks.
+                    self._emit_event("WORKER_FAILED", {**payload, "error": result.error_message or ""})
+            # Checkpoint nach jeder fertigen Aufgabe: ein Neustart wiederholt nur offene Tasks.
             graph.clear_invalidated()
             self._persist_task_graph(workspace, graph)
+
+        # Was jetzt noch offen ist, hängt in einem Zyklus fest; früher blieb es
+        # stillschweigend liegen und das fehlende Modul fiel erst später auf.
+        for task in graph.get_all_tasks():
+            if task.status in pending:
+                graph.update_task_status(task.id, TaskStatus.BLOCKED, error="dependency cycle")
+                all_errors.append({
+                    "task": task.id, "module": self._task_module_name(task),
+                    "error": f"{task.id}: Abhängigkeiten nie erfüllt (Zyklus im Plan?)",
+                    "failure_type": "architecture_error",
+                })
 
         # --- TaskGraph persistieren ---
         self._persist_task_graph(workspace, graph)
@@ -1187,7 +1260,7 @@ class SupervisorAgent(BaseAgent):
             outputs={
                 "files": graph_files,
                 "generated_files": graph_files,
-                "task_graph": graph.to_dict(),
+                "task_graph": self._slim_graph(graph),
                 "integration_task": integration_task_id if integration_task_id else "single_top_module",
             },
         )
@@ -1309,10 +1382,63 @@ class SupervisorAgent(BaseAgent):
             reused.append(task.id)
         return reused, sorted(rerun)
 
+    @staticmethod
+    def _task_module_name(task: AgentTask) -> str:
+        module = task.inputs.get("module")
+        return module.get("name", task.id) if isinstance(module, dict) else task.id
+
+    @staticmethod
+    def _schedule_priority(graph: TaskGraph) -> dict[str, tuple]:
+        """Sortierschlüssel je Aufgabe: längster Pfad bis zum Top-Level zuerst.
+
+        Listenplanung nach dem kritischen Pfad (Hu 1961): Aufgaben mit der
+        längsten Kette abhängiger Aufgaben starten zuerst. Bei Gleichstand gehen
+        Module mit mehr Ports vor (grobes Maß für den Aufwand), danach gilt die
+        Reihenfolge im Manifest.
+        """
+        tasks = graph.get_all_tasks()
+        order = {task.id: index for index, task in enumerate(tasks)}
+        level: dict[str, int] = {}
+
+        def depth(task_id: str, seen: frozenset = frozenset()) -> int:
+            if task_id in level:
+                return level[task_id]
+            if task_id in seen:  # Zyklus: nicht weiter verfolgen
+                return 1
+            dependents = graph.get_dependents(task_id)
+            level[task_id] = 1 + max((depth(d.id, seen | {task_id}) for d in dependents), default=0)
+            return level[task_id]
+
+        def ports(task: AgentTask) -> int:
+            module = task.inputs.get("module")
+            if not isinstance(module, dict):
+                return 0
+            declared = module.get("ports")
+            if isinstance(declared, (dict, list)) and declared:
+                return len(declared)
+            return len(module.get("inputs", []) or []) + len(module.get("outputs", []) or [])
+
+        return {task.id: (-depth(task.id), -ports(task), order[task.id]) for task in tasks}
+
+    @staticmethod
+    def _slim_graph(graph: TaskGraph) -> dict:
+        """Graph ohne die Eingaben der Aufgaben.
+
+        Eine Wiederaufnahme liest nur Status, Fingerabdruck, Lauf-Schlüssel und
+        Ergebnis; die Eingaben (Manifest, Architektur, Anforderung, früher auch
+        UART-Vorlagen) werden immer neu aufgebaut. Mit ihnen war task_graph.json
+        nach dem Lauf mini_cpu 1,06 MB groß.
+        """
+        data = graph.to_dict()
+        for task in data.get("tasks", {}).values():
+            module = (task.get("inputs") or {}).get("module")
+            task["inputs"] = {"module": module} if module else {}
+        return data
+
     def _persist_task_graph(self, workspace: str, graph: TaskGraph) -> None:
         """Speichert den TaskGraph atomar im Workspace (Checkpoint)."""
         try:
-            content = json.dumps(graph.to_dict(), indent=2, ensure_ascii=False)
+            content = json.dumps(self._slim_graph(graph), indent=2, ensure_ascii=False)
             path = f"{workspace}/task_graph.json"
             temporary = f"{path}.tmp"
             self._fs.write_file(temporary, content)
@@ -2087,6 +2213,8 @@ class SupervisorAgent(BaseAgent):
             return
         self._design_state.metadata["fallback_model_active"] = model
         logger.info("Escalation: switched OpenCode to fallback model %s", model)
+        if self._trajectory:
+            self._trajectory.record("model_switch", model=model)
 
     def _restore_model(self) -> None:
         if self._model_switcher is None or not self._design_state or not self._design_state.metadata.get("fallback_model_active"):
@@ -3272,6 +3400,8 @@ class SupervisorAgent(BaseAgent):
 
     def _emit_event(self, event_type: str, payload: dict) -> None:
         """Emittiert Event über EventBus."""
+        if event_type != "AGENT_HEARTBEAT":
+            self._last_event_at = time.monotonic()
         if self.event_bus:
             try:
                 event_payload = dict(payload)

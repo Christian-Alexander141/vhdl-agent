@@ -22,7 +22,7 @@ flowchart TD
     A1 --> A2["ARCHITECTING:<br/>Architektur aus Manifest,<br/>plan/requirements.md"]
     A2 --> A3["UART_INTEGRATION:<br/>UART-Brücke nur bei Bedarf"]
     A3 --> RM["Referenzmodell (VerificationAgent):<br/>Python-Modell aus PROMPT.md + GENERICS"]
-    RM --> IM["IMPLEMENTING: TaskGraph,<br/>Module + Testbenches parallel (HDLAgent)"]
+    RM --> IM["IMPLEMENTING: TaskGraph,<br/>Module + Testbenches parallel (HDLAgent),<br/>Start sobald Abhängigkeiten fertig,<br/>kritischer Pfad zuerst"]
     IM --> SC["STATIC_CHECK: Port-Contracts,<br/>Vergleichs-Testbench mit generic map,<br/>GHDL-Analyse und -Simulation"]
     SC --> SI["SIMULATING: alle Testbenches"]
     SI --> VA["VALIDATING: Abdeckung, REQ-Gate,<br/>Mutationsanalyse,<br/>Abschlussprüfung der Anforderungen"]
@@ -30,7 +30,7 @@ flowchart TD
     SY --> FL["FPGA_PROGRAMMING:<br/>JTAG/SRAM + QSPI-Flash,<br/>ohne Benutzerfreigabe"]
     FL --> HW{"echte UART-<br/>Schnittstelle?"}
     HW -- "ja" --> HT["HARDWARE_TESTING"] --> OK(["COMPLETED"])
-    HW -- "nein" --> OK
+    HW -- "nein" --> OK2(["COMPLETED mit Prüfanleitung<br/>fürs Board aus dem Plan"])
 
     IM -. Fehler .-> F
     SC -. Fehler .-> F
@@ -123,7 +123,7 @@ sequenceDiagram
     S->>V: reference_model
     V->>OC: Auftrag "reference_model" (mit Generics)
     OC-->>V: model/reference_model.py (+ GENERICS)
-    loop TaskGraph-Batches (parallel)
+    loop TaskGraph: bereite Aufgaben, kritischer Pfad zuerst (parallel)
         S->>H: implement_module / Testbench
         H->>OC: Auftrag mit Contract, Anforderungen, GHDL-Selbstprüfung
         OC-->>H: src/MODUL.vhd, tests/MODUL_tb.vhd

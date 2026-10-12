@@ -337,9 +337,13 @@ class OpenCodeTaskRunner:
             "vollständig und führe die Aufgabe aus. Schreibe Ergebnisse direkt "
             "in die dort genannten Dateien."
         )
+        # prompt_length ist der Auftrag selbst (.opencode_tasks/…), request_length
+        # PROMPT.md. Früher stand hier für jeden Aufruf die Länge von PROMPT.md
+        # (Lauf mini_cpu: 22-mal 7516), die tatsächliche Auftragsgröße fehlte.
+        sizes = {"prompt_length": len(task_instruction), "request_length": len(request_full)}
         logger.info(
-            "OPENCODE_CALL stage=%s prompt_length=%d task_id=%s",
-            stage, len(request_full), task_id,
+            "OPENCODE_CALL stage=%s prompt_length=%d request_length=%d task_id=%s",
+            stage, sizes["prompt_length"], sizes["request_length"], task_id,
         )
         root = Path(workspace)
         before = _snapshot(root)
@@ -361,7 +365,7 @@ class OpenCodeTaskRunner:
                 )
             except Exception as exc:
                 cause = getattr(exc, "cause", "") or str(exc)
-                self._emit(stage, task_id, digest, len(request_full), False, cause)
+                self._emit(stage, task_id, digest, sizes, False, cause, time.monotonic() - started)
                 return OpenCodeDelivery(
                     ok=False, stderr=str(exc), reason=cause, hint=getattr(exc, "hint", ""),
                     exception=exc, duration_s=time.monotonic() - started,
@@ -377,8 +381,8 @@ class OpenCodeTaskRunner:
                     "Datei (Exit 0); einmalige Wiederholung", stage, task_id,
                     time.monotonic() - attempt_started,
                 )
-                self._emit(stage, task_id, digest, len(request_full), False,
-                           "early stop without output; retrying once")
+                self._emit(stage, task_id, digest, sizes, False,
+                           "early stop without output; retrying once", time.monotonic() - attempt_started)
                 continue
             break
         duration = time.monotonic() - started
@@ -419,7 +423,7 @@ class OpenCodeTaskRunner:
                                         "stdout prüfen oder ein anderes Modell wählen.")
             else:
                 reason = "OpenCode did not write every expected file"
-        self._emit(stage, task_id, digest, len(request_full), success, reason)
+        self._emit(stage, task_id, digest, sizes, success, reason, duration)
         return OpenCodeDelivery(
             ok=success,
             files=files,
@@ -435,14 +439,15 @@ class OpenCodeTaskRunner:
         )
 
     def _emit(
-        self, stage: str, task_id: str, digest: str, prompt_length: int,
-        success: bool, reason: str,
+        self, stage: str, task_id: str, digest: str, sizes: dict,
+        success: bool, reason: str, duration_s: float,
     ) -> None:
         payload = {
             "stage": stage,
             "task_id": task_id,
             "prompt_sha256": digest,
-            "prompt_length": prompt_length,
+            **sizes,
+            "duration_s": round(duration_s, 1),
             "success": success,
             "reason": reason,
         }

@@ -124,6 +124,8 @@ def build_supervisor_agent(
             "uart_integration": getattr(hardware, "uart_integration", "auto"),
             "implementation_mode": getattr(getattr(settings, "opencode", None), "implementation_mode", "modular"),
             "runs_dir": getattr(getattr(settings, "workspace", None), "runs_dir", ""),
+            "opencode_model": getattr(getattr(settings, "opencode", None), "model", ""),
+            "fallback_model": getattr(getattr(settings, "opencode", None), "fallback_model", ""),
             "cleanup_after_success": getattr(getattr(settings, "workspace", None), "cleanup_after_success", False),
         },
     )

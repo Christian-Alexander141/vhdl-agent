@@ -92,7 +92,9 @@ phases = [
         "Vivado VHDL-2008, XDC nur Top-Level (#45)",
         "led-patterns-display: 7 Module, 39 Anforderungen, Mutation 1,0, Timing ok, ⚡ geflasht",
         "UML- und Ablaufdiagramme",
-        "📼 Lauf-Trajektorien außerhalb des Workspaces (#46)"],
+        "📼 Lauf-Trajektorien außerhalb des Workspaces (#46)",
+        "🧮 4-Bit-CPU (Aufgabe 04): 2 Läufe ohne Reparatur, Board ok",
+        "kritischer Pfad zuerst, Prüfanleitung fürs Board (#48–#55)"],
      "63a4752 · 943b9dd · fbacfdc"),
 ]
 

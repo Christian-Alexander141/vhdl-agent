@@ -333,3 +333,22 @@ def test_model_normalization_preserves_case_and_underscores(raw, expected):
     from src.api_server import normalize_open_code_model
 
     assert normalize_open_code_model(raw) == expected
+
+
+def test_call_event_reports_task_prompt_size_and_duration(tmp_path):
+    class Bus:
+        def __init__(self):
+            self.payloads = []
+
+        def publish_event(self, event_type, task_id, payload):
+            self.payloads.append(payload)
+
+    bus = Bus()
+    runner = OpenCodeTaskRunner(FakeOpenCode(writes={"src/control.vhd": GOOD_CONTROL}), event_publisher=bus)
+    runner.run(workspace=str(tmp_path), request_full="Baue eine CPU", stage="implement_module",
+               task_instruction="Schreibe src/control.vhd", expected_files=["src/control.vhd"], task_id="control_1")
+
+    task_file = next((tmp_path / ".opencode_tasks").glob("control_1_implement_module.md")).read_text()
+    payload = bus.payloads[-1]
+    assert payload["prompt_length"] == len(task_file) and payload["request_length"] == len("Baue eine CPU")
+    assert payload["duration_s"] >= 0 and payload["success"] is True

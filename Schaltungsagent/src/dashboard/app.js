@@ -221,6 +221,9 @@ function handleServerMessage(msg) {
     case 'TASK_GRAPH_CREATED':
     case 'PARALLEL_BATCH_STARTED':
     case 'PARALLEL_BATCH_COMPLETED':
+    case 'WORKER_ASSIGNED':
+    case 'WORKER_COMPLETED':
+    case 'WORKER_FAILED':
     case 'TASK_INVALIDATED':
     case 'TASK_BLOCKED':
     case 'CONTRACT_CHECK_STARTED':
@@ -586,7 +589,8 @@ const EVENT_TITLES = {
   HARDWARE_TEST_FAILED: 'Hardwaretest fehlgeschlagen',
   HUMAN_INTERVENTION_REQUESTED: 'Eingriff erforderlich',
   TASK_GRAPH_CREATED: 'Task-Graph erstellt', PARALLEL_BATCH_STARTED: 'Parallel-Batch gestartet',
-  PARALLEL_BATCH_COMPLETED: 'Parallel-Batch beendet', TASK_INVALIDATED: 'Task invalidiert', TASK_BLOCKED: 'Task blockiert',
+  PARALLEL_BATCH_COMPLETED: 'Parallel-Batch beendet', WORKER_ASSIGNED: 'Modul gestartet',
+  WORKER_COMPLETED: 'Modul fertig', WORKER_FAILED: 'Modul fehlgeschlagen', TASK_INVALIDATED: 'Task invalidiert', TASK_BLOCKED: 'Task blockiert',
   STAGE_STARTED: 'Phase gestartet', STAGE_FINISHED: 'Phase beendet',
   AUTONOMOUS_LOOP_STARTED: 'Workflow gestartet', AUTONOMOUS_LIMIT_REACHED: 'Iterationslimit erreicht',
   TEST_STARTED: 'Test gestartet', TEST_PASSED: 'Test bestanden', TEST_FAILED: 'Test fehlgeschlagen',
@@ -630,6 +634,8 @@ function formatEventPayload(eventType, payload) {
   if (payload.failed_stage) details.push(`Fehlgeschlagene Phase: ${stageLabel(payload.failed_stage)}`);
   if (payload.batch?.length) details.push(`Parallel: ${asList(payload.batch)}`);
   if (payload.task) details.push(`Task: ${payload.task}`);
+  if (payload.worker) details.push(`Worker: ${payload.worker}`);
+  if (payload.duration_s !== undefined) details.push(`Dauer: ${Math.round(payload.duration_s)} s`);
   if (payload.reason) details.push(`Grund: ${payload.reason}`);
   if (payload.task_count !== undefined) details.push(`${payload.task_count} Tasks, ${(payload.reused_tasks || []).length} übernommen`);
   if (payload.test_mode) details.push(`Modus: ${payload.test_mode}`);
