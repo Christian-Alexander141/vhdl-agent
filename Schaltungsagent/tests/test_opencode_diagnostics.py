@@ -352,3 +352,27 @@ def test_call_event_reports_task_prompt_size_and_duration(tmp_path):
     payload = bus.payloads[-1]
     assert payload["prompt_length"] == len(task_file) and payload["request_length"] == len("Baue eine CPU")
     assert payload["duration_s"] >= 0 and payload["success"] is True
+
+
+def test_upstream_credential_failure_counts_as_provider_outage(tmp_path):
+    fake = FakeOpenCode(returncode=1, stdout="> build · muse-spark-1.3\nError: Upstream request failed: Invalid credential")
+    error = deliver(tmp_path, fake).error("Modul 'control'")
+    assert error.failure_type == "infrastructure" and "Anbieter" in error.cause
+
+
+def test_supervisor_checkpoint_during_a_call_does_not_count_as_opencode_change(tmp_path):
+    class EarlyStop(FakeOpenCode):
+        calls = 0
+
+        def execute(self, workspace, instruction, timeout_seconds=None):
+            EarlyStop.calls += 1
+            # Der Supervisor speichert parallel seinen Checkpoint (#48) …
+            (Path(workspace) / "task_graph.json").write_text(str(EarlyStop.calls))
+            if EarlyStop.calls == 2:  # … und erst der zweite Versuch liefert die Datei.
+                (Path(workspace) / "src").mkdir(exist_ok=True)
+                (Path(workspace) / "src" / "control.vhd").write_text(GOOD_CONTROL)
+            return OpenCodeResult(0, "", "")
+
+    delivery = deliver(tmp_path, EarlyStop())
+    assert EarlyStop.calls == 2 and delivery.ok
+    assert "task_graph.json" not in delivery.changed_files

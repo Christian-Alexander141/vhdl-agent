@@ -1,7 +1,7 @@
 # Bekannte Grenzen von Schaltungsagent
 
 > Grundlage für die Diskussionskapitel der Abschlussarbeit.
-> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#55);
+> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#56);
 > Entwicklungsverlauf: `docs/architecture/AENDERUNGSPROTOKOLL.drawio`.
 
 ## Erreicht
@@ -60,7 +60,10 @@ Docker-Isolation ist zurückgestellt, bis das MAS einen einzelnen OpenCode-Lauf 
 
 ### 8. Freie Modelle
 Alle Läufe nutzen freie OpenCode-Zen-Modelle mit Rate-Limits und gelegentlichen Hängern; das
-Zeitlimit je Aufruf ist 900 s. Ergebnisse sind daher modellabhängig und schwanken zwischen Läufen.
+Zeitlimit je Aufruf ist 900 s. Ergebnisse sind daher modellabhängig und schwanken zwischen Läufen
+(Aufgabe 04: 91 bzw. 74 Einzelanforderungen, Mutationsquote 0,9 bzw. 0,7). Fällt der Anbieter aus
+(am 2026-10-12 lehnte er beide freien Modelle ab), endet der Lauf mit einer Meldung an den
+Benutzer (#56); er wartet nicht von selbst, bis der Anbieter wieder erreichbar ist.
 
 ### 9. Ungeprüftes Board-Wissen
 UART- und Pmod-Pins im Board-Wissen sind nicht gegen die offizielle Master-XDC geprüft (#38).

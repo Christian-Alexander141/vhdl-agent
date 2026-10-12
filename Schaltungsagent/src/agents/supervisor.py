@@ -1119,6 +1119,9 @@ class SupervisorAgent(BaseAgent):
         priority = self._schedule_priority(graph)
         free_workers = [f"hdl_worker_{i}" for i in range(self._max_parallel_workers, 0, -1)]
         running: dict[asyncio.Future, tuple[AgentTask, str, float]] = {}
+        # Nach einem Anbieter- oder Werkzeugausfall keine neuen Aufgaben mehr:
+        # sie scheitern genauso (Kontrolllauf 2026-10-12: fünf Module je ~90 s).
+        provider_down = False
         while True:
             for task in graph.get_all_tasks():
                 if task.status not in pending:
@@ -1145,7 +1148,7 @@ class SupervisorAgent(BaseAgent):
                 ),
                 key=lambda task: priority[task.id],
             )
-            while ready and free_workers:
+            while ready and free_workers and not provider_down:
                 task = ready.pop(0)
                 worker = free_workers.pop()
                 task.context["attempts"] = int(task.context.get("attempts", 0)) + 1
@@ -1187,23 +1190,35 @@ class SupervisorAgent(BaseAgent):
                         result=result.outputs or {},
                         error=result.error_message or "module implementation failed",
                     )
+                    failure_type = next(
+                        (d.get("failure_type") for d in result.diagnostics or [] if d.get("failure_type")), ""
+                    )
                     all_errors.append({
                         "task": task.id,
                         "module": self._task_module_name(task),
                         "error": result.error_message,
-                        "failure_type": next(
-                            (d.get("failure_type") for d in result.diagnostics or [] if d.get("failure_type")), ""
-                        ),
+                        "failure_type": failure_type,
                     })
                     self._emit_event("WORKER_FAILED", {**payload, "error": result.error_message or ""})
+                    if failure_type == "infrastructure" and not any(
+                        self._is_opencode_timeout(d) for d in result.diagnostics or []
+                    ):
+                        provider_down = True  # ein Zeitlimit betrifft nur diese Aufgabe
             # Checkpoint nach jeder fertigen Aufgabe: ein Neustart wiederholt nur offene Tasks.
             graph.clear_invalidated()
             self._persist_task_graph(workspace, graph)
 
-        # Was jetzt noch offen ist, hängt in einem Zyklus fest; früher blieb es
-        # stillschweigend liegen und das fehlende Modul fiel erst später auf.
+        # Was jetzt noch offen ist, wurde wegen eines Ausfalls nicht gestartet oder
+        # hängt in einem Zyklus fest; früher blieb es stillschweigend liegen.
         for task in graph.get_all_tasks():
-            if task.status in pending:
+            if task.status in pending and provider_down:
+                graph.update_task_status(task.id, TaskStatus.BLOCKED, error="nicht gestartet: Anbieter ausgefallen")
+                self._emit_event("TASK_BLOCKED", {
+                    "project_id": self._current_task.project_id,
+                    "task": task.id,
+                    "blocked_by": "infrastructure",
+                })
+            elif task.status in pending:
                 graph.update_task_status(task.id, TaskStatus.BLOCKED, error="dependency cycle")
                 all_errors.append({
                     "task": task.id, "module": self._task_module_name(task),

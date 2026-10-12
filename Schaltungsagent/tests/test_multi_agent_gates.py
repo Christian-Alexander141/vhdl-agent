@@ -88,10 +88,11 @@ end architecture;
 class RecordingHDLAgent:
     """Blockierender Stub wie der echte HDLAgent (OpenCode-Subprozess)."""
 
-    def __init__(self, delay=0.0, fail=(), delays=None):
+    def __init__(self, delay=0.0, fail=(), delays=None, infra=()):
         self.delay = delay
         self.delays = delays or {}
         self.fail = set(fail)
+        self.infra = set(infra)
         self.calls = []
         self.windows = {}
         self._lock = threading.Lock()
@@ -113,6 +114,9 @@ class RecordingHDLAgent:
             self.windows[task.id] = (start, time.monotonic())
         if name in self.fail:
             return AgentResult(task_id=task.id, status=AgentStatus.FAILED, error_message=f"{name} failed")
+        if name in self.infra:
+            return AgentResult(task_id=task.id, status=AgentStatus.FAILED, error_message="Upstream-Fehler",
+                               diagnostics=[{"failure_type": "infrastructure", "message": "Invalid credential"}])
         (workspace / "src").mkdir(parents=True, exist_ok=True)
         (workspace / "src" / f"{name}.vhd").write_text(entity(name, ["clk : in std_logic"]))
         return AgentResult(task_id=task.id, status=AgentStatus.COMPLETED, outputs={"files": [f"src/{name}.vhd"]})
@@ -1023,3 +1027,18 @@ def test_heartbeat_only_after_a_quiet_interval(tmp_path):
     stop.set()
     worker.join()
     assert busy == 0 and events.types().count("AGENT_HEARTBEAT") >= 2
+
+
+def test_no_new_tasks_start_after_a_provider_outage(tmp_path):
+    # Kontrolllauf 2026-10-12: nach dem ersten Upstream-Fehler startete die Planung
+    # noch vier weitere Module, die je ~90 s später genauso scheiterten.
+    hdl = RecordingHDLAgent(infra={"alu"})
+    supervisor, _, events = make_supervisor(tmp_path, config={"max_parallel_workers": 1}, hdl_agent=hdl)
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+
+    result = run(supervisor._run_implementation())
+    assert result.status == AgentStatus.FAILED
+    assert [t.id for t in hdl.calls] == ["implement_module_alu"]
+    assert result.diagnostics[0]["failure_type"] == "infrastructure"
+    blocked = [p for t, p in events.events if t == "TASK_BLOCKED"]
+    assert {p["task"] for p in blocked} == {"implement_module_regfile", "implement_module_control", "implement_module_cpu"}

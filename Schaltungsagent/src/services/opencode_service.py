@@ -248,6 +248,13 @@ _FAILURE_PATTERNS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "Anmeldung beim Modell-Provider fehlgeschlagen",
      "Auf dem Host `opencode auth login` ausführen; im Docker-Modus zusätzlich das Zugangsdaten-Verzeichnis "
      "(Einstellungen → Agenten-Ausführung) setzen."),
+    # Kontrolllauf 2026-10-12: beide freien Zen-Modelle antworteten nur noch so; der
+    # Fehler galt als "unknown", der Supervisor schickte ihn als Entwurfsfehler in
+    # die Reparatur, wo jeder Versuch nach rund 90 s am selben Anbieter scheiterte.
+    (("upstream request failed", "invalid credential"),
+     "Der Anbieter hinter dem Modell lehnt Anfragen ab (Upstream-Fehler)",
+     "Störung beim Modell-Anbieter, nicht auf unserer Seite behebbar. Später erneut starten oder "
+     "in Einstellungen → OpenCode-Modelle ein Modell eines anderen Anbieters wählen."),
     (("model not found", "unknown model", "providermodelnotfound", "no such model", "model_not_found"),
      "Das konfigurierte Modell ist beim Provider nicht verfügbar",
      "Modellnamen in Einstellungen → OpenCode-Modelle prüfen (Format provider/modell)."),

@@ -146,6 +146,9 @@ def _ended_prematurely(result, changed: list[str], duration: float, root: Path, 
     return any(not (root / name).is_file() for name in expected_files)
 
 
+_SYSTEM_STATE_FILES = {"task_graph.json", "task_graph.json.tmp", "design_state.yaml", "design_state.yaml.tmp"}
+
+
 def _snapshot(workspace: Path) -> dict[str, float]:
     """Änderungszeitpunkte aller Projektdateien (ohne Auftrags-/Build-Ordner)."""
     result = {}
@@ -157,6 +160,11 @@ def _snapshot(workspace: Path) -> dict[str, float]:
             continue
         if path.name.startswith(".") and path.name.endswith(".tmp"):
             continue  # kurzlebige Datei aus atomic_write_text
+        if rel.as_posix() in _SYSTEM_STATE_FILES:
+            # Schreibt der Supervisor, auch während ein anderer Worker läuft
+            # (Checkpoint je fertiger Aufgabe, #48). Als "von OpenCode geändert"
+            # verhinderte das die Wiederholung früh beendeter Aufrufe.
+            continue
         if path.is_file():
             try:
                 result[rel.as_posix()] = path.stat().st_mtime
