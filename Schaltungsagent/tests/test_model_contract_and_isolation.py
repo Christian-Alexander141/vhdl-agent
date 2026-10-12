@@ -317,3 +317,81 @@ def test_opencode_call_events_reach_the_dashboard_serializer():
     assert seen and seen[0]["event_type"] == "OPENCODE_CALL"
     assert Event(event_type="FREITEXT").to_dict()["event_type"] == "FREITEXT"
     assert EventType.OPENCODE_CALL.value == "OPENCODE_CALL"
+
+
+# --- Trajektorien, Suchausschluss, Aufräumen (#46) ---------------------------------------
+
+def test_repair_trajectory_is_written_outside_the_workspace_and_scrubbed(tmp_path):
+    supervisor, _, _, _, workspace, failure = _mismatch_case(tmp_path)
+    runs = tmp_path / "runs"
+    supervisor._runs_dir = str(runs)
+    supervisor._design_state.metadata["request_full"] = f"Lauflicht, Pfad {workspace}/PROMPT.md"
+    supervisor._start_trajectory()
+    path = supervisor._trajectory.path
+    run(supervisor._handle_failure(DesignStage.STATIC_CHECK, failure))
+    supervisor._finish_trajectory(AgentResult(task_id="s", status=AgentStatus.COMPLETED, outputs={"message": "ok"}))
+
+    assert path.parent == runs / "proj" and not str(path).startswith(str(workspace))
+    entries = [json.loads(line) for line in path.read_text().splitlines()]
+    assert [e["kind"] for e in entries] == ["run_started", "repair", "run_finished"]
+    assert "<workspace>/PROMPT.md" in entries[0]["request"] and str(workspace) not in path.read_text()
+    repair = entries[1]
+    assert repair["failure_type"] == "model_mismatch" and repair["origin"]
+    assert repair["verdict"]["cause"] == "generated_check"
+    assert repair["diff"] == ""  # erzeugte Vergleichs-Testbench zählt nicht
+
+
+def test_trajectory_diff_contains_changed_sources():
+    from src.services.trajectory import unified_diff
+
+    diff = unified_diff({"src/a.vhd": "x <= '0';\n"}, {"src/a.vhd": "x <= '1';\n", "src/b.vhd": "neu\n"})
+    assert "-x <= '0';" in diff and "+x <= '1';" in diff and "+++ b/src/b.vhd" in diff
+
+
+def test_no_trajectory_without_runs_dir(tmp_path):
+    supervisor, _, _, _, _, _ = _mismatch_case(tmp_path)
+    supervisor._runs_dir = ""
+    supervisor._start_trajectory()
+    assert supervisor._trajectory is None
+
+
+def test_workspace_ignore_hides_tool_artifacts_from_search(tmp_path):
+    from src.services.opencode_service import WORKSPACE_IGNORE, ensure_workspace_ignore
+
+    ensure_workspace_ignore(str(tmp_path))  # ohne eigenes Repo: nichts schreiben
+    assert not (tmp_path / ".gitignore").exists()
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".gitignore").write_text("eigene_regel\n")
+    ensure_workspace_ignore(str(tmp_path))
+    ensure_workspace_ignore(str(tmp_path))
+    lines = (tmp_path / ".gitignore").read_text().splitlines()
+    assert lines[0] == "eigene_regel" and all(lines.count(e) == 1 for e in WORKSPACE_IGNORE)
+    assert "build/" in lines and ".opencode/node_modules/" in lines
+
+
+def test_cleanup_keeps_bitstream_reports_and_last_log(tmp_path):
+    from src.services.workspace_cleanup import cleanup_build_intermediates
+
+    files = [
+        "build/ghdl/top/work-obj08.cf", "build/synthesis/top.v", "work-obj08.cf", "vivado.jou",
+        "build/bitstream/vivado_logs_archive/1/vivado.log", "build/bitstream/top.bit",
+        "build/bitstream/top.mcs", "build/bitstream/timing.rpt", "build/bitstream/synthesis_cache.json",
+        "build/bitstream/vivado_logs/vivado.log", "src/top.vhd",
+    ]
+    for rel in files:
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("x")
+    removed = cleanup_build_intermediates(tmp_path)
+    assert {"build/ghdl/", "build/synthesis/", "work-obj08.cf", "vivado.jou"} <= set(removed)
+    for kept in files[5:]:
+        assert (tmp_path / kept).is_file(), kept
+    assert not (tmp_path / "build/ghdl").exists() and not (tmp_path / "build/bitstream/vivado_logs_archive").exists()
+
+
+def test_scrubber_replaces_the_full_hostname_before_the_user_name(tmp_path, monkeypatch):
+    from src.services import trajectory
+
+    monkeypatch.setattr(trajectory.socket, "gethostname", lambda: "anna-Laptop-15")
+    monkeypatch.setenv("USER", "anna")
+    scrub = trajectory.Scrubber(tmp_path)
+    assert scrub.text(f"Host: anna-Laptop-15, user anna, {tmp_path}/src") == "Host: <host>, user <host>, <workspace>/src"

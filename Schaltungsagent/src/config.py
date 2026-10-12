@@ -15,6 +15,10 @@ class WorkspaceConfig:
     cleanup_ttl_hours: int = 72
     keep_logs: bool = True
     max_workspaces: int = 100
+    # Lauf-Trajektorien (Trainingsdaten) außerhalb der Workspaces; "" = aus.
+    runs_dir: str = "~/vhdl-agent-runs"
+    # Nach erfolgreichem Lauf GHDL-/Vivado-Zwischenstände löschen.
+    cleanup_after_success: bool = True
 
 
 @dataclass

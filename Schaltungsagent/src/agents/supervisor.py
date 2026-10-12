@@ -23,6 +23,8 @@ from src.domain.models import DesignState, DesignStage, EventType, Requirement, 
 from src.domain.state_machine import StateMachine, WorkflowState
 from src.domain.exceptions import WorkflowError, StateMachineError
 from src.services.project_memory import ProjectMemoryService
+from src.services.trajectory import TrajectoryRecorder, unified_diff
+from src.services.workspace_cleanup import cleanup_build_intermediates
 from src.domain_plugins.vhdl.templates import VHDLTemplates
 from src.services.fpga_target import AmbiguousTargetError, resolve_fpga_target
 
@@ -108,6 +110,10 @@ class SupervisorAgent(BaseAgent):
         self._max_mutants = int(self._config.get("max_mutants", 10))
         self._requirements_review_enabled = bool(self._config.get("requirements_review", True))
         self._default_fpga = self._config.get("default_fpga", "arty_s7_50")
+        self._runs_dir = str(self._config.get("runs_dir", "") or "")
+        self._cleanup_after_success = bool(self._config.get("cleanup_after_success", False))
+        self._trajectory: TrajectoryRecorder | None = None
+        self._pending_repair: dict | None = None
         
         # State - per-project isolation via locks
         self._state_machine = StateMachine(WorkflowState.CREATED)
@@ -250,10 +256,57 @@ class SupervisorAgent(BaseAgent):
 
     async def _run_autonomous_loop(self) -> AgentResult:
         """Hauptschleife; schaltet ein per Eskalation gewähltes Fallback-Modell danach zurück."""
+        self._start_trajectory()
+        result: AgentResult | None = None
         try:
-            return await self._run_autonomous_loop_inner()
+            result = await self._run_autonomous_loop_inner()
+            if result.status == AgentStatus.COMPLETED and self._cleanup_after_success:
+                removed = cleanup_build_intermediates(self._fs.workspace_path(self._current_task.project_id))
+                if removed:
+                    logger.info("Zwischenstände entfernt: %s", ", ".join(removed))
+            return result
         finally:
             self._restore_model()
+            self._finish_trajectory(result)
+
+    def _start_trajectory(self) -> None:
+        self._trajectory = None
+        self._pending_repair = None
+        if not self._runs_dir:
+            return
+        project_id = self._current_task.project_id
+        self._trajectory = TrajectoryRecorder(self._runs_dir, project_id, self._fs.workspace_path(project_id))
+        meta = self._design_state.metadata
+        self._trajectory.record(
+            "run_started",
+            request=meta.get("request_full") or self._current_task.inputs.get("request", ""),
+            repair_policy="persistent" if self._persistent else "standard",
+            fpga=self._design_state.fpga.model_dump(),
+            stage=self._normalize_stage(self._design_state.current_stage).value,
+        )
+
+    def _finish_trajectory(self, result: AgentResult | None) -> None:
+        if not self._trajectory:
+            return
+        self._trajectory.record(
+            "run_finished",
+            status=result.status.value if result else "exception",
+            stage=self._normalize_stage(self._design_state.current_stage).value,
+            message=(result.error_message or result.outputs.get("message", "")) if result else "",
+            repairs=self._design_state.metadata.get("escalation_log", []),
+        )
+        self._trajectory = None
+
+    def _trace_stage(self, stage, result: AgentResult) -> None:
+        if not self._trajectory:
+            return
+        self._trajectory.record(
+            "stage",
+            stage=self._normalize_stage(stage).value,
+            status=result.status.value,
+            error=result.error_message or "",
+            diagnostics=[compact_diagnostic(d) for d in (result.diagnostics or [])][:10],
+        )
 
     async def _run_autonomous_loop_inner(self) -> AgentResult:
         """Hauptschleife für autonomes Entwickeln."""
@@ -286,6 +339,7 @@ class SupervisorAgent(BaseAgent):
                 # Ein Agent hat eine Ausnahme durchgereicht: als fehlgeschlagene
                 # Phase behandeln, damit Diagnose und Routing greifen.
                 result = self._result_from_exception(exc, f"Phase {self._normalize_stage(stage).value}")
+            self._trace_stage(stage, result)
 
             if result.status == AgentStatus.FAILED:
                 # Fehlerbehandlung
@@ -1933,6 +1987,20 @@ class SupervisorAgent(BaseAgent):
         log = self._design_state.metadata.get("escalation_log") or []
         if log:
             log[-1]["outcome"] = outcome[:300]
+        self._trace_repair(outcome)
+
+    def _trace_repair(self, outcome: str) -> None:
+        """Reparatur mit Diagnose, Befund und Diff in die Trajektorie schreiben."""
+        pending, self._pending_repair = self._pending_repair, None
+        if not (self._trajectory and pending):
+            return
+        before = pending.pop("files")
+        verdicts = self._design_state.metadata.get("repair_verdicts") or []
+        self._trajectory.record(
+            "repair", **pending, outcome=outcome,
+            verdict=verdicts[-1] if verdicts else None,
+            diff=unified_diff(before, self._repair_sources()),
+        )
 
     _ESCALATION_LABELS = {
         "repair": "gezielte Reparatur",
@@ -2799,6 +2867,19 @@ class SupervisorAgent(BaseAgent):
             if action in ("repair", "switch_model") and target != RepairTarget.ARCHITECTURE:
                 self._take_repair_snapshot(normalized_stage)
             before = self._sources_digest()
+            if self._trajectory:
+                self._pending_repair = {
+                    "files": self._repair_sources(),
+                    "stage": normalized_stage.value,
+                    "failure_type": failure_type,
+                    "origin": diagnosis.get("origin", ""),
+                    "modules": diagnosis.get("suspected_modules", []),
+                    "key_lines": diagnosis.get("evidence") or [],
+                    "recommended_action": diagnosis.get("recommended_action", ""),
+                    "attempt": diagnosis.get("attempt"),
+                    "action": action,
+                    "target": target.value,
+                }
             self._clear_repair_verdict()
             repair = await self._dispatch_repair(action, target, failure_type, diagnosis)
             verdict = self._read_repair_verdict()
@@ -2990,8 +3071,16 @@ class SupervisorAgent(BaseAgent):
 
     def _sources_digest(self) -> str:
         """Prüfsumme über alles, was eine Reparatur ändern darf."""
-        root = Path(self._fs.workspace_path(self._current_task.project_id))
         digest = hashlib.sha256()
+        for name, content in self._repair_sources().items():
+            digest.update(name.encode())
+            digest.update(content.encode())
+        return digest.hexdigest()
+
+    def _repair_sources(self) -> dict[str, str]:
+        """Alles, was eine Reparatur ändern darf, ohne erzeugte Prüfdateien."""
+        root = Path(self._fs.workspace_path(self._current_task.project_id))
+        files: dict[str, str] = {}
         for folder, patterns in (
             ("src", ("*.vhd", "*.vhdl")), ("tests", ("*.vhd", "*.vhdl")), ("constraints", ("*.xdc",)),
             ("plan", ("*.json", "*.md")), ("model", ("*.py",)),
@@ -3002,9 +3091,8 @@ class SupervisorAgent(BaseAgent):
             for pattern in patterns:
                 for path in sorted(directory.glob(pattern)):
                     if path.is_file() and not self._is_generated(path):
-                        digest.update(f"{folder}/{path.name}".encode())
-                        digest.update(path.read_bytes())
-        return digest.hexdigest()
+                        files[f"{folder}/{path.name}"] = path.read_text(errors="replace")
+        return files
 
     async def _block_for_human(
         self, failure_type: str, diagnosis: dict, diagnostics: list[dict],

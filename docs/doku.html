@@ -676,6 +676,31 @@
           <td><span class="ok">Gelöst</span></td>
           <td><code>_generate_tcl_script</code>, <code>_generatexdc_for_board</code> in <code>vivado_synthesis.py</code>. Bestätigt durch den Lauf <code>led-patterns-display-5816ba</code> (2026-10-11, muse-spark-1.3): ohne Reparatur durch alle Phasen, Timing erfüllt (WNS +5,97&nbsp;ns), XDC mit SW0–SW3 auf H14/H18/G18/M5, Board geflasht. Tests: <code>test_triage_and_flow.py</code>.</td>
         </tr>
+        <tr>
+          <td>46</td>
+          <td>Werkzeugausgaben im Projektordner (Frage des Benutzers, 2026-10-12):
+            <ul>
+              <li>OpenCode durchsucht den Workspace mit ripgrep. In einer Kopie von <code>led-patterns-display-5816ba</code> mit eigenem Repo traf eine Suche nach <code>INFO: [Synth</code> 391 Zeilen in Vivado-Logs und Archiven; im Quelltext gab es keinen Treffer.</li>
+              <li>GHDL-Arbeitsbibliotheken, Netzlisten und archivierte Vivado-Logs blieben nach erfolgreichen Läufen liegen.</li>
+              <li>Die Board-Erkennung vor dem Flashen startete Vivado ohne Log-Angabe; jede Erkennung legte <code>vivado_&lt;pid&gt;.backup.*</code> im Repo-Wurzelverzeichnis ab.</li>
+              <li>Der Verlauf von Diagnose und Reparatur (Kernzeilen, Maßnahme, Befund, Änderung) ging nach dem Lauf verloren. Gerade dieser Verlauf wäre als Trainingsmaterial für ein spezialisiertes Modell brauchbar.</li>
+            </ul></td>
+          <td>
+            <ul>
+              <li><code>.gitignore</code> im eigenen Workspace-Repo (#41) für <code>build/</code>, <code>.Xil/</code>, <code>work-obj*.cf</code>, <code>*.jou</code>, <code>vivado*.log</code> und <code>.opencode/node_modules/</code>. Mit dieser Datei ergab dieselbe Suche keinen Treffer mehr.</li>
+              <li>Nach erfolgreichem Lauf werden <code>build/ghdl</code>, <code>build/synthesis</code>, die archivierten Vivado-Logs und Vivado-Hilfsdateien gelöscht. Bitstream, <code>.mcs</code>, Berichte, das letzte Build-Log und der Synthese-Cache bleiben (<code>workspace.cleanup_after_success</code>).</li>
+              <li>Vivado ohne Logdatei läuft mit <code>-nolog -nojournal</code>.</li>
+              <li>Trajektorie je Lauf unter <code>~/vhdl-agent-runs/&lt;projekt&gt;/&lt;zeit&gt;.jsonl</code> (<code>workspace.runs_dir</code>, leer = aus), also außerhalb des Workspaces und damit unsichtbar für OpenCode. Erfasst werden Anforderung, Phasenergebnisse und je Reparatur:
+                <ul>
+                  <li>Fehlerklasse, Herkunft, Module und Kernzeilen;</li>
+                  <li>Maßnahme, Ziel und Ergebnis;</li>
+                  <li>Befund und Diff der änderbaren Dateien (ohne erzeugte Prüfdateien).</li>
+                </ul>
+                Am Ende steht das Ergebnis des Laufs. Pfade, Home-Verzeichnis, Benutzer- und Rechnername werden ersetzt. Über das Feld <code>origin</code> lassen sich Werkzeug- und Hardwarefehler herausfiltern.</li>
+            </ul></td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>ensure_workspace_ignore</code> in <code>opencode_service.py</code>; <code>trajectory.py</code>, <code>workspace_cleanup.py</code>; <code>_start_trajectory</code>, <code>_trace_stage</code>, <code>_trace_repair</code>, <code>_repair_sources</code> in <code>supervisor.py</code>; <code>_run_vivado</code> in <code>vivado_flash.py</code>. In OpenCodes Dateiliste (<code>opencode debug rg files</code>) erscheinen ignorierte Dateien weiterhin; deshalb wird zusätzlich aufgeräumt. Tests: <code>test_model_contract_and_isolation.py</code>.</td>
+        </tr>
       </tbody>
     </table>
     </div>
@@ -689,6 +714,8 @@
         <tr><td><code>hardware_test.uart_integration</code></td><td><code>auto</code> (Standard) · <code>always</code> · <code>off</code></td><td>UART-Echo-Brücke nur bei Bedarf, immer oder nie.</td></tr>
         <tr><td><code>opencode.repair_policy</code></td><td><code>persistent</code> (Standard) · <code>standard</code></td><td>Eskalation statt Abbruch, bis zu drei Planungsversuche und höhere Iterationsgrenzen (80 statt 20) oder das bisherige, kürzere Verhalten (#26, #27). Benchmarks laufen mit <code>standard</code>.</td></tr>
         <tr><td><code>gates.requirements_review</code></td><td><code>true</code> (Standard) · <code>false</code></td><td>Unabhängige Abschlussprüfung jeder Einzelanforderung vor der Synthese (#29). Kostet einen zusätzlichen OpenCode-Aufruf je geändertem Entwurfsstand.</td></tr>
+        <tr><td><code>workspace.runs_dir</code> (nur <code>config.yaml</code>)</td><td><code>~/vhdl-agent-runs</code> (Standard) · leer</td><td>Ablage der Lauf-Trajektorien außerhalb der Workspaces; leer schaltet die Aufzeichnung ab (#46).</td></tr>
+        <tr><td><code>workspace.cleanup_after_success</code> (nur <code>config.yaml</code>)</td><td><code>true</code> (Standard) · <code>false</code></td><td>Nach erfolgreichem Lauf GHDL- und Vivado-Zwischenstände löschen (#46).</td></tr>
         <tr><td><code>synthesis.enabled</code></td><td><code>true</code> · <code>false</code></td><td>Ausgeschaltet endet der Lauf nach bestandener Validierung (Simulation).</td></tr>
       </tbody>
     </table>
@@ -847,6 +874,7 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
         <tr><td>#27 Eskalationsleiter</td><td>Bei wiederholtem Fehler stufenweise eskalieren (Reparatur → Modul neu → Architektur neu → stärkeres/anderes Modell → Mensch) statt abzubrechen.</td><td>[VeriRefine], [HDLFORGE]</td><td>Eigene Entwicklung (Stufen, Zähler je Fehlerklasse und Modul, Grenzwerte, Richtlinie <code>persistent</code>/<code>standard</code>). Angelehnt: die Unterscheidung, ob ein Fehler im Code oder im Verständnis bzw. Entwurf liegt (Modul neu vs. Architektur neu), an [VeriRefine]; der Modellwechsel erst bei Bedarf an die Eskalation zu größeren Modellen bei [HDLFORGE]. Anders als dort wird nicht zu einem größeren, sondern zum konfigurierten Fallback-Modell gewechselt.</td></tr>
         <tr><td>#29 Einzelanforderungen</td><td>Anforderungen einzeln vom Prompt über Plan und Tests bis zur Abschlussprüfung verfolgen; ein unabhängiges Sprachmodell bewertet das Ergebnis je Anforderung.</td><td>[Gotel/Finkelstein 1994], [LLM-as-a-Judge], verwandt: [VeriRefine], [VClare]</td><td>Übernommen: der Grundgedanke der Anforderungs-Rückverfolgbarkeit (jede Anforderung bis zu ihrer Prüfung verfolgbar) aus der Softwaretechnik [Gotel/Finkelstein 1994]; die Bewertung durch ein Sprachmodell als Prüfer [LLM-as-a-Judge]. Eigene Entwicklung: Zitatprüfung gegen PROMPT.md, Port-Zuordnung als Teil des Contracts, <code>REQ</code>-Kennzeichnung in Testbenches mit Gate, Unabhängigkeit des Prüfers (frischer Lauf, Schreibschutz), Weiterleitung der drei Fehlerklassen. Verwandt, aber nicht in deren Form umgesetzt: Spezifikationsverfeinerung vor der Codierung bei [VeriRefine] und [VClare].</td></tr>
         <tr><td>#40 Modellstreit</td><td>Ein Referenzmodell als Prüfmaßstab kann selbst falsch sein; widerspricht die Reparatur begründet, wird das Modell einmal neu erzeugt und sonst für den Lauf abgeschaltet.</td><td>verwandt: [Oracle Problem]</td><td>Eigene Entwicklung (strukturierter Befund der Reparatur, Abschaltregel, Ausschluss erzeugter Prüfdateien vom Fortschritt). Die Problemstellung, dass das Testorakel selbst fehlerhaft sein kann, ist in der Softwaretechnik als Oracle Problem bekannt [Oracle Problem]; ein Verfahren daraus wurde nicht übernommen.</td></tr>
+        <tr><td>#46 Lauf-Trajektorien</td><td>Verläufe von Agenten (Fehlermeldung, Maßnahme, Änderung, Ergebnis) als Trainingsdaten für spezialisierte Modelle sammeln.</td><td>[SWE-Gym]</td><td>Übernommen: Idee, Agententrajektorien mit Ergebnis als Trainingsmaterial zu speichern. Eigen: Format je Reparatur mit vorgefilterten Kernzeilen, Herkunft, Befund und Diff; Ablage außerhalb des Workspaces; Bereinigung von Pfaden und Rechnerdaten; Suchausschluss und Aufräumen der Werkzeugausgaben.</td></tr>
         <tr><td>#2, #3, #5–#8, #11, #13–#26, #28, #30–#39, #41–#45, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands, Vivado-Pfad und Fehlerursache, verworfene Ereignisse, Planwiederholung mit Korrekturauftrag, Synthese-Standard, Rücknahme verschlechternder Reparaturen, Zeitlimit als Eskalationsschritt, Board-Konfiguration im Build-Skript, Vorfilter mit Herkunft und Kernzeilen, Eskalationsleitern je Herkunft mit Versuchsverlauf, Testbench-Reparatur über Dateien, Synthese-Cache, Phasenwechsel und Planverträge, Entfernung der Benutzerfreigabe, vorzeitiges Ende bei vollständigem Ergebnis, Korrektur des Board-Wissens nach der Master-XDC, eindeutige Pin-Vergabe, Generic-Vertrag des differentiellen Tests, Workspace-Isolation, kompakter Projektzustand)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen. Der Synthese-Cache nutzt die gängige Technik inkrementeller Build-Systeme (Neubau nur bei geänderter Eingabe-Prüfsumme).</td></tr>
       </tbody>
     </table>
@@ -877,6 +905,7 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
       <li>[VFocus] <em>VFocus: Better Verilog Generation from Large Language Model via Focused Reasoning.</em> arXiv:2511.02285.</li>
       <li>[Gotel/Finkelstein 1994] O. C. Z. Gotel, A. C. W. Finkelstein: <em>An Analysis of the Requirements Traceability Problem.</em> Proc. IEEE International Conference on Requirements Engineering (ICRE), 1994, S. 94–101.</li>
       <li>[LLM-as-a-Judge] L. Zheng et al.: <em>Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena.</em> arXiv:2306.05685 (NeurIPS 2023).</li>
+      <li>[SWE-Gym] J. Pan, X. Wang, G. Neubig, N. Jaitly, H. Ji, A. Suhr, Y. Zhang: <em>Training Software Engineering Agents and Verifiers with SWE-Gym.</em> arXiv:2412.21139, 2024.</li>
       <li>[Oracle Problem] E. T. Barr, M. Harman, P. McMinn, M. Shahbaz, S. Yoo: <em>The Oracle Problem in Software Testing: A Survey.</em> IEEE Transactions on Software Engineering 41(5), 2015, S. 507–525.</li>
       <li>[McKeeman 1998] W. M. McKeeman: <em>Differential Testing for Software.</em> Digital Technical Journal 10(1), 1998, S. 100–107.</li>
       <li>[DeMillo et al. 1978] R. A. DeMillo, R. J. Lipton, F. G. Sayward: <em>Hints on Test Data Selection: Help for the Practicing Programmer.</em> IEEE Computer 11(4), 1978, S. 34–41.</li>

@@ -36,10 +36,32 @@ def ensure_native_guard(project_path: str) -> None:
     Eine vorhandene opencode.json des Projekts bleibt unangetastet.
     """
     isolate_workspace_repo(project_path)
+    ensure_workspace_ignore(project_path)
     path = Path(project_path) / NATIVE_GUARD_FILE
     if path.exists() or not Path(project_path).is_dir():
         return
     path.write_text(json.dumps(NATIVE_GUARD_CONFIG, indent=2) + "\n", encoding="utf-8")
+
+
+# Werkzeug-Artefakte, die OpenCodes Suche (ripgrep) überspringen soll: Vivado-
+# und GHDL-Ausgaben wachsen mit jedem Lauf; ein grep nach einer Fehlermeldung
+# traf in einem Projekt 391 Zeilen in Logs statt einer im Quelltext.
+WORKSPACE_IGNORE = ("build/", ".Xil/", "work-obj*.cf", "*.jou", "vivado*.log", ".opencode/node_modules/")
+
+
+def ensure_workspace_ignore(project_path: str) -> None:
+    """.gitignore im eigenen Workspace-Repo um die Artefaktmuster ergänzen."""
+    workspace = Path(project_path)
+    if not (workspace / ".git").exists():
+        return
+    path = workspace / ".gitignore"
+    try:
+        current = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+        missing = [entry for entry in WORKSPACE_IGNORE if entry not in current]
+        if missing:
+            path.write_text("\n".join([*current, *missing]) + "\n", encoding="utf-8")
+    except OSError:
+        logger.warning("Could not write %s", path)
 
 
 def isolate_workspace_repo(project_path: str) -> None:

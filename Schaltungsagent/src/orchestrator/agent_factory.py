@@ -123,6 +123,8 @@ def build_supervisor_agent(
             "synthesis_enabled": getattr(synthesis, "enabled", True),
             "uart_integration": getattr(hardware, "uart_integration", "auto"),
             "implementation_mode": getattr(getattr(settings, "opencode", None), "implementation_mode", "modular"),
+            "runs_dir": getattr(getattr(settings, "workspace", None), "runs_dir", ""),
+            "cleanup_after_success": getattr(getattr(settings, "workspace", None), "cleanup_after_success", False),
         },
     )
 

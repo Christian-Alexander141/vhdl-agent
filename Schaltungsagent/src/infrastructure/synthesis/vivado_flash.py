@@ -426,12 +426,19 @@ exit
             vivado_args = [self._vivado_binary, "-mode", "batch"]
 
             # Log und Journal explizit setzen
+            # Ohne Ziel kein Log/Journal: sonst schreibt Vivado vivado.log ins
+            # Startverzeichnis (Repo-Wurzel) und macht beim nächsten Start
+            # vivado_<pid>.backup.* daraus (Board-Erkennung vor jedem Flash).
             if log_file:
                 log_file.parent.mkdir(parents=True, exist_ok=True)
                 vivado_args.extend(["-log", str(log_file)])
+            else:
+                vivado_args.append("-nolog")
             if jou_file:
                 jou_file.parent.mkdir(parents=True, exist_ok=True)
                 vivado_args.extend(["-journal", str(jou_file)])
+            else:
+                vivado_args.append("-nojournal")
 
             vivado_args.extend(["-source", str(tcl_file)])
 

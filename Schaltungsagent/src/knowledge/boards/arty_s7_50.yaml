@@ -2,8 +2,7 @@
 # Quelle: Arty_S7-50_RAG_Wissenspaket.pdf, Abschnitt 9 (kompakter Faktenblock als YAML)
 # Abschnitt 8 (RAG-Regeln) und Abschnitt 2-6 (Hardware-Fakten)
 # Korrigiert 2026-10-11 nach dem offiziellen Digilent Arty-S7-50-Master.xdc (Rev. E),
-# wie im Repo dokumentiert (benchmark/small_vhdl_bench-main/bench/benchmark_api.py,
-# docs/fpgagent-implementation-prompt.md): Taster BTN1/BTN3, Schalter SW1-SW3 und
+# wie im Repo dokumentiert (benchmark/small_vhdl_bench-main/bench/benchmark_api.py): Taster BTN1/BTN3, Schalter SW1-SW3 und
 # der 100-MHz-Takt an R2 waren falsch. Pmod- und UART-Angaben sind nicht geprüft.
 
 board_id: "arty_s7_50"
