@@ -313,7 +313,7 @@ board_checks tell a person how to check the flashed board by eye (LEDs, switches
                 continue
             own = module.get("entity")
             module["depends_on"] = [d for d in dict.fromkeys(module["depends_on"]) if d != own]
-        manifest["board_checks"] = PlanService._clean_board_checks(manifest.get("board_checks"))
+        manifest["board_checks"] = reqs.clean_board_checks(manifest.get("board_checks"))
         reset = str(manifest.get("reset_concept", "")).strip().lower()
         if reset and reset not in _RESET_CONCEPTS:
             logger.warning("Ignoring invalid reset_concept %r in plan", manifest.get("reset_concept"))
@@ -321,28 +321,6 @@ board_checks tell a person how to check the flashed board by eye (LEDs, switches
         elif reset:
             manifest["reset_concept"] = reset
 
-
-    @staticmethod
-    def _clean_board_checks(value) -> list[dict]:
-        """Prüfanleitung fürs Board: nur vollständige Einträge, gekürzt.
-
-        Nicht prüfbar und nie ein Grund, den Plan abzulehnen; sie dient dem
-        Menschen, solange kein automatischer Hardwaretest möglich ist.
-        """
-        checks = []
-        for entry in value if isinstance(value, list) else []:
-            if not isinstance(entry, dict):
-                continue
-            setup, expected = str(entry.get("setup", "")).strip(), str(entry.get("expected", "")).strip()
-            if not setup or not expected:
-                continue
-            requirements = entry.get("requirements")
-            checks.append({
-                "setup": setup[:300],
-                "expected": expected[:500],
-                "requirements": [str(r) for r in requirements][:10] if isinstance(requirements, list) else [],
-            })
-        return checks[:6]
 
 
 _RESET_CONCEPTS = {"sync_active_high", "async_active_high", "sync_active_low", "async_active_low", "none"}

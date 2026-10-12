@@ -94,7 +94,7 @@ phases = [
         "UML- und Ablaufdiagramme",
         "📼 Lauf-Trajektorien außerhalb des Workspaces (#46)",
         "🧮 4-Bit-CPU (Aufgabe 04): 2 Läufe ohne Reparatur, Board ok",
-        "kritischer Pfad zuerst, Prüfanleitung fürs Board (#48–#55)"],
+        "kritischer Pfad zuerst, Prüfanleitung fürs Board (#48–#57)"],
      "63a4752 · 943b9dd · fbacfdc"),
 ]
 

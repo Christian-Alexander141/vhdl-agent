@@ -228,16 +228,18 @@ class VerificationAgent(BaseAgent):
         prompt = task.inputs.get("request", "")
         review_path = Path(workspace) / reqs.REVIEW_FILE
         review_path.unlink(missing_ok=True)  # kein altes Urteil wiederverwenden
+        has_board_checks = (Path(workspace) / reqs.BOARD_CHECKS_FILE).is_file()
         delivery = self._task_runner.run(
             workspace=workspace,
             request_full=prompt,
             stage="requirements_review",
             task_instruction=reqs.REVIEW_INSTRUCTION.format(
-                review_file=reqs.REVIEW_FILE, requirements_file=reqs.REQUIREMENTS_FILE),
+                review_file=reqs.REVIEW_FILE, requirements_file=reqs.REQUIREMENTS_FILE,
+                board_checks_file=reqs.BOARD_CHECKS_FILE),
             expected_files=[reqs.REVIEW_FILE],
             task_id=f"review_{uuid.uuid4().hex[:8]}",
             skills_dir=self._skills_dir,
-            stop_when=lambda: reqs.review_complete(review_path, requirements),
+            stop_when=lambda: reqs.review_complete(review_path, requirements, expect_board_checks=has_board_checks),
         )
         if not review_path.is_file():
             error = delivery.error("Abschlussprüfung") if not delivery.ok else RuntimeError("keine Bewertung geschrieben")

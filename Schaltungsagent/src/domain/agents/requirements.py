@@ -21,6 +21,7 @@ import re
 
 REQUIREMENTS_FILE = "plan/requirements.md"
 REVIEW_FILE = "reports/requirements_review.json"
+BOARD_CHECKS_FILE = "reports/board_checks.json"
 CHECK_KINDS = ("simulation", "structure")
 _ID_RE = re.compile(r"^R\d+$")
 
@@ -165,9 +166,15 @@ Prüfe außerdem PROMPT.md Satz für Satz: Steht dort eine Anforderung, die in {
 fehlt (z. B. eine Ausgabe, LED, Zeitangabe, ein Reset-Verhalten oder Port), trage sie unter "missing"
 mit wörtlichem Zitat aus PROMPT.md ein.
 
+Gibt es {board_checks_file}, prüfe auch diese Prüfanleitung fürs Board gegen PROMPT.md und den Code:
+Schalter- und Tasterzuordnung (z. B. welche Stellung von SW1/SW0 welche Anzeige wählt), erwartete
+LED-Muster, Reihenfolge und Zeiten. Schreibe die vollständige, korrigierte Liste unter "board_checks"
+(Felder setup, expected, requirements); stimmt alles, übernimm sie unverändert.
+
 Schreibe {review_file} genau in dieser Form:
 {{"requirements":[{{"id":"R1","status":"met|not_met","evidence":"..."}}],
- "missing":[{{"text":"...","quote":"wörtlicher Ausschnitt aus PROMPT.md","modules":["entity"]}}]}}
+ "missing":[{{"text":"...","quote":"wörtlicher Ausschnitt aus PROMPT.md","modules":["entity"]}}],
+ "board_checks":[{{"setup":"...","expected":"...","requirements":["R1"]}}]}}
 """
 
 
@@ -203,11 +210,38 @@ def parse_review(text: str, requirements: list[dict], prompt: str) -> dict:
     missing = [m for m in missing if normalize(m["quote"]) not in covered]
     unrated = [rid for rid in known if rid not in verdicts and known[rid]["id"] != "R0"]
     return {"violations": violations, "missing": missing, "unrated": unrated,
-            "met": [rid for rid, v in verdicts.items() if v.get("status") == "met"]}
+            "met": [rid for rid, v in verdicts.items() if v.get("status") == "met"],
+            "board_checks": clean_board_checks(data.get("board_checks"))}
 
 
-def review_complete(path, requirements: list[dict]) -> bool:
-    """Liegt ein vollständiges Urteil vor (gültiges JSON, jede Anforderung bewertet)?"""
+def clean_board_checks(value) -> list[dict]:
+    """Prüfanleitung fürs Board: nur vollständige Einträge, gekürzt, höchstens 6.
+
+    Nie ein Grund, einen Plan oder ein Urteil abzulehnen; sie dient dem
+    Menschen, solange kein automatischer Hardwaretest möglich ist.
+    """
+    checks = []
+    for entry in value if isinstance(value, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        setup, expected = str(entry.get("setup", "")).strip(), str(entry.get("expected", "")).strip()
+        if not setup or not expected:
+            continue
+        requirements = entry.get("requirements")
+        checks.append({
+            "setup": setup[:300],
+            "expected": expected[:500],
+            "requirements": [str(r) for r in requirements][:10] if isinstance(requirements, list) else [],
+        })
+    return checks[:6]
+
+
+def review_complete(path, requirements: list[dict], expect_board_checks: bool = False) -> bool:
+    """Liegt ein vollständiges Urteil vor (gültiges JSON, jede Anforderung bewertet)?
+
+    Mit Prüfanleitung muss auch deren (korrigierte) Liste da sein, sonst würde
+    das vorzeitige Ende sie abschneiden.
+    """
     from pathlib import Path
 
     try:
@@ -217,6 +251,8 @@ def review_complete(path, requirements: list[dict]) -> bool:
     if not isinstance(data, dict):
         return False
     rated = {item.get("id") for item in data.get("requirements") or [] if isinstance(item, dict)}
+    if expect_board_checks and not data.get("board_checks"):
+        return False
     return all(r["id"] in rated for r in requirements if r["id"] != "R0")
 
 

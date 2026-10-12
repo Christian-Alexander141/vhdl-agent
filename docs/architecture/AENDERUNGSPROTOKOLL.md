@@ -199,6 +199,10 @@ Commits `63a4752`, `943b9dd`, `fbacfdc`.
   `task_graph.json`, weniger Ereignisverkehr, richtige Auftragsgröße und Dauer im Protokoll,
   Testbenches für Zwischenmodule mit eigener Logik, Reset-Konvention der Skills, vollständigere
   Trajektorie und eine Prüfanleitung fürs Board in der Abschlussmeldung.
+- **#56/#57 aus den Kontrollläufen:** Anbieterausfall als Infrastrukturfehler statt Entwurfsfehler,
+  Planung stoppt danach; Checkpoint zählt nicht als OpenCode-Änderung; Prüfanleitung wird von der
+  Abschlussprüfung gegengeprüft. Zweiter Kontrolllauf bis zum Flashen durch, Implementierung 20:27 min,
+  Mutationsquote 1,0; ein Modellstreit wurde richtig zugunsten der Aufgabe entschieden.
 
 ---
 

@@ -1751,6 +1751,16 @@ class SupervisorAgent(BaseAgent):
         state = self._design_state.metadata.get("requirements_review") or {}
         if state.get("digest") == digest and state.get("status") == "passed":
             return []
+        # Die Prüfanleitung stammt ungeprüft vom Planungsmodell (Kontrolllauf
+        # 2026-10-12: SW1/SW0 für ACC- und PC-Anzeige vertauscht); die
+        # unabhängige Prüfung bewertet sie mit, ohne zusätzlichen Aufruf.
+        checks = self._board_checks()
+        checks_path = Path(self._fs.workspace_path(self._current_task.project_id)) / reqs.BOARD_CHECKS_FILE
+        if checks:
+            checks_path.parent.mkdir(parents=True, exist_ok=True)
+            checks_path.write_text(json.dumps(checks, ensure_ascii=False, indent=2), encoding="utf-8")
+        else:
+            checks_path.unlink(missing_ok=True)
         result = await self._verification_agent.execute(AgentTask(
             id=str(uuid.uuid4()),
             type="review_requirements",
@@ -1777,6 +1787,7 @@ class SupervisorAgent(BaseAgent):
 
         review = result.outputs.get("review") or {}
         violations, missing = review.get("violations", []), review.get("missing", [])
+        corrected = self._adopt_reviewed_board_checks(checks, review.get("board_checks") or [])
         verdict = {v["id"]: "not_met" for v in violations} | {rid: "met" for rid in review.get("met", []) if rid not in {v["id"] for v in violations}}
         for requirement in self._design_state.requirements:
             if requirement.id in verdict:
@@ -1812,16 +1823,27 @@ class SupervisorAgent(BaseAgent):
         self._design_state.metadata["requirements_review"] = {
             "digest": digest, "status": "failed" if problems else "passed",
             "violations": [v["id"] for v in violations], "missing": len(missing),
-            "unrated": review.get("unrated", []), "at": now,
+            "unrated": review.get("unrated", []), "board_checks_corrected": corrected, "at": now,
         }
         self._emit_event("REQUIREMENTS_REVIEW", {
             "project_id": self._current_task.project_id,
             "message": (
                 f"Anforderungen: {len(review.get('met', []))} erfüllt, {len(violations)} verletzt, "
                 f"{len(missing)} fehlten in der Liste"
+                + (f"; Prüfanleitung fürs Board: {corrected} Schritt(e) korrigiert" if corrected else "")
             ),
         })
         return problems
+
+    def _adopt_reviewed_board_checks(self, before: list[dict], reviewed: list[dict]) -> int:
+        """Übernimmt die geprüfte Prüfanleitung; liefert die Zahl geänderter Schritte."""
+        if not before or not reviewed:
+            return 0
+        manifest = dict(self._design_state.metadata.get("plan_manifest") or self._current_task.inputs.get("plan_manifest") or {})
+        manifest["board_checks"] = reviewed
+        self._design_state.metadata["plan_manifest"] = manifest
+        key = lambda check: (check.get("setup"), check.get("expected"))
+        return sum(1 for old, new in zip(before, reviewed) if key(old) != key(new)) + abs(len(before) - len(reviewed))
 
     async def _mutation_gate(self) -> dict | None:
         """Erkennen die Testbenches absichtlich fehlerhafte Varianten des Entwurfs?

@@ -1,7 +1,7 @@
 # Bekannte Grenzen von Schaltungsagent
 
 > Grundlage für die Diskussionskapitel der Abschlussarbeit.
-> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#56);
+> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#57);
 > Entwicklungsverlauf: `docs/architecture/AENDERUNGSPROTOKOLL.drawio`.
 
 ## Erreicht
@@ -23,7 +23,8 @@ Ohne `hardware_test.uart_port` wird kein Hardwaretest ausgeführt; der Workflow 
 dem Hinweis, dass die Board-Funktion nicht validiert ist. Testvektoren müssen im Manifest
 (`hardware_tests`) oder in `tests/hardware_tests.yaml` stehen. GPIO-Beobachtung (LEDs, Schalter)
 gibt es nicht; stattdessen enthält die Abschlussmeldung eine Prüfanleitung aus dem Plan
-(Schalterstellung → erwartete LED-Folge, #55), die ein Mensch abarbeiten muss. Ein Lauf mit einer
+(Schalterstellung → erwartete LED-Folge, #55), die ein Mensch abarbeiten muss. Sie stammt von
+einem Sprachmodell und wird von der Abschlussprüfung gegengeprüft (#57), bleibt aber ein Urteil. Ein Lauf mit einer
 8-Bit-CPU steht noch aus (die 4-Bit-Vorstufe, Aufgabe 04, läuft).
 
 ### 2. Prüfungen mit begrenzter Aussagekraft

@@ -200,3 +200,41 @@ def test_reviewer_changes_are_discarded_and_unavailable_review_only_warns(tmp_pa
     assert (src / "gray_countdown.vhd").read_text() == "-- entwurf\n"
     assert "REQUIREMENTS_WARNING" in events.types()
     assert supervisor._design_state.metadata["requirements_review"]["status"] == "unavailable"
+
+
+# --- Prüfanleitung fürs Board wird mitgeprüft (#57) --------------------------------
+
+SWAPPED = [
+    {"setup": "Alle Schalter unten, BTN0", "expected": "0001, 0010, 0011, 0101, 1000, 1101", "requirements": ["R1"]},
+    {"setup": "SW1 oben, SW0 unten (Anzeige ACC)", "expected": "nach Halt 0101", "requirements": []},
+]
+FIXED = [SWAPPED[0], {"setup": "SW1 unten, SW0 oben (Anzeige ACC)", "expected": "nach Halt 0101", "requirements": []}]
+
+
+def test_review_returns_cleaned_board_checks_and_waits_for_them(tmp_path):
+    requirements = [{**COUNT, "id": "R1"}]
+    review = {"requirements": [{"id": "R1", "status": "met", "evidence": "tb"}], "missing": [],
+              "board_checks": FIXED + [{"setup": "nur Aufbau"}]}
+    assert reqs.parse_review(json.dumps(review), requirements, PROMPT)["board_checks"] == FIXED
+
+    path = tmp_path / "review.json"
+    path.write_text(json.dumps({"requirements": review["requirements"]}))
+    assert reqs.review_complete(path, requirements)
+    assert not reqs.review_complete(path, requirements, expect_board_checks=True)
+    path.write_text(json.dumps(review))
+    assert reqs.review_complete(path, requirements, expect_board_checks=True)
+
+
+def test_review_corrects_the_board_checklist_in_the_completion_message(tmp_path):
+    reviewer = _Reviewer({"violations": [], "missing": [], "unrated": [], "met": ["R1", "R2"], "board_checks": FIXED})
+    supervisor, fs, events, _ = _supervisor(tmp_path, reviewer)
+    supervisor._design_state.metadata["plan_manifest"] = {"board_checks": SWAPPED}
+
+    assert run(supervisor._requirements_review()) == []
+    handed = json.loads((Path(fs.workspace_path("proj")) / reqs.BOARD_CHECKS_FILE).read_text())
+    assert handed == SWAPPED  # der Prüfer bekam die ungeprüfte Fassung
+    assert supervisor._board_checks() == FIXED
+    assert supervisor._design_state.metadata["requirements_review"]["board_checks_corrected"] == 1
+    assert "2. SW1 unten, SW0 oben (Anzeige ACC)" in supervisor._completion_message()
+    message = next(p for t, p in events.events if t == "REQUIREMENTS_REVIEW")["message"]
+    assert "Prüfanleitung fürs Board: 1 Schritt(e) korrigiert" in message
