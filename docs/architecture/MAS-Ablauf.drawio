@@ -1,6 +1,6 @@
 <mxfile host="Electron" pages="2">
   <diagram id="a" name="1 Gesamtablauf">
-    <mxGraphModel dx="860" dy="532" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1450" pageHeight="1550" background="#ffffff" math="0" shadow="0">
+    <mxGraphModel dx="1433" dy="887" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1450" pageHeight="1550" background="#ffffff" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -87,7 +87,7 @@
         <mxCell id="a24" parent="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;📡 UART-Integration&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;nur wenn nötig (d.h aufgabencht über das board testbar)&lt;/font&gt;" vertex="1">
           <mxGeometry height="50" width="270" x="740" y="290" as="geometry" />
         </mxCell>
-        <mxCell id="a25" parent="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;🐍 Referenzmodell&lt;/b&gt;&lt;br&gt;&lt;font style=&#39;font-size:11px&#39;&gt;Python-Modell aus PROMPT.md · GENERICS&lt;/font&gt;" vertex="1">
+        <mxCell id="a25" parent="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;🐍 Referenzmodell&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Python-Modell aus PROMPT.md erstellen ·&amp;nbsp;&lt;/font&gt;" vertex="1">
           <mxGeometry height="60" width="270" x="740" y="370" as="geometry" />
         </mxCell>
         <mxCell id="a26" parent="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;⚙️ Implementierung&lt;/b&gt;&lt;br&gt;&lt;font style=&#39;font-size:11px&#39;&gt;TaskGraph · Module + Testbenches parallel (HDLAgent)&lt;/font&gt;" vertex="1">
@@ -149,7 +149,7 @@
         <mxCell id="a43" edge="1" parent="1" source="a31" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#444444;strokeWidth=2;" target="a42" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="a44" parent="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;🧷 Hardwaretest&lt;/b&gt;&lt;br&gt;&lt;font style=&#39;font-size:11px&#39;&gt;Testvektoren über UART&lt;/font&gt;" vertex="1">
+        <mxCell id="a44" parent="1" style="rounded=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;🧷 Hardwaretest&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Testprogramm über UART&lt;/font&gt;" vertex="1">
           <mxGeometry height="55" width="270" x="740" y="1195" as="geometry" />
         </mxCell>
         <mxCell id="a45" parent="1" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#2d7600;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;🏁 Abgeschlossen&lt;/b&gt;&lt;br&gt;&lt;font style=&#39;font-size:11px&#39;&gt;Abschlussmeldung im Dashboard&lt;/font&gt;" vertex="1">
@@ -200,7 +200,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="a58" parent="1" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;⛔ Eingriff erforderlich&lt;/b&gt;&lt;br&gt;&lt;font style=&#39;font-size:11px&#39;&gt;Leiter erschöpft oder Werkzeug/Board fehlt · mit letztem Befund der Agenten&lt;/font&gt;" vertex="1">
+        <mxCell id="a58" parent="1" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;strokeWidth=2;shadow=1;spacing=6;" value="&lt;b&gt;⛔ Eingriff erforderlich&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:11px&quot;&gt;Leiter erschöpft oder Werkzeug/Board fehlt · mit letztem Befund der Agenten dies betrift ursachen wie Board nicht verbunden u.ä&lt;/font&gt;" vertex="1">
           <mxGeometry height="90" width="300" x="1090" y="780" as="geometry" />
         </mxCell>
         <mxCell id="a59" edge="1" parent="1" source="a49" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;endFill=1;fontSize=11;labelBackgroundColor=#ffffff;strokeColor=#b85450;strokeWidth=2;dashed=1;" target="a58" value="">

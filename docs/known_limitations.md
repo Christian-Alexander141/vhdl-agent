@@ -12,6 +12,10 @@ Prüfungen und Vivado bis zum Flashen auf das Arty S7-50 durch. Das Ergebnis ist
 belegt: Referenzmodell, Mutationsquote 1,0, 39 von 39 Anforderungen, Timing erfüllt. Ob die LEDs
 am Board richtig reagieren, prüft das System selbst nicht.
 
+Am 2026-10-12 liefen zwei Läufe der Benchmark-Aufgabe 04 (4-Bit-Akkumulator-CPU mit Rechenwerk,
+Steuerwerk und Speicher, 10 Module) ohne Reparatur bis zum Flashen durch; beide Entwürfe bestehen
+die unabhängige Referenz-Testbench, die LED-Ausgabe am Board hat der Benutzer bestätigt.
+
 ## Weiterhin offene Grenzen
 
 ### 1. Kein automatischer Hardwaretest ohne UART

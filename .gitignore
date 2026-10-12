@@ -73,3 +73,7 @@ pip-delete-this-directory.txt
 
 # Benchmark-Logs sind Teil der dokumentierten Messergebnisse
 !docs/benchmark/**/*.log
+
+# Sicherungs- und Zwischendateien von draw.io
+*.drawio.bkp
+*.drawio.dtmp
