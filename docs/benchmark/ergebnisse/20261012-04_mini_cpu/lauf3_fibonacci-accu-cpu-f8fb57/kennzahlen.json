@@ -1,0 +1,93 @@
+{
+  "run": 3,
+  "label": "Kontrolllauf",
+  "project": "fibonacci-accu-cpu-f8fb57",
+  "commit": "256a317",
+  "note": "Stand mit #48-#56",
+  "start": "2026-10-12T18:12:25+02:00",
+  "end": "2026-10-12T18:59:31+02:00",
+  "duration_min": 47.1,
+  "status": "COMPLETED",
+  "plan_min": 3.4,
+  "stage_min": {
+    "ANALYZING": 0.0,
+    "ARCHITECTING": 0.0,
+    "UART_INTEGRATION": 0.0,
+    "IMPLEMENTING": 23.2,
+    "STATIC_CHECK": 0.1,
+    "SIMULATING": 0.0,
+    "VALIDATING": 2.2,
+    "SYNTHESIZING": 3.4,
+    "FPGA_PROGRAMMING": 2.0
+  },
+  "opencode_calls": 24,
+  "opencode_min": 44.0,
+  "opencode_by_stage": {
+    "plan": {
+      "n": 1,
+      "min": 3.4
+    },
+    "reference_model": {
+      "n": 2,
+      "min": 6.3
+    },
+    "implement_module": {
+      "n": 10,
+      "min": 15.2
+    },
+    "implement_testbench": {
+      "n": 10,
+      "min": 17.1
+    },
+    "requirements_review": {
+      "n": 1,
+      "min": 1.9
+    }
+  },
+  "modules": [
+    "sync2:sequential",
+    "debouncer:sequential",
+    "tick_gen:sequential",
+    "alu:combinational",
+    "program_rom:combinational",
+    "data_ram:sequential",
+    "control_unit:sequential",
+    "cpu_core:structural",
+    "display_mux:combinational",
+    "mini_cpu:structural"
+  ],
+  "requirements": 91,
+  "board_checks": 6,
+  "open_questions": 0,
+  "review": "Anforderungen: 91 erfüllt, 0 verletzt, 0 fehlten in der Liste",
+  "mutation_score": 1.0,
+  "escalations": [
+    "model_mismatch (mini_cpu), Versuch 1: gezielte Reparatur",
+    "model_mismatch (mini_cpu), Versuch 2: gezielte Reparatur"
+  ],
+  "repairs": 2,
+  "testbenches": [
+    "alu_tb",
+    "control_unit_tb",
+    "cpu_core_tb",
+    "data_ram_tb",
+    "debouncer_tb",
+    "display_mux_tb",
+    "mini_cpu_tb",
+    "program_rom_tb",
+    "sync2_tb",
+    "tick_gen_tb"
+  ],
+  "events": 136,
+  "heartbeats": 20,
+  "event_traffic_kb": 57,
+  "terminal_event_kb": 2,
+  "task_graph_kb": 27,
+  "reference_testbench": "bestanden",
+  "wns_ns": 3.766,
+  "tns_ns": 0.0,
+  "whs_ns": 0.131,
+  "luts": 93,
+  "registers": 151,
+  "flashed": true
+}

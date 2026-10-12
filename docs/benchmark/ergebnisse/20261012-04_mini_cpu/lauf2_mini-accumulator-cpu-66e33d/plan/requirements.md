@@ -1,0 +1,227 @@
+# Einzelanforderungen (aus PROMPT.md abgeleitet, verbindlich)
+
+Jede Änderung muss alle Anforderungen erfüllt lassen. Bei Widerspruch gilt PROMPT.md.
+Prüfart `simulation`: mindestens eine Testbench-Prüfung mit `REQ <id>` im report-Text.
+
+- **R1** (structure): 4-Bit-Akkumulator-CPU in VHDL-2008 fuer Arty S7-50 aus Rechenwerk, Steuerwerk, Programm- und Datenspeicher mit festem Fibonacci-Demoprogramm, Zustand an 4 LEDs ablesbar
+  - Zitat: „Erstelle in VHDL-2008 eine kleine 4-Bit-Akkumulator-CPU für das Arty S7-50 als Vorstufe einer 8-Bit-CPU. Sie besteht aus Rechenwerk, Steuerwerk, Programmspeicher und Datenspeicher und führt ein festes Demoprogramm aus (Fibonacci-Folge). Ergebnisse und innerer Zustand sind an den vier LEDs LD2–LD5 ablesbar.“
+  - Module: mini_cpu; Ports: mini_cpu.clk, mini_cpu.rst, mini_cpu.btn_step, mini_cpu.sw, mini_cpu.led
+- **R2** (structure): Top-Port clk in std_logic, 100-MHz-Takt
+  - Zitat: „clk (in std_logic): 100-MHz-Takt des Boards.“
+  - Module: mini_cpu; Ports: mini_cpu.clk
+- **R3** (structure): Top-Port rst in std_logic, BTN0, synchroner Reset active-high
+  - Zitat: „rst (in std_logic): Taster BTN0, synchroner Reset, active high.“
+  - Module: mini_cpu; Ports: mini_cpu.rst
+- **R4** (structure): Top-Port btn_step in std_logic, BTN1 Einzelschritt
+  - Zitat: „btn_step (in std_logic): Taster BTN1, Einzelschritt.“
+  - Module: mini_cpu; Ports: mini_cpu.btn_step
+- **R5** (simulation): Top-Port sw in std_logic_vector(2 downto 0), Schalter SW0-SW2
+  - Zitat: „sw (in std_logic_vector(2 downto 0)): Schalter SW0–SW2.“
+  - Module: mini_cpu, display_mux; Ports: mini_cpu.sw
+- **R6** (simulation): sw(1 downto 0) waehlt Anzeige: 00=OUT, 01=ACC, 10=PC, 11=Status
+  - Zitat: „sw(1 downto 0) wählt die Anzeige: "00" Ausgaberegister OUT, "01" Akkumulator ACC, "10" Befehlszähler PC, "11" Status.“
+  - Module: display_mux, mini_cpu; Ports: mini_cpu.sw, display_mux.sel, display_mux.out_value, display_mux.acc, display_mux.pc, display_mux.z, display_mux.c, display_mux.halted
+- **R7** (simulation): sw(2) waehlt Betriebsart: 0=Automatik ein Befehl je Tick, 1=Einzelschritt ein Befehl je btn_step-Druck
+  - Zitat: „sw(2) wählt die Betriebsart: '0' Automatik (ein Befehl je Tick), '1' Einzelschritt (ein Befehl je Druck auf btn_step).“
+  - Module: mini_cpu, cpu_core; Ports: mini_cpu.sw, display_mux.mode
+- **R8** (structure): Top-Port led out std_logic_vector(3 downto 0), led(0)=LD2 bis led(3)=LD5
+  - Zitat: „led (out std_logic_vector(3 downto 0)): led(0) = LD2 … led(3) = LD5.“
+  - Module: mini_cpu; Ports: mini_cpu.led
+- **R9** (structure): Generic TICK_CYCLES positive Default 50000000 mindestens 4, 2 Befehle/s bei 100MHz
+  - Zitat: „Generic TICK_CYCLES (positive, Standard 50_000_000, also 2 Befehle pro Sekunde bei 100 MHz; mindestens 4).“
+  - Module: mini_cpu, tick_gen; Ports: mini_cpu.clk
+- **R10** (structure): Generic DEBOUNCE_CYCLES positive Default 1000000 (10ms)
+  - Zitat: „Generic DEBOUNCE_CYCLES (positive, Standard 1_000_000, also 10 ms).“
+  - Module: mini_cpu, debouncer; Ports: mini_cpu.btn_step
+- **R11** (structure): Befehlswort 8 Bit Opcode Bits 7..4 Operand Bits 3..0, RAM 16x4, ACC/PC/OUT 4 Bit, IR 8 Bit, Flags Z und C
+  - Zitat: „Ein Befehlswort hat 8 Bit, Opcode = Bits 7..4, Operand = Bits 3..0 (Adresse a, Konstante n oder Sprungziel t). Der Datenspeicher hat 16 Zellen zu 4 Bit. Akkumulator ACC, Befehlszähler PC und Ausgaberegister OUT haben 4 Bit, das Befehlsregister IR 8 Bit; Z und C sind Flag-Register.“
+  - Module: cpu_core, control_unit, alu, program_rom, data_ram; Ports: cpu_core.acc, cpu_core.pc, cpu_core.out_value
+- **R12** (simulation): Opcode 0 NOP keine Wirkung
+  - Zitat: „0 NOP: keine Wirkung.“
+  - Module: control_unit, cpu_core; Ports: control_unit.pc, control_unit.ir
+- **R13** (simulation): Opcode 1 LDI n: ACC:=n, Z neu, C unveraendert
+  - Zitat: „1 LDI n: ACC := n; Z neu.“
+  - Module: control_unit, cpu_core, alu; Ports: cpu_core.acc, cpu_core.z
+- **R14** (simulation): Opcode 2 LDA a: ACC:=RAM[a], Z neu, C unveraendert
+  - Zitat: „2 LDA a: ACC := RAM[a]; Z neu.“
+  - Module: control_unit, cpu_core, data_ram; Ports: cpu_core.acc, cpu_core.z
+- **R15** (simulation): Opcode 3 STA a: RAM[a]:=ACC, Flags unveraendert
+  - Zitat: „3 STA a: RAM[a] := ACC.“
+  - Module: control_unit, cpu_core, data_ram; Ports: cpu_core.acc
+- **R16** (simulation): Opcode 4 ADD a: ACC:=(ACC+RAM[a]) mod 16, C:=Uebertrag Bit3, Z neu
+  - Zitat: „4 ADD a: ACC := (ACC + RAM[a]) mod 16; C := Übertrag aus Bit 3; Z neu.“
+  - Module: control_unit, cpu_core, alu; Ports: cpu_core.acc, cpu_core.z, cpu_core.c
+- **R17** (simulation): Opcode 5 SUB a: ACC:=(ACC-RAM[a]) mod 16, C:=1 bei Borgen sonst 0, Z neu
+  - Zitat: „5 SUB a: ACC := (ACC − RAM[a]) mod 16; C := '1', wenn ACC < RAM[a] (Borgen), sonst '0'; Z neu.“
+  - Module: control_unit, cpu_core, alu; Ports: cpu_core.acc, cpu_core.z, cpu_core.c
+- **R18** (simulation): Opcodes 6/7/8 AND/OR/XOR a: ACC:=ACC op RAM[a], C:=0, Z neu
+  - Zitat: „6 AND a, 7 OR a, 8 XOR a: ACC := ACC and/or/xor RAM[a]; C := '0'; Z neu.“
+  - Module: control_unit, cpu_core, alu; Ports: cpu_core.acc, cpu_core.z, cpu_core.c
+- **R19** (simulation): Opcode 9 SHL: ACC links schieben rechts 0, C:=altes Bit3, Z neu
+  - Zitat: „9 SHL: ACC eine Stelle nach links, rechts wird '0' nachgeschoben; C := altes Bit 3; Z neu.“
+  - Module: control_unit, cpu_core, alu; Ports: cpu_core.acc, cpu_core.z, cpu_core.c
+- **R20** (simulation): Opcode A SHR: ACC rechts schieben links 0, C:=altes Bit0, Z neu
+  - Zitat: „A SHR: ACC eine Stelle nach rechts, links wird '0' nachgeschoben; C := altes Bit 0; Z neu.“
+  - Module: control_unit, cpu_core, alu; Ports: cpu_core.acc, cpu_core.z, cpu_core.c
+- **R21** (simulation): Opcode B JMP t: PC:=t
+  - Zitat: „B JMP t: PC := t.“
+  - Module: control_unit, cpu_core; Ports: cpu_core.pc
+- **R22** (simulation): Opcode C JZ t: PC:=t wenn Z=1
+  - Zitat: „C JZ t: PC := t, wenn Z = '1'.“
+  - Module: control_unit, cpu_core; Ports: cpu_core.pc, cpu_core.z
+- **R23** (simulation): Opcode D JC t: PC:=t wenn C=1
+  - Zitat: „D JC t: PC := t, wenn C = '1'.“
+  - Module: control_unit, cpu_core; Ports: cpu_core.pc, cpu_core.c
+- **R24** (simulation): Opcode E OUT: OUT:=ACC
+  - Zitat: „E OUT: OUT := ACC.“
+  - Module: control_unit, cpu_core; Ports: cpu_core.out_value, cpu_core.acc
+- **R25** (simulation): Opcode F HLT: CPU haelt bis zum naechsten Reset an
+  - Zitat: „F HLT: die CPU hält bis zum nächsten Reset an.“
+  - Module: control_unit, cpu_core; Ports: cpu_core.halted
+- **R26** (simulation): Z neu heisst Z:=1 genau wenn neuer ACC=0, sonst Z/C unveraendert, LDI/LDA lassen C unveraendert
+  - Zitat: „"Z neu" heißt: Z := '1' genau dann, wenn der neue ACC-Wert 0 ist. Wo nichts angegeben ist, bleiben Z und C unverändert (auch bei LDI und LDA bleibt C unverändert).“
+  - Module: cpu_core, alu; Ports: cpu_core.z, cpu_core.c
+- **R27** (simulation): Programmspeicher 16x8 Bit fest
+  - Zitat: „Programmspeicher (16 × 8 Bit, fest), Adresse: Befehl:“
+  - Module: program_rom; Ports: program_rom.addr, program_rom.data
+- **R28** (simulation): ROM[0]=x11 LDI 1
+  - Zitat: „- 0: x"11" LDI 1“
+  - Module: program_rom; Ports: program_rom.data
+- **R29** (simulation): ROM[1]=x30 STA 0
+  - Zitat: „- 1: x"30" STA 0“
+  - Module: program_rom; Ports: program_rom.data
+- **R30** (simulation): ROM[2]=x31 STA 1
+  - Zitat: „- 2: x"31" STA 1“
+  - Module: program_rom; Ports: program_rom.data
+- **R31** (simulation): ROM[3]=xE0 OUT
+  - Zitat: „- 3: x"E0" OUT“
+  - Module: program_rom; Ports: program_rom.data
+- **R32** (simulation): ROM[4]=x20 LDA 0
+  - Zitat: „- 4: x"20" LDA 0“
+  - Module: program_rom; Ports: program_rom.data
+- **R33** (simulation): ROM[5]=x41 ADD 1
+  - Zitat: „- 5: x"41" ADD 1“
+  - Module: program_rom; Ports: program_rom.data
+- **R34** (simulation): ROM[6]=xDE JC 14
+  - Zitat: „- 6: x"DE" JC 14“
+  - Module: program_rom; Ports: program_rom.data
+- **R35** (simulation): ROM[7]=x32 STA 2
+  - Zitat: „- 7: x"32" STA 2“
+  - Module: program_rom; Ports: program_rom.data
+- **R36** (simulation): ROM[8]=x21 LDA 1
+  - Zitat: „- 8: x"21" LDA 1“
+  - Module: program_rom; Ports: program_rom.data
+- **R37** (simulation): ROM[9]=x30 STA 0
+  - Zitat: „- 9: x"30" STA 0“
+  - Module: program_rom; Ports: program_rom.data
+- **R38** (simulation): ROM[10]=x22 LDA 2
+  - Zitat: „- 10: x"22" LDA 2“
+  - Module: program_rom; Ports: program_rom.data
+- **R39** (simulation): ROM[11]=x31 STA 1
+  - Zitat: „- 11: x"31" STA 1“
+  - Module: program_rom; Ports: program_rom.data
+- **R40** (simulation): ROM[12]=xE0 OUT
+  - Zitat: „- 12: x"E0" OUT“
+  - Module: program_rom; Ports: program_rom.data
+- **R41** (simulation): ROM[13]=xB4 JMP 4
+  - Zitat: „- 13: x"B4" JMP 4“
+  - Module: program_rom; Ports: program_rom.data
+- **R42** (simulation): ROM[14]=xF0 HLT
+  - Zitat: „- 14: x"F0" HLT“
+  - Module: program_rom; Ports: program_rom.data
+- **R43** (simulation): ROM[15]=x00 NOP
+  - Zitat: „- 15: x"00" NOP“
+  - Module: program_rom; Ports: program_rom.data
+- **R44** (simulation): Fibonacci-Demoprogramm: OUT=1,2,3,5,8,13 nach 4./13./23./33./43./53. Befehl, Ueberlauf 21 mit C=1 JC nach 14, Halt nach 58. Befehl mit OUT=13 ACC=5 PC=15 Z=0 C=1
+  - Zitat: „RAM[0] und RAM[1] halten die letzten beiden Fibonacci-Zahlen. OUT zeigt nacheinander 1, 2, 3, 5, 8, 13 (nach dem 4., 13., 23., 33., 43. und 53. Befehl). Die nächste Summe 21 läuft über (C = '1'), JC springt nach 14 und die CPU hält nach dem 58. Befehl an. Danach gilt: OUT = 13, ACC = 5, PC = 15, Z = '0', C = '1'.“
+  - Module: cpu_core, mini_cpu; Ports: cpu_core.out_value, cpu_core.acc, cpu_core.pc, cpu_core.z, cpu_core.c, cpu_core.halted, mini_cpu.led
+- **R45** (simulation): Steuerwerk Zustaende WAIT FETCH DECODE EXECUTE HALT, nach Reset WAIT
+  - Zitat: „Zustände WAIT, FETCH, DECODE, EXECUTE und HALT; nach dem Reset WAIT.“
+  - Module: control_unit; Ports: control_unit.pc, control_unit.ir, control_unit.halted
+- **R46** (simulation): go ist in Automatik der Tick und im Einzelschritt der Schrittimpuls
+  - Zitat: „go ist in Automatik der Tick und im Einzelschritt der Schrittimpuls des Tasters.“
+  - Module: mini_cpu, tick_gen, debouncer, cpu_core; Ports: mini_cpu.sw, cpu_core.go
+- **R47** (simulation): WAIT: bei go=1 nach FETCH sonst bleiben, in anderen Zustaenden go ignoriert
+  - Zitat: „WAIT: bei go = '1' weiter nach FETCH, sonst bleiben. In allen anderen Zuständen wird go ignoriert.“
+  - Module: control_unit; Ports: control_unit.go, control_unit.halted
+- **R48** (simulation): FETCH: IR:=ROM[PC], PC:=PC+1 mod 16, weiter nach DECODE
+  - Zitat: „FETCH: IR := ROM[PC]; PC := PC + 1 (mod 16); weiter nach DECODE.“
+  - Module: control_unit; Ports: control_unit.pc, control_unit.ir, control_unit.rom_addr
+- **R49** (simulation): DECODE: dekodieren kein Register aendert sich, weiter nach EXECUTE
+  - Zitat: „DECODE: Befehl dekodieren, kein Register ändert sich; weiter nach EXECUTE.“
+  - Module: control_unit; Ports: control_unit.ir
+- **R50** (simulation): EXECUTE: Befehl ausfuehren, weiter nach WAIT bei HLT nach HALT, Sprung ueberschreibt PC+1
+  - Zitat: „EXECUTE: Befehl ausführen (ACC, Z, C, RAM, OUT bzw. PC wie im Befehlssatz); weiter nach WAIT, bei HLT nach HALT. Ein Sprung überschreibt das PC + 1 aus FETCH.“
+  - Module: control_unit, cpu_core; Ports: control_unit.pc, cpu_core.pc
+- **R51** (simulation): Ein Befehl braucht nach go genau drei weitere Taktflanken
+  - Zitat: „Ein Befehl braucht nach go also genau drei weitere Taktflanken (FETCH, DECODE, EXECUTE).“
+  - Module: control_unit, cpu_core; Ports: control_unit.go
+- **R52** (simulation): sw mit zwei Flipflops einsynchronisiert, alle Regeln nutzen sync Werte
+  - Zitat: „sw wird mit zwei Flipflops einsynchronisiert. Alle Regeln verwenden die einsynchronisierten Werte.“
+  - Module: sync2, mini_cpu; Ports: mini_cpu.sw, sync2.dout
+- **R53** (simulation): btn_step zweistufig sync plus Entpreller mit dout-Zaehler und rise einen Takt bei 0->1 nach DEBOUNCE_CYCLES Flanken
+  - Zitat: „btn_step wird mit zwei Flipflops einsynchronisiert und dann entprellt. Der Entpreller hat ein Register dout (entprellter Wert) und einen Zähler. Ist sein Eingang gleich dout, wird der Zähler 0. Sonst zählt er um eins hoch; steht er dabei schon auf DEBOUNCE_CYCLES−1, übernimmt dout stattdessen den Eingang und der Zähler wird 0. dout wechselt also mit der DEBOUNCE_CYCLES-ten aufeinanderfolgenden Flanke, an der Eingang und dout verschieden sind. Der Schrittimpuls rise ist ebenfalls ein Register: Er wird mit derselben Flanke '1', mit der dout von '0' auf '1' wechselt, und ist genau einen Takt lang '1'.“
+  - Module: sync2, debouncer; Ports: mini_cpu.btn_step, debouncer.din, debouncer.dout, debouncer.rise
+- **R54** (simulation): Tick-Generator zaehlt 0 bis TICK_CYCLES-1 Tick ein Takt laeuft immer, erster Befehl mit TICK_CYCLES-ter Flanke
+  - Zitat: „Der Tick-Generator zählt von 0 bis TICK_CYCLES−1 und liefert beim Zählerstand TICK_CYCLES−1 einen Tick von genau einem Takt. Er läuft immer, auch im Einzelschritt und im HALT. In Automatik beginnt der erste Befehl nach dem Reset also mit der TICK_CYCLES-ten steigenden Flanke ohne Reset (WAIT → FETCH).“
+  - Module: tick_gen; Ports: tick_gen.tick
+- **R55** (simulation): led Register uebernimmt jede Flanke Anzeigewert, Schalter nach 3 Flanken sichtbar, Register eine Flanke spaeter
+  - Zitat: „led ist ein Register und übernimmt mit jeder steigenden Taktflanke den ausgewählten Anzeigewert. Eine Schalteränderung ist dadurch nach genau 3 Taktflanken an den LEDs sichtbar, eine Registeränderung der CPU eine Flanke später.“
+  - Module: mini_cpu, display_mux; Ports: mini_cpu.led, display_mux.disp
+- **R56** (simulation): Statusanzeige led3=HALT led2=Betriebsart sync sw2 led1=C led0=Z, PC-Anzeige naechster Befehl
+  - Zitat: „Statusanzeige: led(3) = HALT (Steuerwerk im Zustand HALT), led(2) = Betriebsart (einsynchronisiertes sw(2)), led(1) = C, led(0) = Z. Die PC-Anzeige zeigt die Adresse des nächsten zu holenden Befehls.“
+  - Module: display_mux, mini_cpu; Ports: mini_cpu.led, display_mux.halted, display_mux.mode, display_mux.c, display_mux.z
+- **R57** (simulation): Reset: alle Register 0 (Sync Entpreller Tick PC IR ACC Z C OUT alle RAM led), Steuerwerk nach WAIT
+  - Zitat: „Reset: Alle Register werden 0, also Synchronisierer, Entpreller, Tick-Zähler, PC, IR, ACC, Z, C, OUT, alle 16 RAM-Zellen und led; das Steuerwerk geht nach WAIT.“
+  - Module: mini_cpu, cpu_core, control_unit, tick_gen, debouncer, sync2, data_ram; Ports: mini_cpu.rst, mini_cpu.led, cpu_core.pc, cpu_core.acc, cpu_core.out_value, cpu_core.z, cpu_core.c
+- **R58** (structure): Module je Entity eine Datei src/<entity>.vhd
+  - Zitat: „Module, je Entity eine Datei src/<entity>.vhd:“
+  - Module: sync2, debouncer, tick_gen, alu, program_rom, data_ram, control_unit, cpu_core, display_mux, mini_cpu; Ports: -
+- **R59** (structure): sync2 zweistufiger Synchronisierer mit Generic WIDTH
+  - Zitat: „sync2: zweistufiger Synchronisierer mit Generic WIDTH.“
+  - Module: sync2; Ports: -
+- **R60** (structure): debouncer mit Generic DEBOUNCE_CYCLES und Ausgaengen dout rise
+  - Zitat: „debouncer: Entpreller mit Generic DEBOUNCE_CYCLES und den Ausgängen dout und rise.“
+  - Module: debouncer; Ports: debouncer.dout, debouncer.rise
+- **R61** (structure): tick_gen mit Generic TICK_CYCLES und Ausgang tick
+  - Zitat: „tick_gen: Tick-Generator mit Generic TICK_CYCLES und Ausgang tick.“
+  - Module: tick_gen; Ports: tick_gen.tick
+- **R62** (structure): alu kombinatorisch Generic WIDTH Standard 4 op-Codes ADD SUB AND OR XOR SHL SHR PASS Ausgaenge result carry zero carry wie Befehlssatz PASS 0 zero bei result 0
+  - Zitat: „alu (Rechenwerk): kombinatorisch mit Generic WIDTH (Standard 4). Eingänge a, b und op (3 Bit: "000" ADD, "001" SUB, "010" AND, "011" OR, "100" XOR, "101" SHL von a, "110" SHR von a, "111" PASS b), Ausgänge result, carry und zero. carry wie im Befehlssatz, bei PASS '0'; zero = '1', wenn result = 0.“
+  - Module: alu; Ports: alu.a, alu.b, alu.op, alu.result, alu.carry, alu.zero
+- **R63** (structure): program_rom 16x8 mit Demoprogramm kombinatorisches Lesen
+  - Zitat: „program_rom (Programmspeicher): 16 × 8 Bit mit dem Demoprogramm, kombinatorisches Lesen.“
+  - Module: program_rom; Ports: program_rom.addr, program_rom.data
+- **R64** (structure): data_ram Generics ADDR_WIDTH=4 DATA_WIDTH=4 sync Schreiben mit we komb Lesen sync Reset loescht alle
+  - Zitat: „data_ram (Datenspeicher): Generics ADDR_WIDTH = 4 und DATA_WIDTH = 4; synchrones Schreiben mit we, kombinatorisches Lesen; der synchrone Reset löscht alle Zellen.“
+  - Module: data_ram; Ports: data_ram.we, data_ram.addr, data_ram.din, data_ram.dout
+- **R65** (structure): control_unit Zustandsautomat PC IR erzeugt Steuersignale fuer ALU Akku Flags RAM OUT
+  - Zitat: „control_unit (Steuerwerk): Zustandsautomat, PC und IR; erzeugt aus dem Befehl die Steuersignale für ALU, Akkumulator, Flags, Datenspeicher und OUT.“
+  - Module: control_unit; Ports: control_unit.pc, control_unit.ir
+- **R66** (structure): cpu_core enthaelt ACC Z C OUT instanziiert control_unit alu program_rom data_ram Eingang go Ausgaenge out_value acc pc z c halted
+  - Zitat: „cpu_core: enthält ACC, Z, C und OUT und instanziiert control_unit, alu, program_rom und data_ram. Eingang go; Ausgänge out_value, acc, pc, z, c und halted.“
+  - Module: cpu_core; Ports: cpu_core.go, cpu_core.out_value, cpu_core.acc, cpu_core.pc, cpu_core.z, cpu_core.c, cpu_core.halted
+- **R67** (structure): display_mux kombinatorische Auswahl des Anzeigewerts
+  - Zitat: „display_mux: kombinatorische Auswahl des Anzeigewerts.“
+  - Module: display_mux; Ports: display_mux.disp
+- **R68** (structure): mini_cpu Top-Level instanziiert sync2x2 debouncer tick_gen cpu_core display_mux enthaelt LED-Register
+  - Zitat: „mini_cpu: Top-Level; instanziiert sync2 (je eine Instanz für sw und btn_step), debouncer, tick_gen, cpu_core und display_mux und enthält das LED-Register.“
+  - Module: mini_cpu; Ports: mini_cpu.clk, mini_cpu.rst, mini_cpu.btn_step, mini_cpu.sw, mini_cpu.led
+- **R69** (simulation): Testbench tests/mini_cpu_tb.vhd mit TICK_CYCLES=4 DEBOUNCE_CYCLES=2
+  - Zitat: „Testbench tests/mini_cpu_tb.vhd mit TICK_CYCLES = 4 und DEBOUNCE_CYCLES = 2. Sie prüft:“
+  - Module: mini_cpu; Ports: mini_cpu.clk, mini_cpu.rst, mini_cpu.btn_step, mini_cpu.sw, mini_cpu.led
+- **R70** (simulation): Automatik: OUT-Folge 1,2,3,5,8,13 Halt nach 58. Befehl danach ACC=5 PC=15 Status 1010
+  - Zitat: „Automatik: die Folge der OUT-Werte 1, 2, 3, 5, 8, 13, das Anhalten nach dem 58. Befehl und danach ACC = 5, PC = 15 und Status "1010" (HALT, Automatik, C = '1', Z = '0');“
+  - Module: mini_cpu, cpu_core; Ports: cpu_core.out_value, cpu_core.acc, cpu_core.pc, cpu_core.z, cpu_core.c, mini_cpu.led
+- **R71** (simulation): Einzelschritt: ohne Druck steht CPU, jeder Druck ein Befehl nach erstem ACC=1 PC=1, Impuls kuerzer als DEBOUNCE_CYCLES kein Schritt
+  - Zitat: „Einzelschritt: Ohne Tastendruck bleibt die CPU stehen. Jeder Druck führt genau einen Befehl aus, nach dem ersten gilt ACC = 1 und PC = 1. Ein Impuls kürzer als DEBOUNCE_CYCLES löst keinen Schritt aus;“
+  - Module: mini_cpu, debouncer, cpu_core; Ports: mini_cpu.btn_step, cpu_core.acc, cpu_core.pc
+- **R72** (simulation): Reset mitten im Programm startet Programm von vorn
+  - Zitat: „einen Reset mitten im Programm, nach dem das Programm von vorn beginnt;“
+  - Module: mini_cpu, cpu_core; Ports: mini_cpu.rst, cpu_core.pc, cpu_core.out_value
+- **R73** (simulation): Latenz 3 Taktflanken nach Schalteraenderung
+  - Zitat: „die Latenz von 3 Taktflanken nach einer Schalteränderung.“
+  - Module: mini_cpu; Ports: mini_cpu.sw, mini_cpu.led
+- **R74** (structure): Board-Verhalten: alle Schalter unten LEDs 0001 0010 0011 0101 1000 1101 alle 5s Halt nach ~29s SW1-0 waehlt ACC PC Status SW2 oben Einzelschritt je BTN1
+  - Zitat: „Am Board (alle Schalter unten, Automatik, Anzeige OUT) leuchten die LEDs (LD5 … LD2) nach dem Einschalten oder nach BTN0 nacheinander 0001, 0010, 0011, 0101, 1000 und 1101, etwa alle 5 Sekunden ein neuer Wert. Nach rund 29 Sekunden hält die CPU an. Mit SW1–SW0 lassen sich Akkumulator, Befehlszähler und Status ablesen; mit SW2 oben führt jeder Druck auf BTN1 genau einen Befehl aus.“
+  - Module: mini_cpu; Ports: mini_cpu.led

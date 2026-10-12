@@ -1,0 +1,44 @@
+{
+  "aufgabe": "04_mini_cpu",
+  "prompt_sha256_16": "4224f4e164c71718",
+  "referenz_testbench_sha256_16": "255d5ffa84a81c4f",
+  "eingang": "POST /api/chat wie aus dem Dashboard (Server über start.py), kein Eingriff während der Läufe",
+  "modell": "opencode/muse-spark-1.3-contributor-free",
+  "fallback_modell": "opencode/mimo-v2.6-flash-free",
+  "repair_policy": "persistent",
+  "max_parallel_workers": 2,
+  "board": "Digilent Arty S7-50 (xc7s50csga324-1), Vivado 2026.1, Flash SRAM + QSPI",
+  "laeufe": [
+    {
+      "run": 1,
+      "label": "Lauf 1",
+      "project": "fibonacci-accumulator-cpu-c71b1f",
+      "commit": "af7d863",
+      "start": "2026-10-12T12:49:09+02:00",
+      "end": "2026-10-12T13:26:51+02:00"
+    },
+    {
+      "run": 2,
+      "label": "Lauf 2",
+      "project": "mini-accumulator-cpu-66e33d",
+      "commit": "af7d863",
+      "start": "2026-10-12T15:07:04+02:00",
+      "end": "2026-10-12T15:45:03+02:00"
+    },
+    {
+      "run": 3,
+      "label": "Kontrolllauf",
+      "project": "fibonacci-accu-cpu-f8fb57",
+      "commit": "256a317",
+      "start": "2026-10-12T18:12:25+02:00",
+      "end": "2026-10-12T18:59:31+02:00"
+    }
+  ],
+  "abgebrochener_lauf": {
+    "project": "fibonacci-accu-cpu-588373",
+    "commit": "034ec88",
+    "start": "2026-10-12T16:29",
+    "status": "BLOCKED",
+    "grund": "Anbieterausfall (Upstream request failed: Invalid credential) bei beiden freien Modellen; führte zu #56, nicht in results.csv"
+  }
+}

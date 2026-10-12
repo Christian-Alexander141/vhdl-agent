@@ -1,0 +1,89 @@
+{
+  "run": 1,
+  "label": "Lauf 1",
+  "project": "fibonacci-accumulator-cpu-c71b1f",
+  "commit": "af7d863",
+  "note": "Stand vor #48-#57",
+  "start": "2026-10-12T12:49:09+02:00",
+  "end": "2026-10-12T13:26:51+02:00",
+  "duration_min": 37.7,
+  "status": "COMPLETED",
+  "plan_min": 2.6,
+  "stage_min": {
+    "ANALYZING": 0.0,
+    "ARCHITECTING": 0.0,
+    "UART_INTEGRATION": 0.0,
+    "IMPLEMENTING": 27.2,
+    "STATIC_CHECK": 0.1,
+    "SIMULATING": 0.1,
+    "VALIDATING": 1.9,
+    "SYNTHESIZING": 3.6,
+    "FPGA_PROGRAMMING": 2.2
+  },
+  "opencode_calls": 22,
+  "opencode_min": 42.5,
+  "opencode_by_stage": {
+    "plan": {
+      "n": 1,
+      "min": 2.6
+    },
+    "reference_model": {
+      "n": 1,
+      "min": 2.7
+    },
+    "implement_module": {
+      "n": 10,
+      "min": 20.5
+    },
+    "implement_testbench": {
+      "n": 9,
+      "min": 15.1
+    },
+    "requirements_review": {
+      "n": 1,
+      "min": 1.6
+    }
+  },
+  "modules": [
+    "sync2:sequential",
+    "debouncer:sequential",
+    "tick_gen:sequential",
+    "alu:combinational",
+    "program_rom:combinational",
+    "data_ram:sequential",
+    "control_unit:sequential",
+    "cpu_core:structural",
+    "display_mux:combinational",
+    "mini_cpu:structural"
+  ],
+  "requirements": 91,
+  "board_checks": 0,
+  "open_questions": 1,
+  "review": "Anforderungen: 91 erfüllt, 0 verletzt, 0 fehlten in der Liste",
+  "mutation_score": 0.9,
+  "escalations": [],
+  "repairs": 0,
+  "testbenches": [
+    "alu_tb",
+    "control_unit_tb",
+    "data_ram_tb",
+    "debouncer_tb",
+    "display_mux_tb",
+    "mini_cpu_tb",
+    "program_rom_tb",
+    "sync2_tb",
+    "tick_gen_tb"
+  ],
+  "events": 176,
+  "heartbeats": 102,
+  "event_traffic_kb": 179,
+  "terminal_event_kb": 116,
+  "task_graph_kb": 1035,
+  "reference_testbench": "bestanden",
+  "wns_ns": 3.755,
+  "tns_ns": 0.0,
+  "whs_ns": 0.172,
+  "luts": 95,
+  "registers": 151,
+  "flashed": true
+}

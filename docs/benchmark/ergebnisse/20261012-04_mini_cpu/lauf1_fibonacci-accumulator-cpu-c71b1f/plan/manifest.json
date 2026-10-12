@@ -1,0 +1,1772 @@
+{
+  "project_name": "fibonacci-accumulator-cpu",
+  "top_entity": "mini_cpu",
+  "reset_concept": "sync_active_high",
+  "modules": [
+    {
+      "entity": "sync2",
+      "file": "src/sync2.vhd",
+      "role": "zweistufiger Synchronisierer",
+      "type": "sequential",
+      "depends_on": [],
+      "parameters": {
+        "WIDTH": 1
+      },
+      "ports": [
+        {
+          "name": "clk",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rst",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "d",
+          "direction": "in",
+          "type": "std_logic_vector(WIDTH-1 downto 0)"
+        },
+        {
+          "name": "q",
+          "direction": "out",
+          "type": "std_logic_vector(WIDTH-1 downto 0)"
+        }
+      ]
+    },
+    {
+      "entity": "debouncer",
+      "file": "src/debouncer.vhd",
+      "role": "Entpreller mit Schrittimpuls",
+      "type": "sequential",
+      "depends_on": [],
+      "parameters": {
+        "DEBOUNCE_CYCLES": 1000000
+      },
+      "ports": [
+        {
+          "name": "clk",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rst",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "din",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "dout",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "rise",
+          "direction": "out",
+          "type": "std_logic"
+        }
+      ]
+    },
+    {
+      "entity": "tick_gen",
+      "file": "src/tick_gen.vhd",
+      "role": "Tick-Generator",
+      "type": "sequential",
+      "depends_on": [],
+      "parameters": {
+        "TICK_CYCLES": 50000000
+      },
+      "ports": [
+        {
+          "name": "clk",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rst",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "tick",
+          "direction": "out",
+          "type": "std_logic"
+        }
+      ]
+    },
+    {
+      "entity": "alu",
+      "file": "src/alu.vhd",
+      "role": "Rechenwerk",
+      "type": "combinational",
+      "depends_on": [],
+      "parameters": {
+        "WIDTH": 4
+      },
+      "ports": [
+        {
+          "name": "a",
+          "direction": "in",
+          "type": "std_logic_vector(WIDTH-1 downto 0)"
+        },
+        {
+          "name": "b",
+          "direction": "in",
+          "type": "std_logic_vector(WIDTH-1 downto 0)"
+        },
+        {
+          "name": "op",
+          "direction": "in",
+          "type": "std_logic_vector(2 downto 0)"
+        },
+        {
+          "name": "result",
+          "direction": "out",
+          "type": "std_logic_vector(WIDTH-1 downto 0)"
+        },
+        {
+          "name": "carry",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "zero",
+          "direction": "out",
+          "type": "std_logic"
+        }
+      ]
+    },
+    {
+      "entity": "program_rom",
+      "file": "src/program_rom.vhd",
+      "role": "Programmspeicher",
+      "type": "combinational",
+      "depends_on": [],
+      "ports": [
+        {
+          "name": "addr",
+          "direction": "in",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "data",
+          "direction": "out",
+          "type": "std_logic_vector(7 downto 0)"
+        }
+      ]
+    },
+    {
+      "entity": "data_ram",
+      "file": "src/data_ram.vhd",
+      "role": "Datenspeicher",
+      "type": "sequential",
+      "depends_on": [],
+      "parameters": {
+        "ADDR_WIDTH": 4,
+        "DATA_WIDTH": 4
+      },
+      "ports": [
+        {
+          "name": "clk",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rst",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "we",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "addr",
+          "direction": "in",
+          "type": "std_logic_vector(ADDR_WIDTH-1 downto 0)"
+        },
+        {
+          "name": "din",
+          "direction": "in",
+          "type": "std_logic_vector(DATA_WIDTH-1 downto 0)"
+        },
+        {
+          "name": "dout",
+          "direction": "out",
+          "type": "std_logic_vector(DATA_WIDTH-1 downto 0)"
+        }
+      ]
+    },
+    {
+      "entity": "control_unit",
+      "file": "src/control_unit.vhd",
+      "role": "Steuerwerk mit PC und IR",
+      "type": "sequential",
+      "depends_on": [],
+      "ports": [
+        {
+          "name": "clk",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rst",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "go",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "z",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "c",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rom_data",
+          "direction": "in",
+          "type": "std_logic_vector(7 downto 0)"
+        },
+        {
+          "name": "pc",
+          "direction": "out",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "ram_addr",
+          "direction": "out",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "ram_we",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "alu_op",
+          "direction": "out",
+          "type": "std_logic_vector(2 downto 0)"
+        },
+        {
+          "name": "use_imm",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "acc_we",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "z_we",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "c_we",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "out_we",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "halted",
+          "direction": "out",
+          "type": "std_logic"
+        }
+      ]
+    },
+    {
+      "entity": "cpu_core",
+      "file": "src/cpu_core.vhd",
+      "role": "CPU-Kern mit ACC Z C OUT",
+      "type": "structural",
+      "depends_on": [
+        "control_unit",
+        "alu",
+        "program_rom",
+        "data_ram"
+      ],
+      "ports": [
+        {
+          "name": "clk",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rst",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "go",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "out_value",
+          "direction": "out",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "acc",
+          "direction": "out",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "pc",
+          "direction": "out",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "z",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "c",
+          "direction": "out",
+          "type": "std_logic"
+        },
+        {
+          "name": "halted",
+          "direction": "out",
+          "type": "std_logic"
+        }
+      ]
+    },
+    {
+      "entity": "display_mux",
+      "file": "src/display_mux.vhd",
+      "role": "Anzeigeauswahl",
+      "type": "combinational",
+      "depends_on": [],
+      "ports": [
+        {
+          "name": "sel",
+          "direction": "in",
+          "type": "std_logic_vector(1 downto 0)"
+        },
+        {
+          "name": "mode",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "out_value",
+          "direction": "in",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "acc",
+          "direction": "in",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "pc",
+          "direction": "in",
+          "type": "std_logic_vector(3 downto 0)"
+        },
+        {
+          "name": "z",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "c",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "halted",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "disp",
+          "direction": "out",
+          "type": "std_logic_vector(3 downto 0)"
+        }
+      ]
+    },
+    {
+      "entity": "mini_cpu",
+      "file": "src/mini_cpu.vhd",
+      "role": "Top-Level mit LED-Register",
+      "type": "structural",
+      "depends_on": [
+        "sync2",
+        "debouncer",
+        "tick_gen",
+        "cpu_core",
+        "display_mux"
+      ],
+      "parameters": {
+        "TICK_CYCLES": 50000000,
+        "DEBOUNCE_CYCLES": 1000000
+      },
+      "ports": [
+        {
+          "name": "clk",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "rst",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "btn_step",
+          "direction": "in",
+          "type": "std_logic"
+        },
+        {
+          "name": "sw",
+          "direction": "in",
+          "type": "std_logic_vector(2 downto 0)"
+        },
+        {
+          "name": "led",
+          "direction": "out",
+          "type": "std_logic_vector(3 downto 0)"
+        }
+      ]
+    }
+  ],
+  "testbenches": [
+    {
+      "dut": "mini_cpu",
+      "entity": "mini_cpu_tb",
+      "file": "tests/mini_cpu_tb.vhd"
+    }
+  ],
+  "hardware_tests": [],
+  "requirements": [
+    {
+      "check": "structure",
+      "id": "R1",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.clk",
+        "mini_cpu.rst",
+        "mini_cpu.btn_step",
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "Erstelle in VHDL-2008 eine kleine 4-Bit-Akkumulator-CPU für das Arty S7-50 als Vorstufe einer 8-Bit-CPU.",
+      "text": "Entwurf ist eine 4-Bit-Akkumulator-CPU in VHDL-2008 für das Arty S7-50 als Vorstufe einer 8-Bit-CPU."
+    },
+    {
+      "check": "structure",
+      "id": "R2",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu",
+        "program_rom",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.go",
+        "cpu_core.acc",
+        "cpu_core.pc",
+        "cpu_core.out_value"
+      ],
+      "quote": "Sie besteht aus Rechenwerk, Steuerwerk, Programmspeicher und Datenspeicher und führt ein festes Demoprogramm aus (Fibonacci-Folge).",
+      "text": "CPU besteht aus Rechenwerk (alu), Steuerwerk (control_unit), Programmspeicher (program_rom) und Datenspeicher (data_ram) und führt das feste Fibonacci-Demoprogramm aus."
+    },
+    {
+      "check": "simulation",
+      "id": "R3",
+      "modules": [
+        "mini_cpu",
+        "cpu_core",
+        "display_mux"
+      ],
+      "ports": [
+        "mini_cpu.led"
+      ],
+      "quote": "Ergebnisse und innerer Zustand sind an den vier LEDs LD2–LD5 ablesbar.",
+      "text": "Ergebnisse und innerer Zustand sind an den vier LEDs LD2-LD5 (led(0)=LD2 bis led(3)=LD5) ablesbar."
+    },
+    {
+      "check": "structure",
+      "id": "R4",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.clk"
+      ],
+      "quote": "clk (in std_logic): 100-MHz-Takt des Boards.",
+      "text": "Top-Level-Port clk ist in std_logic für den 100-MHz-Takt."
+    },
+    {
+      "check": "structure",
+      "id": "R5",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.rst"
+      ],
+      "quote": "rst (in std_logic): Taster BTN0, synchroner Reset, active high.",
+      "text": "Top-Level-Port rst ist in std_logic, synchroner Reset active high an BTN0."
+    },
+    {
+      "check": "structure",
+      "id": "R6",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.btn_step"
+      ],
+      "quote": "btn_step (in std_logic): Taster BTN1, Einzelschritt.",
+      "text": "Top-Level-Port btn_step ist in std_logic an BTN1 für Einzelschritt."
+    },
+    {
+      "check": "structure",
+      "id": "R7",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.sw"
+      ],
+      "quote": "sw (in std_logic_vector(2 downto 0)): Schalter SW0–SW2.",
+      "text": "Top-Level-Port sw ist in std_logic_vector(2 downto 0) für SW0-SW2."
+    },
+    {
+      "check": "simulation",
+      "id": "R8",
+      "modules": [
+        "mini_cpu",
+        "cpu_core",
+        "display_mux"
+      ],
+      "ports": [
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "sw(1 downto 0) wählt die Anzeige: \"00\" Ausgaberegister OUT, \"01\" Akkumulator ACC, \"10\" Befehlszähler PC, \"11\" Status.",
+      "text": "sw(1 downto 0) wählt Anzeige: 00=OUT, 01=ACC, 10=PC, 11=Status."
+    },
+    {
+      "check": "simulation",
+      "id": "R9",
+      "modules": [
+        "mini_cpu",
+        "cpu_core",
+        "tick_gen",
+        "debouncer"
+      ],
+      "ports": [
+        "mini_cpu.sw",
+        "mini_cpu.btn_step"
+      ],
+      "quote": "sw(2) wählt die Betriebsart: '0' Automatik (ein Befehl je Tick), '1' Einzelschritt (ein Befehl je Druck auf btn_step).",
+      "text": "sw(2) wählt Betriebsart: 0=Automatik ein Befehl je Tick, 1=Einzelschritt ein Befehl je Druck auf btn_step."
+    },
+    {
+      "check": "structure",
+      "id": "R10",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.led"
+      ],
+      "quote": "led (out std_logic_vector(3 downto 0)): led(0) = LD2 … led(3) = LD5.",
+      "text": "Top-Level-Port led ist out std_logic_vector(3 downto 0) mit led(0)=LD2 bis led(3)=LD5."
+    },
+    {
+      "check": "structure",
+      "id": "R11",
+      "modules": [
+        "mini_cpu",
+        "tick_gen"
+      ],
+      "ports": [
+        "mini_cpu.clk"
+      ],
+      "quote": "Generic TICK_CYCLES (positive, Standard 50_000_000, also 2 Befehle pro Sekunde bei 100 MHz; mindestens 4).",
+      "text": "Generic TICK_CYCLES ist positive mit Standard 50_000_000 (mindestens 4)."
+    },
+    {
+      "check": "structure",
+      "id": "R12",
+      "modules": [
+        "mini_cpu",
+        "debouncer"
+      ],
+      "ports": [
+        "mini_cpu.btn_step"
+      ],
+      "quote": "Generic DEBOUNCE_CYCLES (positive, Standard 1_000_000, also 10 ms).",
+      "text": "Generic DEBOUNCE_CYCLES ist positive mit Standard 1_000_000 (10 ms)."
+    },
+    {
+      "check": "structure",
+      "id": "R13",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "program_rom",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.pc",
+        "cpu_core.acc",
+        "cpu_core.out_value"
+      ],
+      "quote": "Ein Befehlswort hat 8 Bit, Opcode = Bits 7..4, Operand = Bits 3..0 (Adresse a, Konstante n oder Sprungziel t).",
+      "text": "Befehlswort hat 8 Bit mit Opcode Bits 7..4 und Operand Bits 3..0 (Adresse a, Konstante n oder Sprungziel t)."
+    },
+    {
+      "check": "structure",
+      "id": "R14",
+      "modules": [
+        "data_ram"
+      ],
+      "ports": [
+        "data_ram.addr",
+        "data_ram.din",
+        "data_ram.dout"
+      ],
+      "quote": "Der Datenspeicher hat 16 Zellen zu 4 Bit.",
+      "text": "Datenspeicher hat 16 Zellen zu 4 Bit."
+    },
+    {
+      "check": "structure",
+      "id": "R15",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.pc",
+        "cpu_core.out_value",
+        "cpu_core.z",
+        "cpu_core.c"
+      ],
+      "quote": "Akkumulator ACC, Befehlszähler PC und Ausgaberegister OUT haben 4 Bit, das Befehlsregister IR 8 Bit; Z und C sind Flag-Register.",
+      "text": "ACC, PC und OUT haben 4 Bit, IR hat 8 Bit, Z und C sind 1-Bit-Flag-Register."
+    },
+    {
+      "check": "simulation",
+      "id": "R16",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.pc"
+      ],
+      "quote": "0 NOP: keine Wirkung.",
+      "text": "Opcode 0 NOP hat keine Wirkung."
+    },
+    {
+      "check": "simulation",
+      "id": "R17",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.z"
+      ],
+      "quote": "1 LDI n: ACC := n; Z neu.",
+      "text": "Opcode 1 LDI n lädt Konstante n nach ACC und aktualisiert Z (C unverändert)."
+    },
+    {
+      "check": "simulation",
+      "id": "R18",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.z",
+        "data_ram.dout"
+      ],
+      "quote": "2 LDA a: ACC := RAM[a]; Z neu.",
+      "text": "Opcode 2 LDA a lädt RAM[a] nach ACC und aktualisiert Z (C unverändert)."
+    },
+    {
+      "check": "simulation",
+      "id": "R19",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "data_ram.din"
+      ],
+      "quote": "3 STA a: RAM[a] := ACC.",
+      "text": "Opcode 3 STA a speichert ACC nach RAM[a] (Flags unverändert)."
+    },
+    {
+      "check": "simulation",
+      "id": "R20",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.z",
+        "cpu_core.c"
+      ],
+      "quote": "4 ADD a: ACC := (ACC + RAM[a]) mod 16; C := Übertrag aus Bit 3; Z neu.",
+      "text": "Opcode 4 ADD a addiert RAM[a] modulo 16, C ist Übertrag aus Bit 3, Z neu."
+    },
+    {
+      "check": "simulation",
+      "id": "R21",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.z",
+        "cpu_core.c"
+      ],
+      "quote": "5 SUB a: ACC := (ACC − RAM[a]) mod 16; C := '1', wenn ACC < RAM[a] (Borgen), sonst '0'; Z neu.",
+      "text": "Opcode 5 SUB a subtrahiert RAM[a] modulo 16, C ist Borrow (1 wenn ACC<RAM[a]), Z neu."
+    },
+    {
+      "check": "simulation",
+      "id": "R22",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.z",
+        "cpu_core.c"
+      ],
+      "quote": "6 AND a, 7 OR a, 8 XOR a: ACC := ACC and/or/xor RAM[a]; C := '0'; Z neu.",
+      "text": "Opcodes 6/7/8 AND/OR/XOR verknüpfen ACC mit RAM[a], C:=0, Z neu."
+    },
+    {
+      "check": "simulation",
+      "id": "R23",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.z",
+        "cpu_core.c"
+      ],
+      "quote": "9 SHL: ACC eine Stelle nach links, rechts wird '0' nachgeschoben; C := altes Bit 3; Z neu.",
+      "text": "Opcode 9 SHL schiebt ACC links mit 0-Nachschub, C ist altes Bit 3, Z neu."
+    },
+    {
+      "check": "simulation",
+      "id": "R24",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu"
+      ],
+      "ports": [
+        "cpu_core.acc",
+        "cpu_core.z",
+        "cpu_core.c"
+      ],
+      "quote": "A SHR: ACC eine Stelle nach rechts, links wird '0' nachgeschoben; C := altes Bit 0; Z neu.",
+      "text": "Opcode A SHR schiebt ACC rechts mit 0-Nachschub, C ist altes Bit 0, Z neu."
+    },
+    {
+      "check": "simulation",
+      "id": "R25",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.pc"
+      ],
+      "quote": "B JMP t: PC := t.",
+      "text": "Opcode B JMP t setzt PC:=t."
+    },
+    {
+      "check": "simulation",
+      "id": "R26",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.pc",
+        "cpu_core.z"
+      ],
+      "quote": "C JZ t: PC := t, wenn Z = '1'.",
+      "text": "Opcode C JZ t setzt PC:=t genau wenn Z=1."
+    },
+    {
+      "check": "simulation",
+      "id": "R27",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.pc",
+        "cpu_core.c"
+      ],
+      "quote": "D JC t: PC := t, wenn C = '1'.",
+      "text": "Opcode D JC t setzt PC:=t genau wenn C=1."
+    },
+    {
+      "check": "simulation",
+      "id": "R28",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.out_value",
+        "cpu_core.acc"
+      ],
+      "quote": "E OUT: OUT := ACC.",
+      "text": "Opcode E OUT kopiert ACC nach OUT."
+    },
+    {
+      "check": "simulation",
+      "id": "R29",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.halted"
+      ],
+      "quote": "F HLT: die CPU hält bis zum nächsten Reset an.",
+      "text": "Opcode F HLT hält die CPU bis zum nächsten Reset an."
+    },
+    {
+      "check": "simulation",
+      "id": "R30",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu"
+      ],
+      "ports": [
+        "cpu_core.z"
+      ],
+      "quote": "\"Z neu\" heißt: Z := '1' genau dann, wenn der neue ACC-Wert 0 ist.",
+      "text": "Z neu heißt Z:=1 genau dann wenn neuer ACC-Wert 0 ist."
+    },
+    {
+      "check": "simulation",
+      "id": "R31",
+      "modules": [
+        "cpu_core",
+        "control_unit",
+        "alu"
+      ],
+      "ports": [
+        "cpu_core.z",
+        "cpu_core.c"
+      ],
+      "quote": "Wo nichts angegeben ist, bleiben Z und C unverändert (auch bei LDI und LDA bleibt C unverändert).",
+      "text": "Wo nicht angegeben bleiben Z und C unverändert; bei LDI/LDA bleibt C unverändert."
+    },
+    {
+      "check": "simulation",
+      "id": "R32",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "0: x\"11\" LDI 1",
+      "text": "ROM-Adresse 0 enthält x11 (LDI 1)."
+    },
+    {
+      "check": "simulation",
+      "id": "R33",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "1: x\"30\" STA 0",
+      "text": "ROM-Adresse 1 enthält x30 (STA 0)."
+    },
+    {
+      "check": "simulation",
+      "id": "R34",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "2: x\"31\" STA 1",
+      "text": "ROM-Adresse 2 enthält x31 (STA 1)."
+    },
+    {
+      "check": "simulation",
+      "id": "R35",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "3: x\"E0\" OUT",
+      "text": "ROM-Adresse 3 enthält xE0 (OUT)."
+    },
+    {
+      "check": "simulation",
+      "id": "R36",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "4: x\"20\" LDA 0",
+      "text": "ROM-Adresse 4 enthält x20 (LDA 0)."
+    },
+    {
+      "check": "simulation",
+      "id": "R37",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "5: x\"41\" ADD 1",
+      "text": "ROM-Adresse 5 enthält x41 (ADD 1)."
+    },
+    {
+      "check": "simulation",
+      "id": "R38",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "6: x\"DE\" JC 14",
+      "text": "ROM-Adresse 6 enthält xDE (JC 14)."
+    },
+    {
+      "check": "simulation",
+      "id": "R39",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "7: x\"32\" STA 2",
+      "text": "ROM-Adresse 7 enthält x32 (STA 2)."
+    },
+    {
+      "check": "simulation",
+      "id": "R40",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "8: x\"21\" LDA 1",
+      "text": "ROM-Adresse 8 enthält x21 (LDA 1)."
+    },
+    {
+      "check": "simulation",
+      "id": "R41",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "9: x\"30\" STA 0",
+      "text": "ROM-Adresse 9 enthält x30 (STA 0)."
+    },
+    {
+      "check": "simulation",
+      "id": "R42",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "10: x\"22\" LDA 2",
+      "text": "ROM-Adresse 10 enthält x22 (LDA 2)."
+    },
+    {
+      "check": "simulation",
+      "id": "R43",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "11: x\"31\" STA 1",
+      "text": "ROM-Adresse 11 enthält x31 (STA 1)."
+    },
+    {
+      "check": "simulation",
+      "id": "R44",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "12: x\"E0\" OUT",
+      "text": "ROM-Adresse 12 enthält xE0 (OUT)."
+    },
+    {
+      "check": "simulation",
+      "id": "R45",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "13: x\"B4\" JMP 4",
+      "text": "ROM-Adresse 13 enthält xB4 (JMP 4)."
+    },
+    {
+      "check": "simulation",
+      "id": "R46",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "14: x\"F0\" HLT",
+      "text": "ROM-Adresse 14 enthält xF0 (HLT)."
+    },
+    {
+      "check": "simulation",
+      "id": "R47",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "15: x\"00\" NOP",
+      "text": "ROM-Adresse 15 enthält x00 (NOP)."
+    },
+    {
+      "check": "simulation",
+      "id": "R48",
+      "modules": [
+        "cpu_core",
+        "data_ram"
+      ],
+      "ports": [
+        "cpu_core.out_value",
+        "data_ram.dout"
+      ],
+      "quote": "RAM[0] und RAM[1] halten die letzten beiden Fibonacci-Zahlen.",
+      "text": "RAM[0] und RAM[1] halten die letzten beiden Fibonacci-Zahlen."
+    },
+    {
+      "check": "simulation",
+      "id": "R49",
+      "modules": [
+        "cpu_core"
+      ],
+      "ports": [
+        "cpu_core.out_value"
+      ],
+      "quote": "OUT zeigt nacheinander 1, 2, 3, 5, 8, 13 (nach dem 4., 13., 23., 33., 43. und 53. Befehl).",
+      "text": "OUT zeigt nacheinander 1,2,3,5,8,13 nach dem 4.,13.,23.,33.,43. und 53. Befehl."
+    },
+    {
+      "check": "simulation",
+      "id": "R50",
+      "modules": [
+        "cpu_core",
+        "control_unit"
+      ],
+      "ports": [
+        "cpu_core.c",
+        "cpu_core.halted",
+        "cpu_core.out_value",
+        "cpu_core.acc",
+        "cpu_core.pc",
+        "cpu_core.z"
+      ],
+      "quote": "Die nächste Summe 21 läuft über (C = '1'), JC springt nach 14 und die CPU hält nach dem 58. Befehl an. Danach gilt: OUT = 13, ACC = 5, PC = 15, Z = '0', C = '1'.",
+      "text": "Summe 21 erzeugt Überlauf C=1, JC springt nach 14, CPU hält nach 58. Befehl; danach OUT=13, ACC=5, PC=15, Z=0, C=1."
+    },
+    {
+      "check": "simulation",
+      "id": "R51",
+      "modules": [
+        "control_unit"
+      ],
+      "ports": [
+        "control_unit.clk",
+        "control_unit.rst",
+        "control_unit.halted"
+      ],
+      "quote": "Zustände WAIT, FETCH, DECODE, EXECUTE und HALT; nach dem Reset WAIT.",
+      "text": "Steuerwerk hat Zustände WAIT,FETCH,DECODE,EXECUTE,HALT; nach Reset WAIT."
+    },
+    {
+      "check": "simulation",
+      "id": "R52",
+      "modules": [
+        "control_unit",
+        "tick_gen",
+        "debouncer"
+      ],
+      "ports": [
+        "control_unit.go",
+        "tick_gen.tick",
+        "debouncer.rise"
+      ],
+      "quote": "go ist in Automatik der Tick und im Einzelschritt der Schrittimpuls des Tasters.",
+      "text": "Steuersignal go ist in Automatik der Tick und im Einzelschritt der entprellte Schrittimpuls rise."
+    },
+    {
+      "check": "simulation",
+      "id": "R53",
+      "modules": [
+        "control_unit"
+      ],
+      "ports": [
+        "control_unit.go"
+      ],
+      "quote": "WAIT: bei go = '1' weiter nach FETCH, sonst bleiben. In allen anderen Zuständen wird go ignoriert.",
+      "text": "In WAIT geht es bei go=1 nach FETCH sonst Bleiben; in allen anderen Zuständen wird go ignoriert."
+    },
+    {
+      "check": "simulation",
+      "id": "R54",
+      "modules": [
+        "control_unit"
+      ],
+      "ports": [
+        "control_unit.pc",
+        "control_unit.rom_data"
+      ],
+      "quote": "FETCH: IR := ROM[PC]; PC := PC + 1 (mod 16); weiter nach DECODE.",
+      "text": "FETCH lädt IR:=ROM[PC] und inkrementiert PC:=PC+1 mod 16, dann nach DECODE."
+    },
+    {
+      "check": "simulation",
+      "id": "R55",
+      "modules": [
+        "control_unit"
+      ],
+      "ports": [
+        "control_unit.alu_op",
+        "control_unit.acc_we"
+      ],
+      "quote": "DECODE: Befehl dekodieren, kein Register ändert sich; weiter nach EXECUTE.",
+      "text": "DECODE dekodiert ohne Registeränderung, dann nach EXECUTE."
+    },
+    {
+      "check": "simulation",
+      "id": "R56",
+      "modules": [
+        "control_unit",
+        "cpu_core"
+      ],
+      "ports": [
+        "control_unit.acc_we",
+        "control_unit.z_we",
+        "control_unit.c_we",
+        "control_unit.out_we",
+        "control_unit.ram_we",
+        "control_unit.halted"
+      ],
+      "quote": "EXECUTE: Befehl ausführen (ACC, Z, C, RAM, OUT bzw. PC wie im Befehlssatz); weiter nach WAIT, bei HLT nach HALT. Ein Sprung überschreibt das PC + 1 aus FETCH.",
+      "text": "EXECUTE führt Befehl aus (ACC,Z,C,RAM,OUT,PC), dann nach WAIT bzw. bei HLT nach HALT; Sprung überschreibt PC+1 aus FETCH."
+    },
+    {
+      "check": "simulation",
+      "id": "R57",
+      "modules": [
+        "control_unit"
+      ],
+      "ports": [
+        "control_unit.halted"
+      ],
+      "quote": "HALT: bleibt bis zum Reset.",
+      "text": "HALT bleibt bis zum Reset."
+    },
+    {
+      "check": "simulation",
+      "id": "R58",
+      "modules": [
+        "control_unit"
+      ],
+      "ports": [
+        "control_unit.go"
+      ],
+      "quote": "Ein Befehl braucht nach go also genau drei weitere Taktflanken (FETCH, DECODE, EXECUTE).",
+      "text": "Ein Befehl braucht nach go genau drei weitere Taktflanken (FETCH,DECODE,EXECUTE)."
+    },
+    {
+      "check": "simulation",
+      "id": "R59",
+      "modules": [
+        "sync2",
+        "mini_cpu"
+      ],
+      "ports": [
+        "sync2.d",
+        "sync2.q",
+        "mini_cpu.sw"
+      ],
+      "quote": "sw wird mit zwei Flipflops einsynchronisiert. Alle Regeln verwenden die einsynchronisierten Werte.",
+      "text": "sw wird mit zwei Flipflops synchronisiert; alle Regeln verwenden synchronisierte Werte."
+    },
+    {
+      "check": "simulation",
+      "id": "R60",
+      "modules": [
+        "sync2",
+        "debouncer",
+        "mini_cpu"
+      ],
+      "ports": [
+        "sync2.d",
+        "sync2.q",
+        "debouncer.din",
+        "debouncer.dout",
+        "debouncer.rise",
+        "mini_cpu.btn_step"
+      ],
+      "quote": "btn_step wird mit zwei Flipflops einsynchronisiert und dann entprellt.",
+      "text": "btn_step wird mit zwei Flipflops synchronisiert und dann entprellt."
+    },
+    {
+      "check": "simulation",
+      "id": "R61",
+      "modules": [
+        "debouncer"
+      ],
+      "ports": [
+        "debouncer.din",
+        "debouncer.dout"
+      ],
+      "quote": "Ist sein Eingang gleich dout, wird der Zähler 0. Sonst zählt er um eins hoch; steht er dabei schon auf DEBOUNCE_CYCLES−1, übernimmt dout stattdessen den Eingang und der Zähler wird 0.",
+      "text": "Entpreller: bei Eingang==dout Zähler=0, sonst +1; bei Zähler=DEBOUNCE_CYCLES-1 übernimmt dout den Eingang und Zähler=0."
+    },
+    {
+      "check": "simulation",
+      "id": "R62",
+      "modules": [
+        "debouncer"
+      ],
+      "ports": [
+        "debouncer.dout"
+      ],
+      "quote": "dout wechselt also mit der DEBOUNCE_CYCLES-ten aufeinanderfolgenden Flanke, an der Eingang und dout verschieden sind.",
+      "text": "dout wechselt mit der DEBOUNCE_CYCLES-ten aufeinanderfolgenden Flanke mit Eingang ungleich dout."
+    },
+    {
+      "check": "simulation",
+      "id": "R63",
+      "modules": [
+        "debouncer"
+      ],
+      "ports": [
+        "debouncer.rise",
+        "debouncer.dout"
+      ],
+      "quote": "Der Schrittimpuls rise ist ebenfalls ein Register: Er wird mit derselben Flanke '1', mit der dout von '0' auf '1' wechselt, und ist genau einen Takt lang '1'.",
+      "text": "Schrittimpuls rise wird mit der Flanke 1 bei der dout 0->1 wechselt und ist genau einen Takt 1."
+    },
+    {
+      "check": "simulation",
+      "id": "R64",
+      "modules": [
+        "tick_gen"
+      ],
+      "ports": [
+        "tick_gen.tick"
+      ],
+      "quote": "Der Tick-Generator zählt von 0 bis TICK_CYCLES−1 und liefert beim Zählerstand TICK_CYCLES−1 einen Tick von genau einem Takt.",
+      "text": "Tick-Generator zählt 0 bis TICK_CYCLES-1 und liefert bei TICK_CYCLES-1 einen Tick von genau einem Takt."
+    },
+    {
+      "check": "simulation",
+      "id": "R65",
+      "modules": [
+        "tick_gen",
+        "control_unit"
+      ],
+      "ports": [
+        "tick_gen.tick",
+        "control_unit.halted"
+      ],
+      "quote": "Er läuft immer, auch im Einzelschritt und im HALT.",
+      "text": "Tick-Generator läuft immer, auch im Einzelschritt und in HALT."
+    },
+    {
+      "check": "simulation",
+      "id": "R66",
+      "modules": [
+        "tick_gen",
+        "control_unit"
+      ],
+      "ports": [
+        "tick_gen.tick",
+        "control_unit.go"
+      ],
+      "quote": "In Automatik beginnt der erste Befehl nach dem Reset also mit der TICK_CYCLES-ten steigenden Flanke ohne Reset (WAIT → FETCH).",
+      "text": "In Automatik beginnt erster Befehl mit der TICK_CYCLES-ten Flanke ohne Reset (WAIT->FETCH)."
+    },
+    {
+      "check": "simulation",
+      "id": "R67",
+      "modules": [
+        "mini_cpu",
+        "display_mux"
+      ],
+      "ports": [
+        "mini_cpu.led"
+      ],
+      "quote": "led ist ein Register und übernimmt mit jeder steigenden Taktflanke den ausgewählten Anzeigewert.",
+      "text": "led ist ein Register und übernimmt jede Taktflanke den ausgewählten Anzeigewert."
+    },
+    {
+      "check": "simulation",
+      "id": "R68",
+      "modules": [
+        "mini_cpu",
+        "display_mux"
+      ],
+      "ports": [
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "Eine Schalteränderung ist dadurch nach genau 3 Taktflanken an den LEDs sichtbar, eine Registeränderung der CPU eine Flanke später.",
+      "text": "Schalteränderung ist nach genau 3 Flanken an LEDs sichtbar, CPU-Registeränderung eine Flanke später."
+    },
+    {
+      "check": "simulation",
+      "id": "R69",
+      "modules": [
+        "display_mux",
+        "mini_cpu"
+      ],
+      "ports": [
+        "display_mux.halted",
+        "display_mux.mode",
+        "display_mux.c",
+        "display_mux.z",
+        "display_mux.disp",
+        "mini_cpu.led"
+      ],
+      "quote": "Statusanzeige: led(3) = HALT (Steuerwerk im Zustand HALT), led(2) = Betriebsart (einsynchronisiertes sw(2)), led(1) = C, led(0) = Z.",
+      "text": "Statusanzeige: led(3)=HALT, led(2)=Betriebsart sync sw(2), led(1)=C, led(0)=Z."
+    },
+    {
+      "check": "simulation",
+      "id": "R70",
+      "modules": [
+        "cpu_core",
+        "display_mux"
+      ],
+      "ports": [
+        "cpu_core.pc",
+        "display_mux.pc",
+        "display_mux.disp"
+      ],
+      "quote": "Die PC-Anzeige zeigt die Adresse des nächsten zu holenden Befehls.",
+      "text": "PC-Anzeige zeigt Adresse des nächsten zu holenden Befehls."
+    },
+    {
+      "check": "simulation",
+      "id": "R71",
+      "modules": [
+        "mini_cpu",
+        "sync2",
+        "debouncer",
+        "tick_gen",
+        "cpu_core",
+        "control_unit",
+        "data_ram",
+        "display_mux"
+      ],
+      "ports": [
+        "mini_cpu.rst",
+        "control_unit.rst",
+        "data_ram.rst",
+        "mini_cpu.led"
+      ],
+      "quote": "Reset: Alle Register werden 0, also Synchronisierer, Entpreller, Tick-Zähler, PC, IR, ACC, Z, C, OUT, alle 16 RAM-Zellen und led; das Steuerwerk geht nach WAIT.",
+      "text": "Synchroner Reset setzt alle Register auf 0 (Sync, Entpreller, Tick-Zähler, PC, IR, ACC, Z, C, OUT, 16 RAM-Zellen, led); Steuerwerk nach WAIT."
+    },
+    {
+      "check": "structure",
+      "id": "R72",
+      "modules": [
+        "sync2"
+      ],
+      "ports": [
+        "sync2.clk",
+        "sync2.rst",
+        "sync2.d",
+        "sync2.q"
+      ],
+      "quote": "sync2: zweistufiger Synchronisierer mit Generic WIDTH.",
+      "text": "Modul sync2 ist zweistufiger Synchronisierer mit Generic WIDTH als src/sync2.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R73",
+      "modules": [
+        "debouncer"
+      ],
+      "ports": [
+        "debouncer.clk",
+        "debouncer.rst",
+        "debouncer.din",
+        "debouncer.dout",
+        "debouncer.rise"
+      ],
+      "quote": "debouncer: Entpreller mit Generic DEBOUNCE_CYCLES und den Ausgängen dout und rise.",
+      "text": "Modul debouncer ist Entpreller mit Generic DEBOUNCE_CYCLES und Ausgängen dout/rise als src/debouncer.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R74",
+      "modules": [
+        "tick_gen"
+      ],
+      "ports": [
+        "tick_gen.clk",
+        "tick_gen.rst",
+        "tick_gen.tick"
+      ],
+      "quote": "tick_gen: Tick-Generator mit Generic TICK_CYCLES und Ausgang tick.",
+      "text": "Modul tick_gen ist Tick-Generator mit Generic TICK_CYCLES und Ausgang tick als src/tick_gen.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R75",
+      "modules": [
+        "alu"
+      ],
+      "ports": [
+        "alu.a",
+        "alu.b",
+        "alu.op",
+        "alu.result",
+        "alu.carry",
+        "alu.zero"
+      ],
+      "quote": "alu (Rechenwerk): kombinatorisch mit Generic WIDTH (Standard 4).",
+      "text": "Modul alu ist kombinatorisches Rechenwerk mit Generic WIDTH Standard 4 als src/alu.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R76",
+      "modules": [
+        "alu"
+      ],
+      "ports": [
+        "alu.op",
+        "alu.a",
+        "alu.b",
+        "alu.result",
+        "alu.carry",
+        "alu.zero"
+      ],
+      "quote": "Eingänge a, b und op (3 Bit: \"000\" ADD, \"001\" SUB, \"010\" AND, \"011\" OR, \"100\" XOR, \"101\" SHL von a, \"110\" SHR von a, \"111\" PASS b), Ausgänge result, carry und zero.",
+      "text": "ALU-Ports a,b,op(3 Bit mit 000=ADD bis 111=PASS b), result,carry,zero."
+    },
+    {
+      "check": "structure",
+      "id": "R77",
+      "modules": [
+        "alu"
+      ],
+      "ports": [
+        "alu.result",
+        "alu.carry",
+        "alu.zero"
+      ],
+      "quote": "carry wie im Befehlssatz, bei PASS '0'; zero = '1', wenn result = 0.",
+      "text": "ALU-carry wie Befehlssatz (bei PASS 0); zero=1 wenn result=0."
+    },
+    {
+      "check": "structure",
+      "id": "R78",
+      "modules": [
+        "program_rom"
+      ],
+      "ports": [
+        "program_rom.addr",
+        "program_rom.data"
+      ],
+      "quote": "program_rom (Programmspeicher): 16 × 8 Bit mit dem Demoprogramm, kombinatorisches Lesen.",
+      "text": "Modul program_rom ist 16x8-Bit Programmspeicher mit Demoprogramm und kombinatorischem Lesen als src/program_rom.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R79",
+      "modules": [
+        "data_ram"
+      ],
+      "ports": [
+        "data_ram.clk",
+        "data_ram.rst",
+        "data_ram.we",
+        "data_ram.addr",
+        "data_ram.din",
+        "data_ram.dout"
+      ],
+      "quote": "data_ram (Datenspeicher): Generics ADDR_WIDTH = 4 und DATA_WIDTH = 4; synchrones Schreiben mit we, kombinatorisches Lesen; der synchrone Reset löscht alle Zellen.",
+      "text": "Modul data_ram hat ADDR_WIDTH=4 DATA_WIDTH=4, sync Schreiben mit we, komb Lesen, sync Reset löscht alle Zellen als src/data_ram.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R80",
+      "modules": [
+        "control_unit"
+      ],
+      "ports": [
+        "control_unit.clk",
+        "control_unit.rst",
+        "control_unit.go",
+        "control_unit.pc",
+        "control_unit.halted"
+      ],
+      "quote": "control_unit (Steuerwerk): Zustandsautomat, PC und IR; erzeugt aus dem Befehl die Steuersignale für ALU, Akkumulator, Flags, Datenspeicher und OUT.",
+      "text": "Modul control_unit ist Zustandsautomat mit PC/IR und erzeugt Steuersignale für ALU, ACC, Flags, RAM und OUT als src/control_unit.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R81",
+      "modules": [
+        "cpu_core"
+      ],
+      "ports": [
+        "cpu_core.clk",
+        "cpu_core.rst",
+        "cpu_core.go",
+        "cpu_core.out_value",
+        "cpu_core.acc",
+        "cpu_core.pc",
+        "cpu_core.z",
+        "cpu_core.c",
+        "cpu_core.halted"
+      ],
+      "quote": "cpu_core: enthält ACC, Z, C und OUT und instanziiert control_unit, alu, program_rom und data_ram. Eingang go; Ausgänge out_value, acc, pc, z, c und halted.",
+      "text": "Modul cpu_core enthält ACC,Z,C,OUT, instanziiert control_unit/alu/program_rom/data_ram, mit Eingang go und Ausgängen out_value,acc,pc,z,c,halted als src/cpu_core.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R82",
+      "modules": [
+        "display_mux"
+      ],
+      "ports": [
+        "display_mux.sel",
+        "display_mux.mode",
+        "display_mux.out_value",
+        "display_mux.acc",
+        "display_mux.pc",
+        "display_mux.disp"
+      ],
+      "quote": "display_mux: kombinatorische Auswahl des Anzeigewerts.",
+      "text": "Modul display_mux ist kombinatorische Anzeigewert-Auswahl als src/display_mux.vhd."
+    },
+    {
+      "check": "structure",
+      "id": "R83",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.clk",
+        "mini_cpu.rst",
+        "mini_cpu.btn_step",
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "mini_cpu: Top-Level; instanziiert sync2 (je eine Instanz für sw und btn_step), debouncer, tick_gen, cpu_core und display_mux und enthält das LED-Register.",
+      "text": "Top-Modul mini_cpu instanziiert sync2 (für sw und btn_step), debouncer, tick_gen, cpu_core, display_mux und enthält LED-Register als src/mini_cpu.vhd."
+    },
+    {
+      "check": "simulation",
+      "id": "R84",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.clk",
+        "mini_cpu.rst",
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "Testbench tests/mini_cpu_tb.vhd mit TICK_CYCLES = 4 und DEBOUNCE_CYCLES = 2.",
+      "text": "Testbench tests/mini_cpu_tb.vhd instantiiert mini_cpu mit TICK_CYCLES=4 und DEBOUNCE_CYCLES=2."
+    },
+    {
+      "check": "simulation",
+      "id": "R85",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.led"
+      ],
+      "quote": "Automatik: die Folge der OUT-Werte 1, 2, 3, 5, 8, 13, das Anhalten nach dem 58. Befehl und danach ACC = 5, PC = 15 und Status \"1010\" (HALT, Automatik, C = '1', Z = '0');",
+      "text": "TB prüft in Automatik OUT-Folge 1,2,3,5,8,13, Halt nach 58. Befehl, danach ACC=5, PC=15, Status 1010."
+    },
+    {
+      "check": "simulation",
+      "id": "R86",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.btn_step",
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "Einzelschritt: Ohne Tastendruck bleibt die CPU stehen. Jeder Druck führt genau einen Befehl aus, nach dem ersten gilt ACC = 1 und PC = 1. Ein Impuls kürzer als DEBOUNCE_CYCLES löst keinen Schritt aus;",
+      "text": "TB prüft Einzelschritt: ohne Druck Stillstand, je Druck ein Befehl, nach erstem ACC=1 PC=1, Impuls kürzer als DEBOUNCE_CYCLES kein Schritt."
+    },
+    {
+      "check": "simulation",
+      "id": "R87",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.rst",
+        "mini_cpu.led"
+      ],
+      "quote": "einen Reset mitten im Programm, nach dem das Programm von vorn beginnt;",
+      "text": "TB prüft Reset mitten im Programm mit Neustart von vorn."
+    },
+    {
+      "check": "simulation",
+      "id": "R88",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "die Latenz von 3 Taktflanken nach einer Schalteränderung.",
+      "text": "TB prüft Latenz von 3 Taktflanken nach Schalteränderung."
+    },
+    {
+      "check": "structure",
+      "id": "R89",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.sw",
+        "mini_cpu.led"
+      ],
+      "quote": "Am Board (alle Schalter unten, Automatik, Anzeige OUT) leuchten die LEDs (LD5 … LD2) nach dem Einschalten oder nach BTN0 nacheinander 0001, 0010, 0011, 0101, 1000 und 1101, etwa alle 5 Sekunden ein neuer Wert.",
+      "text": "Am Board mit allen Schaltern unten zeigen LEDs nacheinander 0001,0010,0011,0101,1000,1101 etwa alle 5 s."
+    },
+    {
+      "check": "structure",
+      "id": "R90",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.led"
+      ],
+      "quote": "Nach rund 29 Sekunden hält die CPU an.",
+      "text": "Am Board hält die CPU nach rund 29 s an."
+    },
+    {
+      "check": "structure",
+      "id": "R91",
+      "modules": [
+        "mini_cpu"
+      ],
+      "ports": [
+        "mini_cpu.sw"
+      ],
+      "quote": "Mit SW1–SW0 lassen sich Akkumulator, Befehlszähler und Status ablesen; mit SW2 oben führt jeder Druck auf BTN1 genau einen Befehl aus.",
+      "text": "Mit SW1-SW0 sind ACC/PC/Status ablesbar; mit SW2 oben führt jeder Druck auf BTN1 genau einen Befehl aus."
+    }
+  ],
+  "open_questions": [
+    "Widerspruch Reset-Konzept: .opencode/skills/vhdl-synthesis-rules/SKILL.md nennt als Default 'asynchron, active-high', PROMPT.md fordert 'Taster BTN0, synchroner Reset, active high' und 'der synchrone Reset löscht alle Zellen'. PROMPT.md gewinnt per AGENTS.md R9; manifest verwendet reset_concept=sync_active_high."
+  ]
+}

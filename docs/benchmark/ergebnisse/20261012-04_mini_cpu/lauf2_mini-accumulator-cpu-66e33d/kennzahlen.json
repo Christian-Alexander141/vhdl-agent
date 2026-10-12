@@ -1,0 +1,89 @@
+{
+  "run": 2,
+  "label": "Lauf 2",
+  "project": "mini-accumulator-cpu-66e33d",
+  "commit": "af7d863",
+  "note": "Stand vor #48-#57, Wiederholung",
+  "start": "2026-10-12T15:07:04+02:00",
+  "end": "2026-10-12T15:45:03+02:00",
+  "duration_min": 38.0,
+  "status": "COMPLETED",
+  "plan_min": 2.7,
+  "stage_min": {
+    "ANALYZING": 0.0,
+    "ARCHITECTING": 0.0,
+    "UART_INTEGRATION": 0.0,
+    "IMPLEMENTING": 26.3,
+    "STATIC_CHECK": 0.1,
+    "SIMULATING": 0.1,
+    "VALIDATING": 3.2,
+    "SYNTHESIZING": 3.5,
+    "FPGA_PROGRAMMING": 2.1
+  },
+  "opencode_calls": 22,
+  "opencode_min": 41.8,
+  "opencode_by_stage": {
+    "plan": {
+      "n": 1,
+      "min": 2.7
+    },
+    "reference_model": {
+      "n": 1,
+      "min": 4.3
+    },
+    "implement_module": {
+      "n": 10,
+      "min": 15.8
+    },
+    "implement_testbench": {
+      "n": 9,
+      "min": 16.4
+    },
+    "requirements_review": {
+      "n": 1,
+      "min": 2.9
+    }
+  },
+  "modules": [
+    "sync2:sequential",
+    "debouncer:sequential",
+    "tick_gen:sequential",
+    "alu:combinational",
+    "program_rom:combinational",
+    "data_ram:sequential",
+    "control_unit:sequential",
+    "cpu_core:sequential",
+    "display_mux:combinational",
+    "mini_cpu:sequential"
+  ],
+  "requirements": 74,
+  "board_checks": 0,
+  "open_questions": 1,
+  "review": "Anforderungen: 74 erfüllt, 0 verletzt, 0 fehlten in der Liste",
+  "mutation_score": 0.7,
+  "escalations": [],
+  "repairs": 0,
+  "testbenches": [
+    "alu_tb",
+    "control_unit_tb",
+    "data_ram_tb",
+    "debouncer_tb",
+    "display_mux_tb",
+    "mini_cpu_tb",
+    "program_rom_tb",
+    "sync2_tb",
+    "tick_gen_tb"
+  ],
+  "events": 177,
+  "heartbeats": 103,
+  "event_traffic_kb": 165,
+  "terminal_event_kb": 103,
+  "task_graph_kb": 996,
+  "reference_testbench": "bestanden",
+  "wns_ns": 3.137,
+  "tns_ns": 0.0,
+  "whs_ns": 0.166,
+  "luts": 108,
+  "registers": 149,
+  "flashed": true
+}

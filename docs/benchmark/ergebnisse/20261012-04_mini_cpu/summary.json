@@ -1,0 +1,35 @@
+{
+  "runs": 3,
+  "completed": 3,
+  "reference_passed": 3,
+  "mean_duration_min": 40.9,
+  "per_run": {
+    "Lauf 1": {
+      "duration_min": 37.7,
+      "status": "COMPLETED",
+      "repairs": 0,
+      "mutation_score": 0.9,
+      "requirements": 91,
+      "wns_ns": 3.755,
+      "reference_testbench": "bestanden"
+    },
+    "Lauf 2": {
+      "duration_min": 38.0,
+      "status": "COMPLETED",
+      "repairs": 0,
+      "mutation_score": 0.7,
+      "requirements": 74,
+      "wns_ns": 3.137,
+      "reference_testbench": "bestanden"
+    },
+    "Kontrolllauf": {
+      "duration_min": 47.1,
+      "status": "COMPLETED",
+      "repairs": 2,
+      "mutation_score": 1.0,
+      "requirements": 91,
+      "wns_ns": 3.766,
+      "reference_testbench": "bestanden"
+    }
+  }
+}
