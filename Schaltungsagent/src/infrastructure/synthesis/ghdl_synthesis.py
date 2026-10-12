@@ -41,7 +41,7 @@ class GHDLSynthesisService(SynthesisService):
         return shutil.which(self._ghdl_binary) is not None
 
     def synthesize(
-        self, workspace: str, target: str = "", domain: str = "vhdl"
+        self, workspace: str, target: str = "", domain: str = "vhdl", top_entity: str = ""
     ) -> SynthesisResult:
         logger.info("GHDL synthesizing workspace: %s (target: %s)", workspace, target)
         ws_path = Path(workspace)
@@ -70,6 +70,18 @@ class GHDLSynthesisService(SynthesisService):
                 "No top-level entity found in src/", steps,
                 details=self._attach_artifacts({}, src_dir),
             )
+
+        if top_entity:
+            # Nur das Top-Level synthetisieren (samt Untermodulen). Früher gewann
+            # die erste synthesefähige Entity in Dateireihenfolge, z. B.
+            # gray_encoder statt led_patterns; das Top-Level blieb ungeprüft.
+            wanted = [(f, e) for f, e in entities if e.lower() == top_entity.lower()]
+            if not wanted:
+                return self._fail(
+                    f"Top-level entity '{top_entity}' not found in src/; available: {[e for _, e in entities]}",
+                    steps, details=self._attach_artifacts({}, src_dir),
+                )
+            entities = wanted
 
         build_dir = ws_path / "build" / "synthesis"
         build_dir.mkdir(parents=True, exist_ok=True)

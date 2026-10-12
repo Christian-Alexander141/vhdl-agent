@@ -449,6 +449,8 @@ class OpenCodeTaskRunner:
         logger.info("OPENCODE_RESULT %s", payload)
         if self._events:
             try:
-                self._events.publish_event("OPENCODE_CALL", task_id, payload)
+                from src.domain.models.events import EventType
+
+                self._events.publish_event(EventType.OPENCODE_CALL, task_id, payload)
             except Exception:
                 logger.exception("Could not publish OPENCODE_CALL event")

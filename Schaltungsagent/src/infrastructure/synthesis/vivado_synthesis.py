@@ -36,7 +36,7 @@ BOARD_BITSTREAM_CONFIG: dict[str, list[str]] = {
 
 # Ändert sich das erzeugte Build-Skript inhaltlich, wird der Synthese-Cache
 # (FPGAAgent) ungültig.
-BUILD_SCRIPT_VERSION = "2026-10-11-board-config"
+BUILD_SCRIPT_VERSION = "2026-10-11-vhdl2008-top-xdc"
 
 
 def board_bitstream_config(board_name: str) -> list[str]:
@@ -121,8 +121,12 @@ class VivadoBitstreamService(BitstreamService):
                 (f, e) for f, e in entities
                 if not self._is_testbench(f)
             ]
+            roots = self._hierarchy_roots(src_dir, non_tb_entities)
             if len(non_tb_entities) == 1:
                 selected_top = non_tb_entities[0]
+            elif len(roots) == 1:
+                # Die einzige Entity, die keine andere instanziiert (Top-Level).
+                selected_top = roots[0]
             elif len(non_tb_entities) > 1:
                 available = [e[1] for e in non_tb_entities]
                 return self._fail(
@@ -274,8 +278,10 @@ class VivadoBitstreamService(BitstreamService):
     ) -> str:
         """Erzeugt das Vivado Tcl-Skript im Non-Project-Mode."""
         # Relative Pfade für read_vhdl
+        # -vhdl2008: Planung, Worker und Simulation arbeiten mit VHDL-2008; ohne
+        # den Schalter lehnte Vivado z. B. process(all) ab ([Synth 8-2757]).
         vhdl_reads = "\n".join(
-            f'read_vhdl "{f.absolute()}"' for f in src_files
+            f'read_vhdl -vhdl2008 "{f.absolute()}"' for f in src_files
         )
 
         # XDC Constraints einlesen oder auto-generieren
@@ -285,7 +291,13 @@ class VivadoBitstreamService(BitstreamService):
         if ws_path_check:
             constraints_dir = ws_path_check / "constraints"
             if constraints_dir.exists():
-                xdc_files = sorted(constraints_dir.glob("*.xdc"))
+                # auto_generated.xdc ist ein abgeleitetes Artefakt und wird bei
+                # jedem Build neu erzeugt; früher blieb eine einmal falsch erzeugte
+                # Datei liegen und wurde als Projekt-XDC wiederverwendet.
+                xdc_files = sorted(f for f in constraints_dir.glob("*.xdc") if f.name != "auto_generated.xdc")
+                stale = constraints_dir / "auto_generated.xdc"
+                if xdc_files and stale.exists():
+                    stale.unlink()
                 if xdc_files:
                     xdc_reads = "\n".join(
                         f'read_xdc "{f.absolute()}"' for f in xdc_files
@@ -318,7 +330,7 @@ class VivadoBitstreamService(BitstreamService):
                     xdc_content = generated_xdc
                 else:
                     # Read the first XDC file (user-provided)
-                    xdc_files = sorted(constraints_dir.glob("*.xdc"))
+                    xdc_files = sorted(f for f in constraints_dir.glob("*.xdc") if f.name != "auto_generated.xdc")
                     if xdc_files:
                         xdc_content = xdc_files[0].read_text(encoding="utf-8")
                 if xdc_content:
@@ -373,6 +385,15 @@ exit
             p for p in directory.iterdir()
             if p.is_file() and p.suffix.lower() in VHDL_EXTENSIONS
         )
+
+    @staticmethod
+    def _hierarchy_roots(src_dir: Path, entities: list[tuple[Path, str]]) -> list[tuple[Path, str]]:
+        """Entities, die von keiner anderen Entity in src/ instanziiert werden."""
+        from src.domain.agents.test_plan import _entity_graph
+
+        graph = _entity_graph(src_dir)
+        instantiated = {child for children in graph.values() for child in children}
+        return [(f, e) for f, e in entities if e.lower() not in instantiated]
 
     def _find_entities(self, src_files: list[Path]) -> list[tuple[Path, str]]:
         """Findet alle Entities in den VHDL-Dateien."""
@@ -448,9 +469,13 @@ exit
         if board_name not in ("arty_s7", "arty_s7_50"):
             return None
 
-        # Entity-Ports aus allen src-Dateien sammeln
+        # Nur die Ports des Top-Levels gehören auf Board-Pins. Früher wurden die
+        # Ports ALLER Entities gesammelt: enable eines Untermoduls landete auf
+        # SW0, data_out auf Pmod-Pins, sw[3] blieb ohne Pin (Nachlauf
+        # led-pattern-display-8a297c).
         all_ports: dict[str, dict] = {}
-        for f in src_files:
+        top_files = [f for f in src_files if (self._extract_entity_name(f) or "").lower() == (top_entity or "").lower()]
+        for f in top_files or src_files:
             all_ports.update(self._extract_entity_ports(f))
 
         if not all_ports:

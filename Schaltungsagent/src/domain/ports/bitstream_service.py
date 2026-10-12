@@ -110,7 +110,7 @@ class BitstreamService(ABC):
 
     @abstractmethod
     def build_bitstream(
-        self, workspace: str, target: str = "", domain: str = "vhdl"
+        self, workspace: str, target: str = "", domain: str = "vhdl", top_entity: str = ""
     ) -> BitstreamResult:
         ...
 

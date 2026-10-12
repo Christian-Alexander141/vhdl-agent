@@ -301,3 +301,19 @@ def test_design_state_yaml_round_trip_uses_the_fast_parser():
     again = DesignState.from_yaml(state.to_yaml())
     assert again.metadata["umlaut"] == "Zähler – Prüfung"
     assert yaml_io._Loader.__name__ in ("CSafeLoader", "SafeLoader")
+
+
+def test_opencode_call_events_reach_the_dashboard_serializer():
+    """OPENCODE_CALL wurde als Text veröffentlicht; Event.to_dict() scheiterte daran,
+    das Dashboard bekam das Ereignis nie (Traceback bei jedem OpenCode-Aufruf)."""
+    from src.domain.event_bus import EventBus
+    from src.domain.models.events import Event, EventType
+    from src.services.opencode_task_runner import OpenCodeTaskRunner
+
+    seen = []
+    bus = EventBus()
+    bus.on_event(lambda event: seen.append(event.to_dict()))
+    OpenCodeTaskRunner(opencode_service=None, event_publisher=bus)._emit("plan", "t1", "abc", 10, True, "")
+    assert seen and seen[0]["event_type"] == "OPENCODE_CALL"
+    assert Event(event_type="FREITEXT").to_dict()["event_type"] == "FREITEXT"
+    assert EventType.OPENCODE_CALL.value == "OPENCODE_CALL"

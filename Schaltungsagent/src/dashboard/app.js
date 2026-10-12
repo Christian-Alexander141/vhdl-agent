@@ -185,6 +185,7 @@ function handleServerMessage(msg) {
     case 'REPAIR_RETRY':
     case 'REFERENCE_MODEL_DISPUTED':
     case 'AGENT_NOTE':
+    case 'OPENCODE_CALL':
     case 'REQUIREMENTS_REVIEW':
     case 'REQUIREMENTS_WARNING':
     case 'IMPLEMENTATION_GRAPH_FAILED':
@@ -577,7 +578,7 @@ const EVENT_TITLES = {
   NO_PROGRESS: 'Kein Fortschritt', IDENTICAL_ERROR: 'Gleicher Fehler wiederholt',
   REFERENCE_MODEL: 'Referenzmodell', MUTATION_ANALYSIS: 'Mutationsanalyse', MUTATION_WARNING: 'Testbench-Güte niedrig',
   TOOLCHAIN_WARNING: 'Werkzeug fehlt', PROJECT_IMPLEMENTED: 'Projekt implementiert',
-  FALLBACK_USED: 'Vorlage statt OpenCode-Ergebnis', ESCALATION: 'Eskalation', REPAIR_ROLLED_BACK: 'Reparatur zurückgenommen', REPAIR_RETRY: 'Nächste Eskalationsstufe', REFERENCE_MODEL_DISPUTED: 'Referenzmodell abgeschaltet', AGENT_NOTE: 'Hinweis eines Agenten', REQUIREMENTS_REVIEW: 'Abschlussprüfung Anforderungen', REQUIREMENTS_WARNING: 'Hinweis Anforderungen', TOP_INTEGRATED: 'Top-Level integriert',
+  FALLBACK_USED: 'Vorlage statt OpenCode-Ergebnis', ESCALATION: 'Eskalation', REPAIR_ROLLED_BACK: 'Reparatur zurückgenommen', REPAIR_RETRY: 'Nächste Eskalationsstufe', REFERENCE_MODEL_DISPUTED: 'Referenzmodell abgeschaltet', AGENT_NOTE: 'Hinweis eines Agenten', OPENCODE_CALL: 'OpenCode-Aufruf', REQUIREMENTS_REVIEW: 'Abschlussprüfung Anforderungen', REQUIREMENTS_WARNING: 'Hinweis Anforderungen', TOP_INTEGRATED: 'Top-Level integriert',
   IMPLEMENTATION_GRAPH_COMPLETED: 'Implementierung abgeschlossen', IMPLEMENTATION_GRAPH_FAILED: 'Implementierung fehlgeschlagen',
   SYNTHESIS_STARTED: 'Synthese gestartet', SYNTHESIS_FINISHED: 'Synthese beendet',
   FLASH_STARTED: 'Flash gestartet', FLASH_FINISHED: 'Flash beendet',

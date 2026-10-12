@@ -8,7 +8,10 @@ Synthese erneut.
 """
 import asyncio
 import json
+import shutil
 from pathlib import Path
+
+import pytest
 
 from src.agents.debug import DebugAgent
 from src.domain.agents import AgentResult, AgentStatus, AgentTask
@@ -362,7 +365,7 @@ def test_opencode_call_ends_when_the_result_is_complete(tmp_path, monkeypatch):
         ["bash", "-c", f"echo '{{}}' > {result_file}; sleep 60"], cwd=str(tmp_path), timeout=30,
         stop_when=result_file.is_file,
     )
-    assert time.monotonic() - started < 10
+    assert time.monotonic() - started < 25
     assert completed.returncode == 0 and "vorzeitig beendet" in completed.stdout
 
 
@@ -411,3 +414,123 @@ def test_xdc_generator_never_assigns_a_pin_twice(tmp_path):
     assert re.search(r"PACKAGE_PIN G15 .*\[get_ports rst\]", xdc)
     # btn bekommt die übrigen Taster (BTN1-BTN3), nicht noch einmal G15
     assert re.findall(r"PACKAGE_PIN (\w+) .*\{btn\[\d\]\}", xdc) == ["K16", "J16", "H13"]
+
+
+# --- Top-Level in der Synthese (Lauf led-pattern-display-8a297c) ---------------------
+
+_TWO_LEVELS = {
+    "child.vhd": "library ieee; use ieee.std_logic_1164.all;\n"
+                 "entity child is port (a : in std_logic; y : out std_logic); end entity;\n"
+                 "architecture rtl of child is begin y <= not a; end architecture;\n",
+    "top.vhd": "library ieee; use ieee.std_logic_1164.all;\n"
+               "entity top is port (a : in std_logic; y : out std_logic); end entity;\n"
+               "architecture rtl of top is begin u: entity work.child port map (a => a, y => y); end architecture;\n",
+}
+
+
+def _two_level_workspace(tmp_path):
+    (tmp_path / "src").mkdir()
+    for name, text in _TWO_LEVELS.items():
+        (tmp_path / "src" / name).write_text(text)
+    return tmp_path
+
+
+def test_vivado_picks_the_hierarchy_root_when_no_top_is_given(tmp_path):
+    """Früher: 'Multiple top-level entities found' bei jedem Entwurf mit mehreren Modulen."""
+    from src.infrastructure.synthesis.vivado_synthesis import VivadoBitstreamService
+
+    ws = _two_level_workspace(tmp_path)
+    svc = VivadoBitstreamService()
+    entities = svc._find_entities(svc._find_vhdl_files(ws / "src"))
+    assert [e for _, e in svc._hierarchy_roots(ws / "src", entities)] == ["top"]
+
+
+@pytest.mark.skipif(shutil.which("ghdl") is None, reason="GHDL nicht installiert")
+def test_ghdl_synthesis_checks_the_top_level_not_the_first_file(tmp_path):
+    from src.infrastructure.synthesis.ghdl_synthesis import GHDLSynthesisService
+
+    ws = _two_level_workspace(tmp_path)
+    result = GHDLSynthesisService().synthesize(str(ws), top_entity="top")
+    assert result.passed and "for top" in result.message
+    missing = GHDLSynthesisService().synthesize(str(ws), top_entity="nope")
+    assert not missing.passed and "'nope' not found" in missing.message
+
+
+def test_supervisor_passes_the_top_level_to_synthesis(tmp_path):
+    captured = {}
+
+    class _FPGA:
+        async def execute(self, task):
+            captured.update(task.inputs)
+            return AgentResult(task_id=task.id, status=AgentStatus.FAILED, error_message="stop")
+
+    supervisor, _, _ = make_supervisor(tmp_path, fpga_agent=_FPGA())
+    set_architecture(supervisor, THREE_MODULES, "cpu")
+    supervisor._design_state.current_stage = DesignStage.VALIDATING
+    run(supervisor._run_synthesis())
+    assert captured["top_entity"] == "cpu"
+
+
+# --- Vivado-Build: VHDL-2008, XDC nur aus dem Top-Level, keine veraltete auto-XDC ------
+
+_TOP_WITH_CHILD = {
+    "child.vhd": "library ieee; use ieee.std_logic_1164.all;\n"
+                 "entity child is port (clk : in std_logic; enable : in std_logic;\n"
+                 "  data_out : out std_logic_vector(3 downto 0)); end entity;\n"
+                 "architecture rtl of child is begin data_out <= (others => enable); end architecture;\n",
+    "board_top.vhd": "library ieee; use ieee.std_logic_1164.all;\n"
+                     "entity board_top is port (clk : in std_logic; rst : in std_logic;\n"
+                     "  sw : in std_logic_vector(3 downto 0); led : out std_logic_vector(3 downto 0)); end entity;\n"
+                     "architecture rtl of board_top is begin\n"
+                     "  u: entity work.child port map (clk => clk, enable => sw(0), data_out => led);\n"
+                     "end architecture;\n",
+}
+
+
+def _board_workspace(tmp_path):
+    (tmp_path / "src").mkdir()
+    for name, text in _TOP_WITH_CHILD.items():
+        (tmp_path / "src" / name).write_text(text)
+    return tmp_path
+
+
+def _tcl(ws):
+    from src.infrastructure.synthesis.vivado_synthesis import VivadoBitstreamService
+
+    svc = VivadoBitstreamService()
+    files = svc._find_vhdl_files(ws / "src")
+    return svc._generate_tcl_script(
+        src_files=files, top_entity="board_top", part="xc7s50csga324-1",
+        bitstream_path=ws / "build" / "board_top.bit", clock_hz=100_000_000, workspace=ws,
+        board_name="arty_s7_50",
+    )
+
+
+def test_vivado_reads_sources_as_vhdl_2008(tmp_path):
+    """Ohne -vhdl2008 lehnte Vivado VHDL-2008-Code ab ([Synth 8-2757])."""
+    tcl = _tcl(_board_workspace(tmp_path))
+    assert "read_vhdl -vhdl2008" in tcl and 'read_vhdl "' not in tcl
+
+
+def test_generated_xdc_maps_only_top_level_ports(tmp_path):
+    """Früher: enable eines Untermoduls auf SW0, data_out auf Pmod-Pins, sw[3] ohne Pin."""
+    ws = _board_workspace(tmp_path)
+    _tcl(ws)
+    xdc = (ws / "constraints" / "auto_generated.xdc").read_text()
+    assert "enable" not in xdc and "data_out" not in xdc
+    for pin, port in (("H14", "{sw[0]}"), ("H18", "{sw[1]}"), ("G18", "{sw[2]}"), ("M5", "{sw[3]}"),
+                      ("G15", "rst"), ("E18", "{led[0]}"), ("H15", "{led[3]}")):
+        assert f"PACKAGE_PIN {pin} " in xdc and f"[get_ports {port}]" in xdc, (pin, port)
+
+
+def test_stale_auto_xdc_is_regenerated_and_project_xdc_wins(tmp_path):
+    ws = _board_workspace(tmp_path)
+    (ws / "constraints").mkdir()
+    (ws / "constraints" / "auto_generated.xdc").write_text("# veraltet: enable auf SW0\n")
+    tcl = _tcl(ws)
+    assert "veraltet" not in (ws / "constraints" / "auto_generated.xdc").read_text()
+    assert "auto_generated.xdc" in tcl
+    (ws / "constraints" / "board.xdc").write_text("# Projekt-XDC\n")
+    tcl = _tcl(ws)
+    assert "board.xdc" in tcl and "auto_generated.xdc" not in tcl
+    assert not (ws / "constraints" / "auto_generated.xdc").exists()

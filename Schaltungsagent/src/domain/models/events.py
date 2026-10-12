@@ -108,6 +108,7 @@ class EventType(str, Enum):
     REPAIR_RETRY = "REPAIR_RETRY"
     REFERENCE_MODEL_DISPUTED = "REFERENCE_MODEL_DISPUTED"
     AGENT_NOTE = "AGENT_NOTE"
+    OPENCODE_CALL = "OPENCODE_CALL"
     REQUIREMENTS_REVIEW = "REQUIREMENTS_REVIEW"
     REQUIREMENTS_WARNING = "REQUIREMENTS_WARNING"
     OPENCODE_STARTED = "OPENCODE_STARTED"
@@ -128,6 +129,8 @@ class Event:
             "event_id": self.event_id,
             "task_id": self.task_id,
             "timestamp": self.timestamp,
-            "event_type": self.event_type.value,
+            # Robust auch für Text-Typen: früher scheiterte hier jedes
+            # OPENCODE_CALL (als str veröffentlicht), das Dashboard bekam es nie.
+            "event_type": getattr(self.event_type, "value", str(self.event_type)),
             "payload": self.payload,
         }

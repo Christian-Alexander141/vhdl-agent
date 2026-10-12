@@ -107,7 +107,7 @@ class SynthesisService(ABC):
 
     @abstractmethod
     def synthesize(
-        self, workspace: str, target: str = "", domain: str = "vhdl"
+        self, workspace: str, target: str = "", domain: str = "vhdl", top_entity: str = ""
     ) -> SynthesisResult:
         ...
 

@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 SYNTHESIS_CACHE = "build/bitstream/synthesis_cache.json"
 
 
-def synthesis_digest(workspace: str, target_fpga: str, timing_gate: bool) -> str:
+def synthesis_digest(workspace: str, target_fpga: str, timing_gate: bool, top_entity: str = "") -> str:
     """Prüfsumme über alles, was den Bitstream bestimmt."""
     import hashlib
     from src.infrastructure.synthesis.vivado_synthesis import BUILD_SCRIPT_VERSION
 
     root = Path(workspace)
-    digest = hashlib.sha256(f"{BUILD_SCRIPT_VERSION}|{target_fpga}|{timing_gate}".encode())
+    digest = hashlib.sha256(f"{BUILD_SCRIPT_VERSION}|{target_fpga}|{timing_gate}|{top_entity}".encode())
     for folder, pattern in (("src", "*.vhd*"), ("constraints", "*.xdc")):
         for path in sorted((root / folder).glob(pattern)) if (root / folder).is_dir() else []:
             if path.name == "auto_generated.xdc":  # wird aus src und Board abgeleitet
@@ -126,13 +126,16 @@ class FPGAAgent(BaseAgent):
         workspace = task.inputs.get("workspace", "")
         target_fpga = task.inputs.get("target_fpga", "arty_s7_50")
         domain = task.inputs.get("domain", "vhdl")
+        # Top-Level aus der Architektur: ohne Angabe scheiterte Vivado an jedem
+        # Entwurf mit mehreren Modulen ("Multiple top-level entities found").
+        top_entity = task.inputs.get("top_entity", "")
         
         self.emit_event("SYNTHESIS_STARTED", {
             "task_id": task.id,
             "target_fpga": target_fpga,
         })
 
-        digest = synthesis_digest(workspace, target_fpga, self._require_timing_closure)
+        digest = synthesis_digest(workspace, target_fpga, self._require_timing_closure, top_entity)
         cached = read_synthesis_cache(workspace, digest)
         if cached:
             # Lauf gray-countdown 2026-10-11: Nach jeder (ergebnislosen)
@@ -150,7 +153,7 @@ class FPGAAgent(BaseAgent):
         from src.infrastructure.synthesis.ghdl_synthesis import GHDLSynthesisService
         ghdl_synth = GHDLSynthesisService()
         
-        ghdl_result = ghdl_synth.synthesize(workspace, target_fpga, domain)
+        ghdl_result = ghdl_synth.synthesize(workspace, target_fpga, domain, top_entity=top_entity)
         
         if not ghdl_result.passed:
             self.emit_event("SYNTHESIS_FINISHED", {
@@ -177,7 +180,7 @@ class FPGAAgent(BaseAgent):
         
         # 2. Vivado Bitstream-Erzeugung (Stufe 2)
         bitstream_result = self._bitstream_service.build_bitstream(
-            workspace, target=target_fpga, domain=domain
+            workspace, target=target_fpga, domain=domain, top_entity=task.inputs.get("top_entity", "")
         )
         
         if not bitstream_result.passed:
@@ -265,7 +268,7 @@ class FPGAAgent(BaseAgent):
         domain = task.inputs.get("domain", "vhdl")
         
         bitstream_result = self._bitstream_service.build_bitstream(
-            workspace, target=target_fpga, domain=domain
+            workspace, target=target_fpga, domain=domain, top_entity=task.inputs.get("top_entity", "")
         )
         
         if bitstream_result.passed:

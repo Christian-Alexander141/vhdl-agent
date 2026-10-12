@@ -1748,6 +1748,7 @@ class SupervisorAgent(BaseAgent):
                 "workspace": self._fs.workspace_path(self._current_task.project_id),
                 "target_fpga": self._target_fpga(),
                 "domain": self._current_task.inputs.get("domain", "vhdl"),
+                "top_entity": self._design_state.architecture.top_module,
             },
         )
         
