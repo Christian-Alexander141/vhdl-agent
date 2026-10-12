@@ -1,7 +1,7 @@
 # Bekannte Grenzen von Schaltungsagent
 
 > Grundlage für die Diskussionskapitel der Abschlussarbeit.
-> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#46);
+> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#47);
 > Entwicklungsverlauf: `docs/architecture/AENDERUNGSPROTOKOLL.drawio`.
 
 ## Erreicht

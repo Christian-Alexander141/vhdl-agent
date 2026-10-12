@@ -132,10 +132,7 @@ end Behavioral;
 
     @patch('subprocess.run')
     @patch('shutil.which')
-    @patch.object(Path, 'exists', return_value=True)
-    @patch.object(Path, 'write_text')
-    @patch.object(Path, 'mkdir')
-    def test_build_bitstream_timeout(self, mock_mkdir, mock_write, mock_exists, mock_which, mock_run):
+    def test_build_bitstream_timeout(self, mock_which, mock_run):
         """Test: Bitstream-Build Timeout."""
         import subprocess
         mock_which.return_value = "/usr/bin/vivado"

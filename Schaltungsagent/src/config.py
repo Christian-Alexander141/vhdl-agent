@@ -213,6 +213,21 @@ class Settings:
         return str(p)
 
 
+def _resolve_relative(entry: str, config_dir: str) -> str:
+    """Relativen Pfad an der config.yaml bzw. am Paket festmachen statt am Arbeitsverzeichnis.
+
+    Vorher war die Domain-Liste leer, sobald der Server nicht aus dem
+    Repo-Wurzelverzeichnis gestartet wurde.
+    """
+    if os.path.isabs(entry):
+        return entry
+    for base in (config_dir, str(Path(__file__).resolve().parents[1])):
+        candidate = Path(base) / entry
+        if base and candidate.exists():
+            return str(candidate.resolve())
+    return entry
+
+
 def load_config(config_path: str | None = None) -> Settings:
     if config_path is None:
         repo_root = Path(__file__).resolve().parents[2]
@@ -257,7 +272,10 @@ def load_config(config_path: str | None = None) -> Settings:
         domains_data = data["domains"]
         settings.domains = DomainsConfig(
             default=domains_data.get("default", "vhdl"),
-            search_paths=domains_data.get("search_paths", ["./src/domain_plugins"]),
+            search_paths=[
+                _resolve_relative(entry, settings._config_dir)
+                for entry in domains_data.get("search_paths", ["./src/domain_plugins"])
+            ],
             paths=domains_data.get("paths", {"vhdl": "./src/domain_plugins/vhdl"}),
         )
     if "eda_tools" in data:

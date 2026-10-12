@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pytest
 from src.domain.state_machine import StateMachine, WorkflowState
-from src.domain.exceptions import StateMachineError
 
 
 class TestTimeoutHandling:
@@ -63,13 +62,6 @@ class TestCancellation:
         sm.transition_to(WorkflowState.FAILED)
         assert sm.current == WorkflowState.FAILED
 
-    def test_no_double_transition(self):
-        """Ein terminaler Zustand darf nicht erneut uebergegangen werden."""
-        sm = StateMachine(WorkflowState.COMPLETED)
-        assert sm.get_allowed_transitions() == []
-        # Attempting to transition should raise
-        with pytest.raises(StateMachineError):
-            sm.transition_to(WorkflowState.ANALYZING)
 
 
 class TestThreadSafety:

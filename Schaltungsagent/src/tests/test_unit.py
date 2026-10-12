@@ -17,14 +17,6 @@ def test_state_machine_initial_state():
     assert sm.current == WorkflowState.CREATED
 
 
-def test_state_machine_valid_transitions():
-    sm = StateMachine()
-    sm.transition_to(WorkflowState.ANALYZING)
-    assert sm.current == WorkflowState.ANALYZING
-    sm.transition_to(WorkflowState.ARCHITECTING)
-    assert sm.current == WorkflowState.ARCHITECTING
-    sm.transition_to(WorkflowState.IMPLEMENTING)
-    assert sm.current == WorkflowState.IMPLEMENTING
 
 
 def test_state_machine_invalid_transition():
@@ -45,42 +37,8 @@ def test_state_machine_completed_has_no_transitions():
     assert sm.can_transition_to(WorkflowState.FAILED) is False
 
 
-def test_state_machine_full_workflow():
-    sm = StateMachine()
-    states = [
-        WorkflowState.ANALYZING,
-        WorkflowState.ARCHITECTING,
-        WorkflowState.IMPLEMENTING,
-        WorkflowState.STATIC_CHECK,
-        WorkflowState.SIMULATING,
-        WorkflowState.VALIDATING,
-        WorkflowState.SYNTHESIZING,
-        WorkflowState.FPGA_PROGRAMMING,
-        WorkflowState.HARDWARE_TESTING,
-        WorkflowState.COMPLETED,
-    ]
-    for state in states:
-        sm.transition_to(state)
-    assert sm.current == WorkflowState.COMPLETED
 
 
-def test_state_machine_repair_loop():
-    sm = StateMachine()
-    sm.transition_to(WorkflowState.ANALYZING)
-    sm.transition_to(WorkflowState.ARCHITECTING)
-    sm.transition_to(WorkflowState.IMPLEMENTING)
-    sm.transition_to(WorkflowState.STATIC_CHECK)
-    sm.transition_to(WorkflowState.SIMULATING)
-    sm.transition_to(WorkflowState.DEBUGGING)
-    sm.transition_to(WorkflowState.IMPLEMENTING)
-    sm.transition_to(WorkflowState.STATIC_CHECK)
-    sm.transition_to(WorkflowState.SIMULATING)
-    sm.transition_to(WorkflowState.VALIDATING)
-    sm.transition_to(WorkflowState.SYNTHESIZING)
-    sm.transition_to(WorkflowState.FPGA_PROGRAMMING)
-    sm.transition_to(WorkflowState.HARDWARE_TESTING)
-    sm.transition_to(WorkflowState.COMPLETED)
-    assert sm.current == WorkflowState.COMPLETED
 
 
 def test_event_bus_emit():

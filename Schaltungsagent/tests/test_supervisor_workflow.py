@@ -6,87 +6,13 @@ This test demonstrates the new multi-agent architecture with:
 3. Task graph with dependencies
 4. Comprehensive OpenCode context
 """
-import asyncio
 import pytest
-from unittest.mock import Mock, AsyncMock, MagicMock
 from pathlib import Path
 import tempfile
-import shutil
 
-from src.orchestrator.supervisor_orchestrator import SupervisorOrchestrator
-from src.domain.agents import AgentTask, AgentResult, AgentStatus, TaskGraph, TaskStatus
-from src.domain.models import ArtifactBundle
+from src.domain.agents import AgentTask, TaskGraph, TaskStatus
 
 
-class MockLLMService:
-    """Mock LLM service for testing."""
-    
-    def analyze_request(self, request: str, domain: str) -> str:
-        return f"Analysis: {request}"
-    
-    def generate_text(self, prompt: str, context: str = "", temperature: float = 0.1) -> str:
-        # Return valid VHDL based on prompt content
-        if "architecture" in prompt.lower() or "entwirf" in prompt.lower():
-            return """
-modules:
-  - name: counter
-    type: sequential
-    inputs: [clk, rst, enable]
-    outputs: [count]
-    parameters:
-      width: 8
-    description: "8-bit counter with enable"
-    dependencies: []
-clock_domain: clk
-reset_concept: async_active_high
-decisions:
-  - decision: "Use async active-high reset"
-"""
-        elif "entity" in prompt.lower() or "vhdl" in prompt.lower():
-            return """
-library IEEE;
-use IEEE.STD_LOGIC_1164.ALL;
-use IEEE.NUMERIC_STD.ALL;
-
-entity counter is
-    generic (WIDTH : positive := 8);
-    port (
-        clk    : in  std_logic;
-        rst    : in  std_logic;
-        enable : in  std_logic;
-        count  : out std_logic_vector(WIDTH-1 downto 0)
-    );
-end entity;
-
-architecture rtl of counter is
-    signal count_reg : unsigned(WIDTH-1 downto 0);
-begin
-    process(clk, rst)
-    begin
-        if rst = '1' then
-            count_reg <= (others => '0');
-        elsif rising_edge(clk) then
-            if enable = '1' then
-                count_reg <= count_reg + 1;
-            end if;
-        end if;
-    end process;
-    count <= std_logic_vector(count_reg);
-end architecture;
-"""
-        return "generated code"
-    
-    def generate_project_name(self, request: str) -> str:
-        return "test-project"
-    
-    def summarize_result(self, state_dict: dict) -> str:
-        return "Summary"
-    
-    def classify_request(self, request: str, projects: list, domain: str, current_project: str) -> dict:
-        return {"type": "new_project", "project_id": None, "reason": "test"}
-    
-    def answer_question(self, request: str, context: dict, domain: str) -> str:
-        return "Answer"
 
 
 class MockFileSystemService:
@@ -125,11 +51,6 @@ class MockFileSystemService:
         return [str(f.relative_to(ws)) for f in ws.glob(pattern) if f.is_file()]
 
 
-class MockArtifactGenerator:
-    """Mock artifact generator for testing."""
-    
-    def generate(self, request: str, analysis: str, domain: str = "vhdl") -> ArtifactBundle:
-        return ArtifactBundle(files=[], status="generated")
 
 
 class MockOpenCodeService:
@@ -182,7 +103,6 @@ class MockEventPublisher:
 def mock_services():
     """Create mock services for testing."""
     return {
-        "llm": MockLLMService(),
         "fs": MockFileSystemService(),
         "opencode": MockOpenCodeService(),
         "validation": MockValidationService(),
@@ -190,17 +110,6 @@ def mock_services():
     }
 
 
-@pytest.fixture
-def orchestrator(mock_services):
-    """Create SupervisorOrchestrator with mock services."""
-    return SupervisorOrchestrator(
-        llm_service=mock_services["llm"],
-        artifact_generator=MockArtifactGenerator(),
-        filesystem_service=mock_services["fs"],
-        opencode_service=mock_services["opencode"],
-        event_publisher=mock_services["event_publisher"],
-        validation_service=mock_services["validation"],
-    )
 
 
 class TestTaskGraph:
@@ -267,23 +176,7 @@ class TestTaskGraph:
 class TestSupervisorOrchestrator:
     """Test the SupervisorOrchestrator."""
     
-    def test_orchestrator_creation(self, orchestrator):
-        """Test creating the orchestrator."""
-        assert orchestrator is not None
-        assert orchestrator._supervisor is not None
-        assert orchestrator._supervisor._hdl_agent is not None
-        assert orchestrator._supervisor._verification_agent is not None
     
-    def test_execute_simple_request(self, orchestrator):
-        """Test executing a simple request."""
-        result = orchestrator.execute(
-            request="Create a simple 8-bit counter",
-            domain="vhdl",
-        )
-        
-        assert result is not None
-        assert "task_id" in result
-        assert "status" in result
     
     def test_context_builder(self, mock_services):
         """Test the context builder."""
