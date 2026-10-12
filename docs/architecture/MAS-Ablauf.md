@@ -1,6 +1,6 @@
 # Ablauf des VHDL-Multiagentensystems
 
-Stand: 2026-10-12 (Branch `mas-verbesserungen-2026-10-11`, Commit `63a4752`). Klassen und
+Stand: 2026-10-12. Als draw.io-Datei mit Piktogrammen: [MAS-Ablauf.drawio](MAS-Ablauf.drawio). Klassen und
 Zuständigkeiten: [MAS-UML.md](MAS-UML.md). Beschrieben ist der Modus
 `opencode.repair_policy: persistent` (echte Läufe); Unterschiede zu `standard` (Benchmark) sind
 markiert.
