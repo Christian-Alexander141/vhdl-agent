@@ -238,7 +238,7 @@ architecture Behavioral of hamming_decoder_tb is
             else
                 result(vec'length - i) := '0';
             end if;
-        end loop
+        end loop;
         return result;
     end function;
 
