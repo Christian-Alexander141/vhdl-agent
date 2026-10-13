@@ -171,8 +171,8 @@ def svg_phases(runs: list[dict]) -> str:
     return f'<svg viewBox="0 0 730 {y + 24}" width="100%" font-family="DejaVu Sans, sans-serif">{"".join(parts)}</svg>'
 
 
-def svg_gantt(run: dict, order: list[str]) -> str:
-    scale = 23.0  # Pixel je Minute
+def svg_gantt(run: dict, order: list[str], scale: float = 23.0) -> str:
+    # scale: Pixel je Minute
     sched = run["schedule"]
     critical = {"control_unit", "cpu_core", "mini_cpu"}
     parts, y = [], 4
@@ -239,6 +239,33 @@ FINDINGS = [
 ]
 
 
+CSS = """
+    @page { size: A4; margin: 18mm 17mm 20mm 17mm;
+            @bottom-center { content: counter(page) " / " counter(pages); font: 9pt 'DejaVu Sans', sans-serif; color:#666; } }
+    @page :first { @bottom-center { content: none; } }
+    body { font-family: 'DejaVu Sans', 'Liberation Sans', sans-serif; font-size: 10pt; line-height: 1.42; color: #1d1d1d; }
+    h1 { font-size: 22pt; margin: 0 0 4mm 0; color: #1f3d63; }
+    h2 { font-size: 14pt; color: #1f3d63; border-bottom: 1.5px solid #1f3d63; padding-bottom: 1mm; margin-top: 9mm; break-after: avoid; }
+    h3 { font-size: 11.5pt; color: #2b4f7c; margin-top: 6mm; break-after: avoid; }
+    p, li { text-align: justify; hyphens: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 3mm 0 4mm 0; font-size: 9pt; break-inside: avoid; }
+    th { background: #e4ecf5; text-align: left; padding: 1.5mm 2mm; border: 1px solid #c7d3e0; }
+    td { padding: 1.2mm 2mm; border: 1px solid #d6dde6; vertical-align: top; }
+    table.compact td, table.compact th { padding: 0.8mm 1.6mm; }
+    pre { background: #f5f6f8; border: 1px solid #dde1e6; padding: 2.5mm; font-size: 8.3pt; line-height: 1.3; white-space: pre-wrap; break-inside: avoid; }
+    code { font-family: 'DejaVu Sans Mono', monospace; font-size: 8.8pt; }
+    .title { margin-top: 35mm; }
+    .subtitle { font-size: 13pt; color: #444; margin-bottom: 14mm; }
+    .meta td { border: none; padding: 0.6mm 2mm 0.6mm 0; font-size: 10pt; }
+    .box { background: #f1f6fb; border-left: 4px solid #2b6cb0; padding: 3mm 4mm; margin: 4mm 0; break-inside: avoid; }
+    .warn { background: #fdf3ec; border-left-color: #d9822b; }
+    .fig { margin: 3mm 0 1mm 0; break-inside: avoid; }
+    .caption { font-size: 8.5pt; color: #555; margin: 0 0 4mm 0; }
+    .pagebreak { break-before: page; }
+    .toc li { margin: 0.6mm 0; }
+    """
+
+
 def table(headers, rows, cls="") -> str:
     head = "".join(f"<th>{e(h)}</th>" for h in headers)
     body = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>" for row in rows)
@@ -287,31 +314,7 @@ def build_html(runs: list[dict]) -> str:
     phase_rows = [[e(name)] + [de(r["phases"][name]) for r in runs] for name in PHASE_COLORS]
     phase_rows.append(["<b>Summe</b>"] + [f'<b>{de(r["duration_min"])}</b>' for r in runs])
 
-    css = """
-    @page { size: A4; margin: 18mm 17mm 20mm 17mm;
-            @bottom-center { content: counter(page) " / " counter(pages); font: 9pt 'DejaVu Sans', sans-serif; color:#666; } }
-    @page :first { @bottom-center { content: none; } }
-    body { font-family: 'DejaVu Sans', 'Liberation Sans', sans-serif; font-size: 10pt; line-height: 1.42; color: #1d1d1d; }
-    h1 { font-size: 22pt; margin: 0 0 4mm 0; color: #1f3d63; }
-    h2 { font-size: 14pt; color: #1f3d63; border-bottom: 1.5px solid #1f3d63; padding-bottom: 1mm; margin-top: 9mm; break-after: avoid; }
-    h3 { font-size: 11.5pt; color: #2b4f7c; margin-top: 6mm; break-after: avoid; }
-    p, li { text-align: justify; hyphens: auto; }
-    table { border-collapse: collapse; width: 100%; margin: 3mm 0 4mm 0; font-size: 9pt; break-inside: avoid; }
-    th { background: #e4ecf5; text-align: left; padding: 1.5mm 2mm; border: 1px solid #c7d3e0; }
-    td { padding: 1.2mm 2mm; border: 1px solid #d6dde6; vertical-align: top; }
-    table.compact td, table.compact th { padding: 0.8mm 1.6mm; }
-    pre { background: #f5f6f8; border: 1px solid #dde1e6; padding: 2.5mm; font-size: 8.3pt; line-height: 1.3; white-space: pre-wrap; break-inside: avoid; }
-    code { font-family: 'DejaVu Sans Mono', monospace; font-size: 8.8pt; }
-    .title { margin-top: 35mm; }
-    .subtitle { font-size: 13pt; color: #444; margin-bottom: 14mm; }
-    .meta td { border: none; padding: 0.6mm 2mm 0.6mm 0; font-size: 10pt; }
-    .box { background: #f1f6fb; border-left: 4px solid #2b6cb0; padding: 3mm 4mm; margin: 4mm 0; break-inside: avoid; }
-    .warn { background: #fdf3ec; border-left-color: #d9822b; }
-    .fig { margin: 3mm 0 1mm 0; break-inside: avoid; }
-    .caption { font-size: 8.5pt; color: #555; margin: 0 0 4mm 0; }
-    .pagebreak { break-before: page; }
-    .toc li { margin: 0.6mm 0; }
-    """
+    css = CSS
     out_rows = [[str(n), str(v), f'{v:04b}', de(t)] for n, v, t in OUT_SEQUENCE]
     sections = []
 
