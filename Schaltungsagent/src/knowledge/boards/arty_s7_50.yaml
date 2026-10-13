@@ -3,7 +3,9 @@
 # Abschnitt 8 (RAG-Regeln) und Abschnitt 2-6 (Hardware-Fakten)
 # Korrigiert 2026-10-11 nach dem offiziellen Digilent Arty-S7-50-Master.xdc (Rev. E),
 # wie im Repo dokumentiert (benchmark/small_vhdl_bench-main/bench/benchmark_api.py): Taster BTN1/BTN3, Schalter SW1-SW3 und
-# der 100-MHz-Takt an R2 waren falsch. Pmod- und UART-Angaben sind nicht geprüft.
+# der 100-MHz-Takt an R2 waren falsch. Pmod- und UART-Angaben am 2026-10-13 ebenfalls nach der
+# Master-XDC korrigiert (Digilent/digilent-xdc, Arty-S7-50-Master.xdc): UART-Richtungen waren
+# vertauscht, die Pmod-Listen enthielten Taster-, RGB- und Analog-Pins.
 
 board_id: "arty_s7_50"
 vendor: "Digilent"
@@ -75,40 +77,42 @@ switches:
     pin: "M5"
     iostandard: "SSTL135"   # bank 34 (1.35 V), INTERNAL_VREF 0.675
 
-# Pmod- und UART-Belegung ungeprüft (K16/H13 sind laut Master-XDC BTN1/BTN3).
 pmods:
   - name: "ja"
     header: "JA"
-    pins:
-      - "N14"  # JA1
-      - "G13"  # JA2
-      - "F15"  # JA3
-      - "E15"  # JA4
-      - "K16"  # JA7
-      - "J13"  # JA8
-      - "H16"  # JA9
-      - "H13"  # JA10
+    pins:  # ja[0..7] = JA1-JA4, JA7-JA10
+      - "L17"
+      - "L18"
+      - "M14"
+      - "N14"
+      - "M16"
+      - "M17"
+      - "M18"
+      - "N18"
   - name: "jb"
     header: "JB"
-    pins:
-      - "T10"
-      - "T11"
-      - "U12"
-      - "V12"
-      - "T9"
-      - "U9"
-      - "V9"
-      - "V10"
+    pins:  # jb[0..7] = JB1-JB4, JB7-JB10
+      - "P17"
+      - "P18"
+      - "R18"
+      - "T18"
+      - "P14"
+      - "P15"
+      - "N15"
+      - "P16"
 
+# Richtung aus Sicht des FPGA (Master-XDC: uart_txd_in V12, uart_rxd_out R12)
 usb_uart:
   - name: "uart_rx"
-    pin: "R12"
-    iostandard: "LVCMOS33"
-    direction: "in"
-  - name: "uart_tx"
     pin: "V12"
     iostandard: "LVCMOS33"
+    direction: "in"
+    description: "Daten vom PC zum FPGA (Master-XDC uart_txd_in)"
+  - name: "uart_tx"
+    pin: "R12"
+    iostandard: "LVCMOS33"
     direction: "out"
+    description: "Daten vom FPGA zum PC (Master-XDC uart_rxd_out)"
 
 # Rules from the knowledge package (Abschnitt 8 "RAG-Regeln")
 rag_rules:
@@ -119,7 +123,7 @@ rag_rules:
   - "Only four user LEDs: E18, F13, E13, H15 (led[0..3] = LD2..LD5)"
   - "BTN0-3 are active HIGH (G15, K16, J16, H13)"
   - "SW0-3: H14, H18, G18 (LVCMOS33), M5 (SSTL135)"
-  - "UART pins: RX=R12, TX=V12 (LVCMOS33)"
+  - "UART pins (FPGA view): uart_rx input V12, uart_tx output R12 (LVCMOS33)"
   - "Pmod JA pins N14/G13/F15/E15 are NOT LEDs"
 
 # Pin assignment rules used by vivado_synthesis.py generator (section 1.4.D in plan)

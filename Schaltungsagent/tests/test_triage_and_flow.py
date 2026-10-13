@@ -534,3 +534,38 @@ def test_stale_auto_xdc_is_regenerated_and_project_xdc_wins(tmp_path):
     tcl = _tcl(ws)
     assert "board.xdc" in tcl and "auto_generated.xdc" not in tcl
     assert not (ws / "constraints" / "auto_generated.xdc").exists()
+
+
+# --- UART-Pins und Pmod nach der Master-XDC (Aufgabe 05) -----------------------------
+
+def test_uart_ports_get_the_usb_uart_pins_from_the_master_xdc(tmp_path):
+    import re
+    from src.infrastructure.synthesis.vivado_synthesis import VivadoBitstreamService
+
+    top = tmp_path / "ben_eater_cpu.vhd"
+    top.write_text(
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity ben_eater_cpu is port (clk, rst, btn_step : in std_logic;\n"
+        "  sw : in std_logic_vector(3 downto 0); led : out std_logic_vector(3 downto 0);\n"
+        "  uart_rx : in std_logic; uart_tx : out std_logic; dbg : out std_logic); end entity;\n"
+    )
+    xdc = VivadoBitstreamService()._generatexdc_for_board("ben_eater_cpu", [top], "arty_s7_50", 100_000_000)
+    assert re.search(r"PACKAGE_PIN V12 .*\[get_ports uart_rx\]", xdc)
+    assert re.search(r"PACKAGE_PIN R12 .*\[get_ports uart_tx\]", xdc)
+    assert re.search(r"PACKAGE_PIN K16 .*\[get_ports btn_step\]", xdc)
+    # ein weiterer Ausgang geht auf Pmod JA1 (L17), nicht auf einen RGB- oder Analog-Pin
+    assert re.search(r"PACKAGE_PIN L17 .*\[get_ports dbg\]", xdc)
+    pins = re.findall(r"PACKAGE_PIN (\w+)", xdc)
+    assert len(pins) == len(set(pins)) and not {"G13", "F15", "E15"} & set(pins)
+
+
+def test_board_knowledge_uart_and_pmod_pins_match_the_master_xdc():
+    import yaml
+    from pathlib import Path
+
+    board = yaml.safe_load(Path("src/knowledge/boards/arty_s7_50.yaml").read_text())
+    uart = {u["name"]: (u["pin"], u["direction"]) for u in board["usb_uart"]}
+    assert uart == {"uart_rx": ("V12", "in"), "uart_tx": ("R12", "out")}
+    pmods = {p["name"]: p["pins"] for p in board["pmods"]}
+    assert pmods["ja"] == ["L17", "L18", "M14", "N14", "M16", "M17", "M18", "N18"]
+    assert pmods["jb"] == ["P17", "P18", "R18", "T18", "P14", "P15", "N15", "P16"]

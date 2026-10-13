@@ -789,6 +789,32 @@
           <td><span class="ok">Gelöst</span></td>
           <td><code>REVIEW_INSTRUCTION</code>, <code>parse_review</code>, <code>review_complete</code>, <code>clean_board_checks</code> in <code>requirements.py</code>; <code>_review_requirements</code> in <code>verification.py</code>; <code>_requirements_review</code>, <code>_adopt_reviewed_board_checks</code> in <code>supervisor.py</code>. Tests: <code>test_review_returns_cleaned_board_checks_and_waits_for_them</code>, <code>test_review_corrects_the_board_checklist_in_the_completion_message</code>. Die Anleitung bleibt ein Sprachmodell-Urteil.</td>
         </tr>
+        <tr>
+          <td>58</td>
+          <td>Vorbereitung von Aufgabe 05 (Ben-Eater-Rechner mit UART-Lader, 2026-10-13), Abgleich mit der offiziellen Digilent-Master-XDC des Arty S7-50:
+            <ul>
+              <li>Die UART-Richtungen im Board-Wissen waren vertauscht (uart_rx auf R12, uart_tx auf V12; richtig ist Eingang V12 = <code>uart_txd_in</code>, Ausgang R12 = <code>uart_rxd_out</code>); der Skill enthielt dieselbe falsche XDC als Beispiel.</li>
+              <li>Der XDC-Generator kannte keine UART-Pins: ein <code>uart_tx</code> wäre als „übriger Ausgang“ auf einem Pmod-Pin gelandet, <code>uart_rx</code> ohne Pin geblieben (Vivado bricht dann ab).</li>
+              <li>Die Pmod-Listen enthielten Taster- (K16, H13), RGB- (F15, E15) und Analog-Pins (G13); der Generator legte zusätzliche Ausgänge auf G13, F15, E15, N14.</li>
+            </ul></td>
+          <td>Board-Wissen und Skill nach der Master-XDC korrigiert (UART, Pmod JA/JB). Der Generator legt <code>uart_rx</code>/<code>rx</code>/<code>rxd</code> auf V12 und <code>uart_tx</code>/<code>tx</code>/<code>txd</code> auf R12; weitere Ausgänge nach den vier LEDs auf Pmod JA1–JA4 (L17, L18, M14, N14).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>knowledge/boards/arty_s7_50.yaml</code>, <code>knowledge/skills/arty-s7-50-board/SKILL.md</code>, <code>_generatexdc_for_board</code> in <code>vivado_synthesis.py</code>. Tests: <code>test_uart_ports_get_the_usb_uart_pins_from_the_master_xdc</code>, <code>test_board_knowledge_uart_and_pmod_pins_match_the_master_xdc</code>.</td>
+        </tr>
+        <tr>
+          <td>59</td>
+          <td>Mit echtem UART-Port, Hardwaretests im Plan oder dem Wort UART in der Aufgabe baute das System seine eigene UART-Echo-Brücke in das Top-Level ein – auch in einen Entwurf mit eigener UART (Aufgabe 05: Programmlader der CPU). Beide hätten dieselben Pins und dasselbe Protokoll beansprucht.</td>
+          <td>Hat das geplante Top-Level selbst einen UART-Eingang und -Ausgang, unterbleibt die Brücke; die Hardwaretests laufen über die UART des Entwurfs. <code>uart_integration: always</code> erzwingt sie weiterhin.</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>_design_has_own_uart</code>, <code>_uart_required</code> in <code>supervisor.py</code>. Test: <code>test_design_with_its_own_uart_gets_no_echo_bridge</code>.</td>
+        </tr>
+        <tr>
+          <td>60</td>
+          <td>Der automatische Hardwaretest über UART konnte nie laufen: <code>pyserial</code> war nicht als Abhängigkeit eingetragen und im venv nicht installiert; <code>hardware_test.uart_port</code> war leer.</td>
+          <td><code>pyserial</code> in <code>pyproject.toml</code>, <code>uart_port: /dev/ttyUSB1</code> in <code>config.yaml</code>. Gegenprobe am Board mit einer eigenen Umsetzung von Aufgabe 05: Synthese mit dem korrigierten Generator, Flash und der Hardwaretest-Agent des Systems luden alle vier Testprogramme über die UART und erhielten die erwarteten Antworten (erster automatischer Hardwaretest des Projekts).</td>
+          <td><span class="ok">Gelöst</span></td>
+          <td><code>pyproject.toml</code>, <code>config.yaml</code>; Prüfskript und eigene Umsetzung unter <code>benchmark/reference/05_pruefgrundlagen/</code>.</td>
+        </tr>
       </tbody>
     </table>
     </div>
@@ -975,7 +1001,7 @@ python -m benchmark.mas_vs_single --prompt-files 03_ampel.md 02_hamming_decoder.
         <tr><td>#46 Lauf-Trajektorien</td><td>Verläufe von Agenten (Fehlermeldung, Maßnahme, Änderung, Ergebnis) als Trainingsdaten für spezialisierte Modelle sammeln.</td><td>[SWE-Gym]</td><td>Übernommen: Idee, Agententrajektorien mit Ergebnis als Trainingsmaterial zu speichern. Eigen: Format je Reparatur mit vorgefilterten Kernzeilen, Herkunft, Befund und Diff; Ablage außerhalb des Workspaces; Bereinigung von Pfaden und Rechnerdaten; Suchausschluss und Aufräumen der Werkzeugausgaben.</td></tr>
         <tr><td>#48 Planung der parallelen Arbeit</td><td>Bereite Aufgaben sofort starten; unter mehreren bereiten Aufgaben die mit dem längsten Weg zum Ende des Graphen zuerst (Listenplanung nach dem kritischen Pfad).</td><td>[Hu 1961], [Kwok/Ahmad 1999]</td><td>Übernommen: Prioritätsregel „längster Pfad zuerst“ (Level-Scheduling). Eigen: Gleichstandsregel über die Portzahl als Aufwandsmaß, Einbettung in TaskGraph, Checkpoints und Worker-Ereignisse; Nachrechnung mit gemessenen Dauern.</td></tr>
         <tr><td>#54 Trajektorie mit Planung und Endstand</td><td>Vollständige Verläufe einschließlich Ergebnis als Trainingsmaterial; erfolgreiche Endstände als Positivbeispiele.</td><td>[SWE-Gym]</td><td>Übernommen wie bei #46. Eigen: Planungseintrag mit Versuchen und Verstößen, Modellwechsel, Endstand der änderbaren Quellen.</td></tr>
-        <tr><td>#2, #3, #5–#8, #11, #13–#26, #28, #30–#39, #41–#45, #47, #49–#53, #55–#57, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands, Vivado-Pfad und Fehlerursache, verworfene Ereignisse, Planwiederholung mit Korrekturauftrag, Synthese-Standard, Rücknahme verschlechternder Reparaturen, Zeitlimit als Eskalationsschritt, Board-Konfiguration im Build-Skript, Vorfilter mit Herkunft und Kernzeilen, Eskalationsleitern je Herkunft mit Versuchsverlauf, Testbench-Reparatur über Dateien, Synthese-Cache, Phasenwechsel und Planverträge, Entfernung der Benutzerfreigabe, vorzeitiges Ende bei vollständigem Ergebnis, Korrektur des Board-Wissens nach der Master-XDC, eindeutige Pin-Vergabe, Generic-Vertrag des differentiellen Tests, Workspace-Isolation, kompakter Projektzustand)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen. Der Synthese-Cache nutzt die gängige Technik inkrementeller Build-Systeme (Neubau nur bei geänderter Eingabe-Prüfsumme).</td></tr>
+        <tr><td>#2, #3, #5–#8, #11, #13–#26, #28, #30–#39, #41–#45, #47, #49–#53, #55–#60, Provider-Prüfung</td><td>Fehlerbehebungen und Schutzmaßnahmen (Validator-Regeln im Auftrag, Port-Contract, UART bei Bedarf, Versionssprünge, doppelter Top-Level-Auftrag, Fallback-Prüfung, Synthese-Schalter, Workspace-Begrenzung, <code>$PWD</code>, Fehlklassifikation, vorzeitiger Abbruch, Provider-Ausfall, Planprüfung, XDC-Erzeugung, Entfernung von Ollama, atomares Schreiben des Projektzustands, Vivado-Pfad und Fehlerursache, verworfene Ereignisse, Planwiederholung mit Korrekturauftrag, Synthese-Standard, Rücknahme verschlechternder Reparaturen, Zeitlimit als Eskalationsschritt, Board-Konfiguration im Build-Skript, Vorfilter mit Herkunft und Kernzeilen, Eskalationsleitern je Herkunft mit Versuchsverlauf, Testbench-Reparatur über Dateien, Synthese-Cache, Phasenwechsel und Planverträge, Entfernung der Benutzerfreigabe, vorzeitiges Ende bei vollständigem Ergebnis, Korrektur des Board-Wissens nach der Master-XDC, eindeutige Pin-Vergabe, Generic-Vertrag des differentiellen Tests, Workspace-Isolation, kompakter Projektzustand)</td><td>–</td><td>Eigene Entwicklung aus der Analyse von Code, Logs und Benchmark-Läufen. Der Synthese-Cache nutzt die gängige Technik inkrementeller Build-Systeme (Neubau nur bei geänderter Eingabe-Prüfsumme).</td></tr>
       </tbody>
     </table>
     </div>

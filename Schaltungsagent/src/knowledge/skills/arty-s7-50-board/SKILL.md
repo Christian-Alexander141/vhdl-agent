@@ -17,8 +17,8 @@
   - Bank 34 (R2, M5) braucht `set_property INTERNAL_VREF 0.675 [get_iobanks 34]` (setzt das Build-Skript immer)
   - 2 Pmods (JA, JB) – 2×8 Pins, 3.3V
 - **USB-UART** (FTDI):
-  - RX (FPGA ← PC): **R12** (LVCMOS33)
-  - TX (FPGA → PC): **V12** (LVCMOS33)
+  - RX (FPGA ← PC, Eingang `uart_rx`): **V12** (LVCMOS33; Master-XDC `uart_txd_in`)
+  - TX (FPGA → PC, Ausgang `uart_tx`): **R12** (LVCMOS33; Master-XDC `uart_rxd_out`)
 - **JTAG**: Standard 4-Pin (TCK, TMS, TDI, TDO) – über On-Board FTDI oder externer JTAG-HS2/HS3
 
 ## Pin Assignment Rules (für XDC-Generator)
@@ -29,8 +29,10 @@
 | `ENABLE`, `EN` | in (1 bit) | H14 (SW0) | LVCMOS33 | |
 | `LOAD`, `LD` | in (1 bit) | J16 (BTN2) | LVCMOS33 | |
 | `sw…`, `btn…`, `led…` (Board-Namen) | in/out | bitweise: SW0–3, BTN0–3, LD2–LD5 | wie oben | |
-| Andere **Ausgänge** (alphabetisch) | out | E18, F13, E13, H15 | LVCMOS33 | Max 8 Bits (4 LEDs × 2 Bit falls Vektor) |
-| Andere **Eingänge** (z. B. `uart_rx`) | in | – | – | Kein Pin durch Generator |
+| `uart_rx`, `rx`, `rxd` | in (1 bit) | V12 | LVCMOS33 | USB-UART, Daten vom PC |
+| `uart_tx`, `tx`, `txd` | out (1 bit) | R12 | LVCMOS33 | USB-UART, Daten zum PC |
+| Andere **Ausgänge** (alphabetisch) | out | freie LEDs, dann Pmod JA1–JA4 (L17, L18, M14, N14) | LVCMOS33 | |
+| Andere **Eingänge** | in | – | – | Kein Pin durch Generator |
 
 
 ## RAG-Regeln (aus Wissenspaket Abschnitt 8)
@@ -40,8 +42,8 @@
 4. Clocks: 100 MHz at R2 (SSTL135) or 12 MHz at F14 (LVCMOS33); the clock-frequency generic must match
 5. Only four user LEDs: E18, F13, E13, H15 (LD2–LD5)
 6. BTN0-3 are active HIGH (G15, K16, J16, H13); SW0-3: H14, H18, G18, M5 (SSTL135)
-7. UART pins: RX=R12, TX=V12 (LVCMOS33)
-8. Pmod JA pins N14/G13/F15/E15 are NOT LEDs
+7. UART pins (FPGA-Sicht): uart_rx = V12 (Eingang), uart_tx = R12 (Ausgang), LVCMOS33
+8. Pmod JA = L17, L18, M14, N14, M16, M17, M18, N18; JB = P17, P18, R18, T18, P14, P15, N15, P16 (keine LEDs)
 
 ## XDC Template (manuell, wenn Generator nicht passt)
 ```tcl
@@ -62,8 +64,8 @@ set_property -dict {PACKAGE_PIN E13 IOSTANDARD LVCMOS33} [get_ports led[2]]
 set_property -dict {PACKAGE_PIN H15 IOSTANDARD LVCMOS33} [get_ports led[3]]
 
 # UART (FTDI)
-set_property -dict {PACKAGE_PIN R12 IOSTANDARD LVCMOS33} [get_ports uart_rx]
-set_property -dict {PACKAGE_PIN V12 IOSTANDARD LVCMOS33} [get_ports uart_tx]
+set_property -dict {PACKAGE_PIN V12 IOSTANDARD LVCMOS33} [get_ports uart_rx]
+set_property -dict {PACKAGE_PIN R12 IOSTANDARD LVCMOS33} [get_ports uart_tx]
 
 # Buttons (if used)
 set_property -dict {PACKAGE_PIN K16 IOSTANDARD LVCMOS33} [get_ports {btn[1]}]

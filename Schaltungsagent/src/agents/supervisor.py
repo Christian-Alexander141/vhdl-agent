@@ -785,6 +785,11 @@ class SupervisorAgent(BaseAgent):
             return True
         if mode == "off":
             return False
+        if self._design_has_own_uart():
+            # Der Entwurf bringt eine eigene UART mit (z. B. Programmlader einer
+            # CPU, Aufgabe 05); die Echo-Brücke würde in sein Top-Level geflochten
+            # und mit ihr kollidieren. Hardwaretests laufen über die UART des Entwurfs.
+            return False
         if getattr(self._hardware_test_agent, "has_real_hardware", False):
             return True
         if self._design_state.architecture.hardware_tests:
@@ -793,6 +798,19 @@ class SupervisorAgent(BaseAgent):
             "request_full", self._current_task.inputs.get("request_full", self._current_task.inputs.get("request", "")),
         )
         return bool(re.search(r"\buart\b", request or "", re.IGNORECASE))
+
+    _UART_RX = re.compile(r"(uart_)?(rx|rxd)(_i|_in)?|uart_txd_in")
+    _UART_TX = re.compile(r"(uart_)?(tx|txd)(_o|_out)?|uart_rxd_out")
+
+    def _design_has_own_uart(self) -> bool:
+        """Hat das geplante Top-Level selbst einen UART-Eingang und -Ausgang?"""
+        architecture = self._design_state.architecture
+        top = next((m for m in architecture.modules if m.name == architecture.top_module), None)
+        if top is None or top.name.lower() == "uart":
+            return False
+        names = lambda ports: [str(p).lower() for p in ports or []]
+        return (any(self._UART_RX.fullmatch(n) for n in names(top.inputs))
+                and any(self._UART_TX.fullmatch(n) for n in names(top.outputs)))
 
     async def _run_uart_integration(self) -> AgentResult:
         """Make UART a persistent architectural requirement before HDL generation."""

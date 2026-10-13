@@ -486,7 +486,9 @@ exit
 
         # Correct pin mappings for Arty S7-50 Rev. E
         arty_clk_pin = "R2"  # CLK100MHZ on DDR3 clock pin
-        arty_leds = ["E18", "F13", "E13", "H15", "G13", "F15", "E15", "N14"]  # led[0..3], ja[6..9]
+        # led[0..3], danach Pmod JA1-JA4. Früher standen hier G13/F15/E15/N14: laut
+        # Master-XDC ein Analog-Pin, zwei RGB-LED-Farben und nur ein echter JA-Pin.
+        arty_leds = ["E18", "F13", "E13", "H15", "L17", "L18", "M14", "N14"]
         arty_buttons = ["G15", "K16", "J16", "H13"]  # btn[0..3]
         arty_switches = ["H14", "H18", "G18", "M5"]  # sw[0..3]
 
@@ -551,6 +553,25 @@ exit
                     mapped_ports.add(port_name)
                     used_pins.add(arty_buttons[2])
                     break
+
+        # USB-UART (Richtung aus Sicht des FPGA, Master-XDC: uart_txd_in V12,
+        # uart_rxd_out R12). Früher gab es keine Zuordnung: uart_tx landete auf
+        # einem Pmod-Pin, uart_rx blieb ohne Pin und Vivado brach ab.
+        uart_pins = {"in": ("V12", r"(uart_)?(rx|rxd)(_i|_in)?|uart_txd_in"),
+                     "out": ("R12", r"(uart_)?(tx|txd)(_o|_out)?|uart_rxd_out")}
+        for port_name in sorted(all_ports):
+            p = all_ports[port_name]
+            if port_name in mapped_ports or p["width"] != 1 or p["direction"] not in uart_pins:
+                continue
+            pin, pattern = uart_pins[p["direction"]]
+            if pin in used_pins or not re.fullmatch(pattern, port_name.lower()):
+                continue
+            xdc_lines.append(
+                f"set_property -dict {{ PACKAGE_PIN {pin} "
+                f"IOSTANDARD LVCMOS33 }} [get_ports {port_name}]"
+            )
+            mapped_ports.add(port_name)
+            used_pins.add(pin)
 
         # Board-Namen des Arty S7 (sw, btn, led) bitweise auf ihre Pins legen.
         board_groups = (("sw", "in", arty_switches), ("btn", "in", arty_buttons), ("led", "out", arty_leds[:4]))

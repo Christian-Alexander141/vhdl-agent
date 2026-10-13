@@ -1,7 +1,7 @@
 # Bekannte Grenzen von Schaltungsagent
 
 > Grundlage für die Diskussionskapitel der Abschlussarbeit.
-> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#57);
+> Stand 2026-10-12. Einzelbefunde mit Anlass und Maßnahme: `docs/doku.html`, Abschnitt 15 (#1–#60);
 > Entwicklungsverlauf: `docs/architecture/AENDERUNGSPROTOKOLL.drawio`.
 
 ## Erreicht
@@ -66,5 +66,6 @@ Zeitlimit je Aufruf ist 900 s. Ergebnisse sind daher modellabhängig und schwank
 (am 2026-10-12 lehnte er beide freien Modelle ab), endet der Lauf mit einer Meldung an den
 Benutzer (#56); er wartet nicht von selbst, bis der Anbieter wieder erreichbar ist.
 
-### 9. Ungeprüftes Board-Wissen
-UART- und Pmod-Pins im Board-Wissen sind nicht gegen die offizielle Master-XDC geprüft (#38).
+### 9. Board-Wissen
+UART- und Pmod-Pins sind seit #58 gegen die offizielle Master-XDC geprüft; RGB-LEDs und die
+Arduino-Anschlüsse sind im Board-Wissen nicht beschrieben.

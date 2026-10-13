@@ -779,3 +779,26 @@ def test_completion_message_contains_the_board_checklist(tmp_path):
     message = supervisor._completion_message()
     assert "nicht validiert" in message and "Bitte am Board prüfen:" in message
     assert "1. alle Schalter unten, BTN0 drücken → LEDs 0001" in message and "\n2. SW1–SW0 = 01 → Akkumulator" in message
+
+
+def test_design_with_its_own_uart_gets_no_echo_bridge(tmp_path):
+    class RealHardware:
+        has_real_hardware = True
+
+    modules = [
+        {"name": "uart_rx", "type": "sequential", "inputs": ["clk", "rx"], "outputs": ["data"]},
+        {"name": "ben_eater_cpu", "type": "structural", "inputs": ["clk", "rst", "uart_rx"],
+         "outputs": ["led", "uart_tx"], "dependencies": ["uart_rx"]},
+    ]
+    supervisor, _, _ = make_supervisor(tmp_path, hardware_test_agent=RealHardware())
+    set_architecture(supervisor, modules, "ben_eater_cpu")
+    supervisor._design_state.metadata["request_full"] = "CPU mit UART-Lader"
+    result = run(supervisor._run_uart_integration())
+    assert result.outputs["uart_required"] is False
+    assert [m.name for m in supervisor._design_state.architecture.modules] == ["uart_rx", "ben_eater_cpu"]
+
+    # ohne eigene UART bleibt es bei der Echo-Brücke für den Hardwaretest
+    plain, _, _ = make_supervisor(tmp_path / "plain", hardware_test_agent=RealHardware())
+    set_architecture(plain, THREE_MODULES, "cpu")
+    plain._design_state.metadata["request_full"] = "CPU"
+    assert run(plain._run_uart_integration()).outputs["uart_required"] is True

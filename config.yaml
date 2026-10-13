@@ -64,7 +64,7 @@ synthesis:
   default_fpga: arty_s7_50
   timeout_seconds: 120
 hardware_test:
-  uart_port: ''
+  uart_port: /dev/ttyUSB1
   baudrate: 115200
   timeout_seconds: 5.0
   uart_integration: auto
