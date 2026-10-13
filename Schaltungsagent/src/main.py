@@ -16,14 +16,12 @@ from src.infrastructure.validation.ghdl_validator import GHDLValidator
 from src.infrastructure.synthesis import VivadoBitstreamService, VivadoFlashService
 from src.orchestrator import SupervisorOrchestrator
 
-
 def setup_logging(settings) -> None:
     logging.basicConfig(
         level=getattr(logging, settings.logging.level.upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-
 
 def create_orchestrator(settings) -> SupervisorOrchestrator:
     """Create the SupervisorOrchestrator for the multi-agent workflow."""
