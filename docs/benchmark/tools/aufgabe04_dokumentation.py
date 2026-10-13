@@ -340,7 +340,7 @@ def build_html(runs: list[dict]) -> str:
         <li>Ziel und Einordnung</li><li>Aufgabenstellung</li><li>Erwartetes Verhalten</li>
         <li>Prüfgrundlagen</li><li>Versuchsaufbau</li><li>Ergebnisse der drei Läufe</li>
         <li>Verlauf der einzelnen Läufe</li><li>Befunde und Verbesserungen</li>
-        <li>Grenzen</li><li>Ablage und Reproduktion</li>
+        <li>Vergleich mit einem einzelnen OpenCode-Aufruf</li><li>Grenzen</li><li>Ablage und Reproduktion</li>
       </ol>
     </div>""")
 
@@ -546,7 +546,41 @@ def build_html(runs: list[dict]) -> str:
     <p><b>Modellstreit.</b> Die Regel aus #40 (Modell einmal neu erzeugen, erst beim zweiten Streit abschalten)
     hat sich bewährt: Das neu erzeugte Modell ist ein Schiedsrichter, der die Aufgabe liest, nicht den Entwurf.</p>
 
-    <h2>9 Grenzen</h2>
+
+    <h2 class="pagebreak">9 Vergleich mit einem einzelnen OpenCode-Aufruf</h2>
+    <p>Am 13.10.2026 wurde dieselbe Aufgabe mit demselben Modell als <b>ein einziger OpenCode-Aufruf</b> gelöst
+    (Benchmark-Variante <code>single</code>, Lauf <code>20261013-072705</code>, Zeitlimit 3600 s). Der Auftrag
+    lautet sinngemäß: PROMPT.md vollständig umsetzen, eine Testbench für das Top-Level schreiben, selbst mit
+    GHDL prüfen und alle Fehler beheben. Synthese und Flash gehören nicht zur Variante; sie wurden danach auf
+    einer Kopie mit dem FPGAAgent des MAS ausgeführt (gleiche Werkzeugkette), damit der Entwurf am Board
+    geprüft werden kann.</p>
+    {table(["", "Single", "MAS (Lauf 1 / 2 / Kontrolllauf)"], [
+        ["Dauer bis simulierter Entwurf", "<b>4,6 min</b>, 1 Aufruf", "ca. 30 / 31 / 40 min, 22–24 Aufrufe"],
+        ["Dauer bis Board", "<b>ca. 10,5 min</b> (mit Synthese und Flash)", "37,7 / 38,0 / 47,1 min"],
+        ["Module (10 vorgegeben)", "10", "10 / 10 / 10"],
+        ["Testbenches", "1 (Top-Level)", "9 / 9 / 10"],
+        ["Unabhängige Referenz-Testbench", "bestanden", "bestanden (alle drei)"],
+        ["Taktgenauer Vergleich mit den drei MAS-Referenzmodellen (je 4 Zufallsfolgen)", "12 von 12 übereinstimmend",
+         "Kontrolllauf: Abweichung von einem Takt gefunden und behoben"],
+        ["Mutationsquote (Mutationsanalyse des MAS, 10 Mutanten)", "0,7", "0,9 / 0,7 / 1,0"],
+        ["Timing (WNS)", "+4,69 ns", "+3,76 / +3,14 / +3,77 ns"],
+        ["LUTs / Flipflops", "106 / 149", "95/151, 108/149, 93/151"],
+        ["Einzelanforderungen mit Nachweis", "keine", "91 / 74 / 91, unabhängig bewertet"],
+    ], "compact")}
+    <p><b>Korrektheit:</b> Gleichstand. Der Einzelaufruf schrieb alle zehn Module in rund drei Minuten, die
+    Testbench in vier, und der Entwurf ist taktgenau richtig – auch an der Stelle, an der das MAS im
+    Kontrolllauf zunächst einen Takt zu spät lag. <b>Aufwand:</b> Single war etwa achtmal schneller und brauchte
+    einen statt 22–24 Aufrufe. <b>Nachweise:</b> Hier liegt der Vorteil des MAS. Die einzige Testbench von Single
+    ließ drei von zehn Mutanten durch, darunter einen HLT-Befehl ohne Wirkung; das MAS liefert je Modul eine
+    Testbench, ein unabhängiges Referenzmodell und eine begründete Bewertung jeder Einzelanforderung.</p>
+    <div class="box">Einordnung: Bei dieser sehr genau spezifizierten, eng gekoppelten Aufgabe zeigt sich keine
+    Überlegenheit des MAS bei der Lösungsquote; das deckt sich mit Befunden, nach denen Multi-Agenten-Systeme
+    bei sequenziellen, gekoppelten Aufgaben eher schaden (Kim, Liu u. a. 2025). Der Mehrwert des MAS liegt in
+    Nachweisbarkeit und Robustheit (Prüfungen, Reparatur, Weg bis zur Hardware ohne Zusatzschritte). Ob es
+    darüber hinaus mehr leistet, müssen schwächer spezifizierte oder größere Aufgaben und mehrere Wiederholungen
+    zeigen; ein Single-Lauf ist eine Stichprobe.</div>
+
+    <h2>10 Grenzen</h2>
     <ul>
       <li>Ob die LEDs am Board stimmen, prüft das System nicht selbst (kein UART); die Prüfanleitung muss ein
       Mensch abarbeiten und ist ein gegengeprüftes Sprachmodell-Urteil (#55, #57).</li>
@@ -559,13 +593,14 @@ def build_html(runs: list[dict]) -> str:
       <li>Eine echte 8-Bit-CPU (8-Bit-Datenpfad, größerer Speicher, UART-Testprogramm) steht noch aus.</li>
     </ul>
 
-    <h2>10 Ablage und Reproduktion</h2>
+    <h2>11 Ablage und Reproduktion</h2>
     {table(["Pfad", "Inhalt"], [
         ["<code>Schaltungsagent/benchmark/prompts/04_mini_cpu.md</code>", "Aufgabe"],
         ["<code>Schaltungsagent/benchmark/reference/04_mini_cpu_ref_tb.vhd</code>", "unabhängige Referenz-Testbench"],
         ["<code>docs/benchmark/ergebnisse/20261012-04_mini_cpu/</code>", "results.csv, summary.json, meta.json, HINWEIS.md"],
         ["<code>… /laufN_&lt;projekt&gt;/</code>", "Plan, Quellen, Testbenches, Modell, Berichte, Ereignisse, Log, Trajektorie, Kennzahlen"],
         ["<code>… /pruefgrundlagen/</code>", "Befehlssatzmodell (Python) und eigene Vergleichsumsetzung (VHDL)"],
+        ["<code>docs/benchmark/ergebnisse/20261013-072705/</code>", "Vergleichslauf Single: Kennzahlen, Entwurf, Synthese"],
         ["<code>docs/benchmark/tools/aufgabe04_dokumentation.py</code>", "erzeugt dieses Dokument"],
     ], "compact")}
     {code('''# Referenz-Testbench gegen einen gesicherten Entwurf (Beispiel Lauf 1)
@@ -580,6 +615,7 @@ ghdl -m --std=08 ref_mini_cpu_tb && ghdl -r --std=08 ref_mini_cpu_tb --stop-time
       ACM Computing Surveys 31(4), 1999, S. 406–471.</li>
       <li>E. T. Barr, M. Harman, P. McMinn, M. Shahbaz, S. Yoo: The Oracle Problem in Software Testing: A Survey.
       IEEE Transactions on Software Engineering 41(5), 2015, S. 507–525.</li>
+      <li>Y. Kim, X. Liu u. a. (Google Research): Towards a Science of Scaling Agent Systems. arXiv:2512.08296, 2025.</li>
       <li>J. Pan u. a.: Training Software Engineering Agents and Verifiers with SWE-Gym. arXiv:2412.21139, 2024.</li>
     </ul>
     """)
