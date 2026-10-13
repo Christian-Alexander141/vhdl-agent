@@ -227,8 +227,11 @@ begin
     send_frame(hex_bytes("533F75E0F051E0F00000000000000005"));
     expect_reply(hex_bytes("fe"), "borrow_3_minus_5");
 
-    -- 5. Ungültige Länge 17 wird verworfen, ein danach gesendeter Rahmen läuft
-    send_byte(x"11");
+    -- 5. Ungültige Länge 17 wird verworfen, ein danach gesendeter Rahmen läuft.
+    --    Vollständiger Längenwert 11 00 00 00: Die Aufgabe lässt offen, ob schon das
+    --    erste Längenbyte oder erst der 4-Byte-Wert geprüft wird; beide Lesarten
+    --    müssen den folgenden Rahmen ausführen (geändert 2026-10-13 nach dem MAS-Lauf).
+    send_byte(x"11"); send_byte(x"00"); send_byte(x"00"); send_byte(x"00");
     send_frame(hex_bytes("1E3C761DE0F04E1D2F4D600001000709"));
     expect_reply(hex_bytes("3f"), "gültiger Rahmen nach verworfener Länge 17");
 

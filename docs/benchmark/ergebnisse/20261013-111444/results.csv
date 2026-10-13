@@ -1,0 +1,2 @@
+round,prompt,variant,model,passed,validator,ref_passed,ref_detail,duration_s,final_stage,failure_type,mast_category,started_at,workspace,note,provider_ok_after,valid
+1,05_ben_eater_8bit,single,opencode/muse-spark-1.3-contributor-free,True,"All VHDL files analyzed, elaborated and simulated successfully with all assertions passing",True,Referenz-Testbench bestanden,504.2,,,,2026-10-13T11:14:56,/home/alex/vhdl-agent-benchmark/20261013-111444/05_ben_eater_8bit-single-1,,True,True

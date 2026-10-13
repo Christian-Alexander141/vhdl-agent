@@ -1,0 +1,239 @@
+# Einzelanforderungen (aus PROMPT.md abgeleitet, verbindlich)
+
+Jede Änderung muss alle Anforderungen erfüllt lassen. Bei Widerspruch gilt PROMPT.md.
+Prüfart `simulation`: mindestens eine Testbench-Prüfung mit `REQ <id>` im report-Text.
+
+- **R1** (structure): Alle VHDL-Dateien sind in VHDL-2008 mit ieee.std_logic_1164 und ieee.numeric_std geschrieben, ohne wait im synthetisierbaren Code und ohne inferierte Latches.
+  - Zitat: „Erstelle in VHDL-2008 einen originalgetreuen Nachbau des 8-Bit-Breadboard-Computers von Ben Eater (SAP-1-Architektur, Endversion mit Flags-Register und bedingten Sprüngen) für das Arty S7-50.“
+  - Module: alu, ben_eater_cpu, clock_ctrl, control_unit, debouncer, input_sync, loader, memory, program_counter, register8, uart_rx, uart_tx; Ports: -
+- **R2** (structure): Die Top-Level-Entity heißt ben_eater_cpu und liegt in src/ben_eater_cpu.vhd.
+  - Zitat: „Ports der Top-Level-Entity ben_eater_cpu:“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.clk, ben_eater_cpu.rst, ben_eater_cpu.btn_step, ben_eater_cpu.sw, ben_eater_cpu.led, ben_eater_cpu.uart_rx, ben_eater_cpu.uart_tx
+- **R3** (structure): Top-Port clk (in std_logic) ist der 100-MHz-Boardtakt.
+  - Zitat: „- clk (in std_logic): 100-MHz-Takt des Boards.“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.clk
+- **R4** (simulation): Top-Port rst (in std_logic, BTN0) ist synchroner Reset, active high.
+  - Zitat: „- rst (in std_logic): Taster BTN0, synchroner Reset, active high.“
+  - Module: ben_eater_cpu, clock_ctrl, control_unit, debouncer, loader, memory, uart_rx, uart_tx; Ports: ben_eater_cpu.rst
+- **R5** (simulation): Top-Port btn_step (in std_logic, BTN1) löst im Einzeltakt je Druck genau einen Mikroschritt aus.
+  - Zitat: „- btn_step (in std_logic): Taster BTN1, Einzeltakt (ein Mikroschritt je Druck).“
+  - Module: ben_eater_cpu, debouncer, input_sync; Ports: ben_eater_cpu.btn_step
+- **R6** (structure): Top-Port sw ist std_logic_vector(3 downto 0) für SW0-SW3.
+  - Zitat: „- sw (in std_logic_vector(3 downto 0)): Schalter SW0–SW3.“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.sw
+- **R7** (simulation): sw(0) wählt das auf led angezeigte OUT-Halbbyte (0=unten, 1=oben).
+  - Zitat: „- sw(0) wählt die LED-Anzeige: '0' unteres Halbbyte von OUT, '1' oberes Halbbyte.“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.sw, ben_eater_cpu.led
+- **R8** (simulation): sw(1) wählt automatischen Takt (0, ein Mikroschritt je Tick) oder Einzeltakt über btn_step (1).
+  - Zitat: „- sw(1) wählt den Takt: '0' automatisch (ein Mikroschritt je Tick), '1' Einzeltakt über btn_step.“
+  - Module: ben_eater_cpu, clock_ctrl; Ports: ben_eater_cpu.sw
+- **R9** (simulation): sw(3 downto 2) wählt das beim Reset zu ladende feste Programm (00, 01, 10, 11).
+  - Zitat: „- sw(3 downto 2) wählt das feste Programm, das beim Reset in den Speicher geladen wird.“
+  - Module: ben_eater_cpu, memory; Ports: ben_eater_cpu.sw
+- **R10** (structure): Top-Port led ist std_logic_vector(3 downto 0) mit led(0)=LD2 bis led(3)=LD5.
+  - Zitat: „- led (out std_logic_vector(3 downto 0)): led(0) = LD2 … led(3) = LD5.“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.led
+- **R11** (structure): Top-Port uart_rx (in std_logic) ist die USB-UART-Empfangsleitung (Pin V12).
+  - Zitat: „- uart_rx (in std_logic): Empfangsleitung der USB-UART (Daten vom PC, Pin V12).“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.uart_rx
+- **R12** (structure): Top-Port uart_tx (out std_logic) ist die USB-UART-Sendeleitung (Pin R12).
+  - Zitat: „- uart_tx (out std_logic): Sendeleitung der USB-UART (Daten zum PC, Pin R12).“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.uart_tx
+- **R13** (structure): Generic TICK_CYCLES (positive, default 4000000, min 2) steuert den automatischen Takt.
+  - Zitat: „- Generic TICK_CYCLES (positive, Standard 4_000_000, also 25 Mikroschritte pro Sekunde bei 100 MHz; mindestens 2).“
+  - Module: ben_eater_cpu, clock_ctrl; Ports: -
+- **R14** (structure): Generic DEBOUNCE_CYCLES (positive, default 1000000) steuert den Entpreller.
+  - Zitat: „- Generic DEBOUNCE_CYCLES (positive, Standard 1_000_000, also 10 ms).“
+  - Module: ben_eater_cpu, debouncer; Ports: -
+- **R15** (structure): Generic CLKS_PER_BIT (positive, default 868, min 4) steuert die UART-Bitdauer.
+  - Zitat: „- Generic CLKS_PER_BIT (positive, Standard 868, also 115 200 Baud bei 100 MHz; mindestens 4).“
+  - Module: ben_eater_cpu, uart_rx, uart_tx; Ports: -
+- **R16** (simulation): Der 8-Bit-Bus ist ein Multiplexer aus CO (PC oben 0), RO (RAM[MAR]), IO (IR-low oben 0), AO (A), EO (ALU); ohne aktive Quelle ist der Bus 0, keine Tri-State-Treiber.
+  - Zitat: „- Ein 8 Bit breiter Bus verbindet alle Baugruppen. Er wird als Multiplexer umgesetzt (keine Tri-State-Treiber): Den Bus treibt genau die Quelle, deren Ausgangssignal im Steuerwort aktiv ist: CO (Befehlszähler, oben mit 0 aufgefüllt), RO (RAM[MAR]), IO (unteres Halbbyte des Befehlsregisters, oben 0), AO (Register A) oder EO (ALU-Ergebnis). Ist keine Quelle aktiv, ist der Bus 0.“
+  - Module: ben_eater_cpu, control_unit, memory, program_counter, register8, alu; Ports: -
+- **R17** (structure): Register A, B, OUT je 8 Bit, IR 8 Bit (oben Opcode, unten Operand), PC 4 Bit, MAR 4 Bit, RAM 16x8 Bit sind vorhanden.
+  - Zitat: „- Register A, Register B und Ausgaberegister OUT (je 8 Bit), Befehlsregister IR (8 Bit; oberes Halbbyte Opcode, unteres Operand), Befehlszähler PC (4 Bit), Speicheradressregister MAR (4 Bit), RAM 16 × 8 Bit.“
+  - Module: register8, program_counter, memory; Ports: -
+- **R18** (simulation): ALU bildet (A+B) mod 256 bzw. mit SU (A+(not B)+1) mod 256, Carry ist Übertrag aus Bit 7 (mit SU Carry=1 genau bei A>=B), Zero=1 bei Ergebnis 0.
+  - Zitat: „- ALU: Addierer/Subtrahierer aus A und B. Ohne SU: Ergebnis = (A + B) mod 256, Carry = Übertrag aus Bit 7. Mit SU: Ergebnis = (A + (not B) + 1) mod 256, Carry = Übertrag aus Bit 7 dieser Summe (Carry = '1' genau dann, wenn A ≥ B, also kein Borgen). Zero = '1', wenn das Ergebnis 0 ist.“
+  - Module: alu; Ports: alu.a_in, alu.b_in, alu.sub, alu.result_out, alu.carry_out, alu.zero_out
+- **R19** (simulation): Flags-Register C/Z übernimmt bei FI das ALU-Carry/Zero.
+  - Zitat: „- Flags-Register mit C und Z: übernimmt bei FI Carry und Zero der ALU.“
+  - Module: alu; Ports: alu.carry_out, alu.zero_out, alu.fi_en
+- **R20** (simulation): Mikroschrittzähler läuft T0-T4 zyklisch; das Steuerwort folgt aus Opcode IR(7 downto 4), Mikroschritt und Flags.
+  - Zitat: „- Steuerwerk: Mikroschrittzähler T0 … T4; nach T4 folgt wieder T0. Das Steuerwort ergibt sich aus Opcode (IR(7 downto 4)), Mikroschritt und den Flags.“
+  - Module: control_unit; Ports: control_unit.step_enable
+- **R21** (simulation): Die 16 Steuersignale HLT, MI, RI, RO, IO, II, AI, AO, EO, SU, BI, OI, CE, CO, J, FI haben die definierte Register-/Buswirkung.
+  - Zitat: „HLT Takt anhalten; MI MAR := Bus(3..0); RI RAM[MAR] := Bus; RO RAM[MAR] auf den Bus; IO IR(3..0) auf den Bus; II IR := Bus; AI A := Bus; AO A auf den Bus; EO ALU-Ergebnis auf den Bus; SU ALU subtrahiert; BI B := Bus; OI OUT := Bus; CE PC := PC + 1 (mod 16); CO PC auf den Bus; J PC := Bus(3..0); FI Flags := Carry, Zero der ALU.“
+  - Module: control_unit; Ports: control_unit.mi, control_unit.ri, control_unit.ro, control_unit.io, control_unit.ii, control_unit.ai, control_unit.ao, control_unit.eo, control_unit.su, control_unit.bi, control_unit.oi, control_unit.ce, control_unit.co, control_unit.j_load, control_unit.fi, control_unit.hlt
+- **R22** (simulation): Jeder Befehl holt in T0 MI+CO und in T1 RO+II+CE.
+  - Zitat: „- Alle Befehle holen in T0: MI CO und in T1: RO II CE.“
+  - Module: control_unit; Ports: -
+- **R23** (simulation): NOP (0000) hat nach Fetch keine weiteren aktiven Signale.
+  - Zitat: „- NOP 0000: –“
+  - Module: control_unit; Ports: -
+- **R24** (simulation): LDA (0001): T2 IO+MI, T3 RO+AI.
+  - Zitat: „- LDA a 0001: T2 IO MI; T3 RO AI“
+  - Module: control_unit; Ports: -
+- **R25** (simulation): ADD (0010): T2 IO+MI, T3 RO+BI, T4 EO+AI+FI.
+  - Zitat: „- ADD a 0010: T2 IO MI; T3 RO BI; T4 EO AI FI“
+  - Module: control_unit; Ports: -
+- **R26** (simulation): SUB (0011): T2 IO+MI, T3 RO+BI, T4 EO+AI+SU+FI.
+  - Zitat: „- SUB a 0011: T2 IO MI; T3 RO BI; T4 EO AI SU FI“
+  - Module: control_unit; Ports: -
+- **R27** (simulation): STA (0100): T2 IO+MI, T3 AO+RI.
+  - Zitat: „- STA a 0100: T2 IO MI; T3 AO RI“
+  - Module: control_unit; Ports: -
+- **R28** (simulation): LDI (0101): T2 IO+AI.
+  - Zitat: „- LDI n 0101: T2 IO AI“
+  - Module: control_unit; Ports: -
+- **R29** (simulation): JMP (0110): T2 IO+J.
+  - Zitat: „- JMP t 0110: T2 IO J“
+  - Module: control_unit; Ports: -
+- **R30** (simulation): JC (0111): T2 IO+J nur bei C=1, sonst nichts.
+  - Zitat: „- JC t 0111: T2 IO J, wenn C = '1', sonst nichts“
+  - Module: control_unit; Ports: -
+- **R31** (simulation): JZ (1000): T2 IO+J nur bei Z=1, sonst nichts.
+  - Zitat: „- JZ t 1000: T2 IO J, wenn Z = '1', sonst nichts“
+  - Module: control_unit; Ports: -
+- **R32** (simulation): Opcodes 1001-1101 verhalten sich wie NOP.
+  - Zitat: „- Opcodes 1001 bis 1101: wie NOP“
+  - Module: control_unit; Ports: -
+- **R33** (simulation): OUT (1110): T2 AO+OI.
+  - Zitat: „- OUT 1110: T2 AO OI“
+  - Module: control_unit; Ports: -
+- **R34** (simulation): HLT (1111): T2 HLT.
+  - Zitat: „- HLT 1111: T2 HLT“
+  - Module: control_unit; Ports: -
+- **R35** (simulation): Mikroschritte wirken genau bei Schrittfreigabe=1 gleichzeitig auf alle Register mit Vor-Flanken-Werten; RI nutzt MAR vor der Flanke.
+  - Zitat: „- Ein Mikroschritt wird mit der steigenden Taktflanke ausgeführt, an der die Schrittfreigabe (siehe unten) '1' ist. Alle Register übernehmen gleichzeitig; Bus, ALU und Flags-Eingänge verwenden die Werte vor der Flanke. RI schreibt an die Adresse im MAR vor der Flanke.“
+  - Module: ben_eater_cpu, control_unit, memory; Ports: -
+- **R36** (simulation): Nach jedem ausgeführten Mikroschritt rückt der Zähler vor (T4→T0).
+  - Zitat: „- Danach geht der Mikroschrittzähler einen Schritt weiter (T4 → T0).“
+  - Module: control_unit; Ports: -
+- **R37** (simulation): Bei HLT frieren alle Register und der Mikroschrittzähler ein bis Reset oder UART-Programm.
+  - Zitat: „- Enthält das Steuerwort HLT, ändert sich kein Register, auch nicht der Mikroschrittzähler, und es folgen keine weiteren Mikroschritte, bis zum Reset oder bis ein Programm über die UART geladen wird.“
+  - Module: control_unit, clock_ctrl; Ports: control_unit.halted, control_unit.hlt
+- **R38** (simulation): sw, btn_step, uart_rx laufen über je zwei nicht zurückgesetzte Flipflops (Init 0, uart_rx 1); alles nutzt synchronisierte Werte.
+  - Zitat: „- sw, btn_step und uart_rx werden mit je zwei Flipflops einsynchronisiert. Diese Synchronisierer werden nicht zurückgesetzt und laufen immer; Startwert '0', bei uart_rx '1'. Alle Regeln verwenden die einsynchronisierten Werte.“
+  - Module: input_sync; Ports: input_sync.data_in, input_sync.data_out
+- **R39** (simulation): Entpreller zählt bei abweichendem Eingang bis DEBOUNCE_CYCLES-1 und übernimmt dann dout; rise ist genau einen Takt bei 0→1 von dout.
+  - Zitat: „- Entpreller für btn_step: Register dout und Zähler. Ist der Eingang gleich dout, wird der Zähler 0. Sonst zählt er um eins hoch; steht er dabei schon auf DEBOUNCE_CYCLES−1, übernimmt dout stattdessen den Eingang und der Zähler wird 0. Der Impuls rise ist ein Register: Er wird mit derselben Flanke '1', mit der dout von '0' auf '1' wechselt, und ist genau einen Takt lang '1'.“
+  - Module: debouncer; Ports: debouncer.din, debouncer.dout, debouncer.rise
+- **R40** (simulation): Tick-Generator zählt 0..TICK_CYCLES-1 und pulst einen Takt beim Endstand; läuft immer.
+  - Zitat: „- Tick-Generator: zählt von 0 bis TICK_CYCLES−1 und liefert beim Zählerstand TICK_CYCLES−1 einen Tick von genau einem Takt; er läuft immer.“
+  - Module: clock_ctrl; Ports: clock_ctrl.tick
+- **R41** (simulation): Schrittfreigabe ist Tick (sw1=0) bzw. rise (sw1=1) im Board-Modus und jeder Takt im UART-Modus, gesperrt bei HLT sowie im UART-Modus bei Rahmenempfang oder OI+Sender-busy.
+  - Zitat: „- Schrittfreigabe im Board-Modus: Tick, wenn sw(1) = '0'; rise, wenn sw(1) = '1'. Im UART-Modus: jeder Takt. In beiden Modi keine Freigabe, solange die CPU angehalten ist (HLT), und im UART-Modus keine Freigabe, solange der Lader einen Rahmen empfängt oder solange das aktuelle Steuerwort OI enthält und der UART-Sender noch ein Zeichen sendet.“
+  - Module: clock_ctrl, control_unit, loader, uart_tx; Ports: clock_ctrl.step_enable, clock_ctrl.sw_step, clock_ctrl.step_rise, clock_ctrl.halted, clock_ctrl.uart_mode, clock_ctrl.loader_busy, clock_ctrl.tx_busy, clock_ctrl.oi_active
+- **R42** (simulation): led-Register übernimmt jeden Takt das per sw(0) gewählte OUT-Halbbyte.
+  - Zitat: „- led ist ein Register und übernimmt mit jeder steigenden Taktflanke das mit sw(0) gewählte Halbbyte von OUT.“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.led, ben_eater_cpu.sw
+- **R43** (simulation): Bei rst=1 gehen alle Register/Zustände/LED in 0/Ruhe (tx=1, Board-Modus) und RAM lädt jeden Takt das per sw(3:2) gewählte Festprogramm.
+  - Zitat: „- Solange rst = '1': PC, MAR, IR, A, B, OUT, C, Z, Mikroschrittzähler, Haltezustand, Tick-Zähler, Entpreller, Lader, UART-Empfänger und -Sender (uart_tx = '1') und led werden 0 bzw. Ruhezustand, die CPU ist im Board-Modus, und das RAM übernimmt in jedem Takt das mit sw(3 downto 2) gewählte feste Programm.“
+  - Module: ben_eater_cpu, program_counter, memory, register8, alu, control_unit, clock_ctrl, debouncer, loader, uart_rx, uart_tx; Ports: ben_eater_cpu.rst, ben_eater_cpu.sw
+- **R44** (simulation): Nach Bitstream-Laden entspricht der Zustand Reset mit Programm 00.
+  - Zitat: „- Nach dem Laden des Bitstreams entspricht der Zustand dem Reset mit Programm 0.“
+  - Module: memory; Ports: -
+- **R45** (simulation): Festprogramm 00 ist Fibonacci 51 4E 50 E0 2E 4F 1E 4D 1F 4E 1D 70 63 00 00 00 mit OUT-Folge bis 144 und Überlauf-Neustart.
+  - Zitat: „- "00" Fibonacci (Original-Programm): 51 4E 50 E0 2E 4F 1E 4D 1F 4E 1D 70 63 00 00 00. OUT zeigt 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144 und beginnt nach dem Überlauf von vorn.“
+  - Module: memory; Ports: -
+- **R46** (simulation): Festprogramm 01 ist Zählen E0 2F 74 60 3F E0 80 64 00 00 00 00 00 00 00 01 (0..255..0..).
+  - Zitat: „- "01" Zählen: E0 2F 74 60 3F E0 80 64 00 00 00 00 00 00 00 01. OUT zählt von 0 bis 255, dann zurück bis 0, und wieder hinauf.“
+  - Module: memory; Ports: -
+- **R47** (simulation): Festprogramm 10 ist 3x5 1E 3C 76 1D E0 F0 4E 1D 2F 4D 60 00 01 00 03 05 mit OUT=15 und Halt.
+  - Zitat: „- "10" Multiplikation 3 × 5: 1E 3C 76 1D E0 F0 4E 1D 2F 4D 60 00 01 00 03 05. OUT zeigt 15, dann hält die CPU an.“
+  - Module: memory; Ports: -
+- **R48** (simulation): Festprogramm 11 ist Countdown 5A E0 00 3F 86 61 E0 F0 00 00 00 00 00 00 00 01 mit OUT 10..0 und Halt.
+  - Zitat: „- "11" Countdown: 5A E0 00 3F 86 61 E0 F0 00 00 00 00 00 00 00 01. OUT zeigt 10, 9, …, 1, 0, dann hält die CPU an.“
+  - Module: memory; Ports: -
+- **R49** (simulation): UART ist 8N1 LSB-first mit CLKS_PER_BIT Takten/Bit, Idle 1, Start an fallender Flanke, Abtastung in Bitmitte, Verwerfen bei falschem Start-/Stoppbit.
+  - Zitat: „- UART 8N1, niederwertigstes Bit zuerst, jedes Bit CLKS_PER_BIT Takte; Ruhepegel '1'. Der Empfänger erkennt den Beginn eines Startbits an der fallenden Flanke des einsynchronisierten uart_rx, tastet jedes Bit in der Bitmitte ab und verwirft ein Zeichen, dessen Startbit in der Mitte nicht '0' oder dessen Stoppbit nicht '1' ist.“
+  - Module: uart_rx, uart_tx; Ports: -
+- **R50** (simulation): Laderahmen sind 4 Längenbytes (LE), n Programmbytes und 53 54 41 52 54 0A; n 1..16, sonst Verwerfen und Resync am nächsten Byte.
+  - Zitat: „- Ladeprotokoll (wie der Hardwaretest des Systems sendet): 4 Bytes Länge n (little endian), n Programmbytes, dann die 6 Zeichen "START" und Zeilenvorschub (53 54 41 52 54 0A). n muss 1 bis 16 sein. Weicht ein Byte ab (Länge außerhalb 1..16, falsches Zeichen in START), wird der Rahmen verworfen und das nächste Byte wieder als erstes Längenbyte gelesen.“
+  - Module: loader; Ports: loader.rx_data, loader.rx_valid
+- **R51** (simulation): Vollständiger Rahmen lädt RAM (Rest 0), löscht alle CPU-Register/Flags/T-Zähler/Halt und startet UART-Modus mit 1 Mikroschritt/Takt ab Folgetakt.
+  - Zitat: „- Ist der Rahmen vollständig, gilt: RAM[0..n−1] := Programmbytes, RAM[n..15] := 0; PC, MAR, IR, A, B, OUT, C, Z, Mikroschrittzähler und Haltezustand werden 0; die CPU wechselt in den UART-Modus und läuft ab dem nächsten Takt mit einem Mikroschritt je Takt.“
+  - Module: loader, memory, program_counter, register8, alu, control_unit; Ports: loader.prog_data, loader.prog_valid, loader.uart_mode
+- **R52** (simulation): Im UART-Modus sendet jeder OI-Mikroschritt den neuen OUT-Wert via uart_tx; im Board-Modus bleibt uart_tx 1.
+  - Zitat: „- Im UART-Modus sendet jeder ausgeführte Mikroschritt mit OI den neuen OUT-Wert als ein Zeichen über uart_tx. Im Board-Modus sendet die CPU nichts (uart_tx bleibt '1').“
+  - Module: uart_tx, control_unit, loader; Ports: ben_eater_cpu.uart_tx
+- **R53** (simulation): Erstes Rahmenbyte im UART-Modus hält die CPU bis Rahmenende/Verwerfen an; UART-Modus endet nur per Reset.
+  - Zitat: „- Empfängt der Lader im UART-Modus das erste Byte eines neuen Rahmens, hält die CPU an, bis dieser Rahmen vollständig ist oder verworfen wurde. Der UART-Modus endet nur mit dem Reset.“
+  - Module: loader, clock_ctrl; Ports: loader.loader_busy, loader.uart_mode
+- **R54** (structure): Nur Reihenfolge/Inhalt von Empfang, Laden und Senden sind vorgegeben, nicht deren Taktzahlen.
+  - Zitat: „- Die genaue Taktzahl von Empfang, Laden und Senden ist nicht vorgegeben; vorgegeben sind Reihenfolge und Inhalt der Zeichen.“
+  - Module: loader, uart_rx, uart_tx; Ports: -
+- **R55** (simulation): UART-Test fibonacci_halt mit Programm E02E7B4F1E4D1F4E1D6000F000000100 antwortet 000101020305080d1522375990.
+  - Zitat: „- fibonacci_halt: Programm E02E7B4F1E4D1F4E1D6000F000000100, Antwort 000101020305080d1522375990“
+  - Module: ben_eater_cpu, loader, uart_tx; Ports: ben_eater_cpu.uart_tx
+- **R56** (simulation): UART-Test multiply_7x9 mit Programm 1E3C761DE0F04E1D2F4D600001000709 antwortet 3f.
+  - Zitat: „- multiply_7x9: Programm 1E3C761DE0F04E1D2F4D600001000709, Antwort 3f“
+  - Module: ben_eater_cpu, loader, uart_tx; Ports: ben_eater_cpu.uart_tx
+- **R57** (simulation): UART-Test countdown_5 mit Programm 55E03F8561E0F0000000000000000001 antwortet 050403020100.
+  - Zitat: „- countdown_5: Programm 55E03F8561E0F0000000000000000001, Antwort 050403020100“
+  - Module: ben_eater_cpu, loader, uart_tx; Ports: ben_eater_cpu.uart_tx
+- **R58** (simulation): UART-Test borrow_3_minus_5 mit Programm 533F75E0F051E0F00000000000000005 antwortet fe.
+  - Zitat: „- borrow_3_minus_5: Programm 533F75E0F051E0F00000000000000005, Antwort fe“
+  - Module: ben_eater_cpu, loader, uart_tx; Ports: ben_eater_cpu.uart_tx
+- **R59** (structure): Jede der 12 Entities liegt als src/<entity>.vhd vor (input_sync, debouncer, clock_ctrl, program_counter, register8, alu, memory, control_unit, uart_rx, uart_tx, loader, ben_eater_cpu).
+  - Zitat: „Module, je Entity eine Datei src/<entity>.vhd:“
+  - Module: input_sync, debouncer, clock_ctrl, program_counter, register8, alu, memory, control_unit, uart_rx, uart_tx, loader, ben_eater_cpu; Ports: -
+- **R60** (structure): input_sync hat Generics WIDTH und INIT und zwei Stufen.
+  - Zitat: „- input_sync: zweistufiger Synchronisierer mit Generics WIDTH und INIT (Startwert).“
+  - Module: input_sync; Ports: -
+- **R61** (structure): debouncer hat Generic DEBOUNCE_CYCLES und Ausgänge dout und rise.
+  - Zitat: „- debouncer: Entpreller mit Generic DEBOUNCE_CYCLES und den Ausgängen dout und rise.“
+  - Module: debouncer; Ports: -
+- **R62** (structure): clock_ctrl hat Generic TICK_CYCLES und bildet die Schrittfreigabe.
+  - Zitat: „- clock_ctrl: Tick-Generator (Generic TICK_CYCLES) und Schrittfreigabe aus Modus, Tick, rise, Haltezustand, Lader und Sender.“
+  - Module: clock_ctrl; Ports: -
+- **R63** (structure): program_counter hat CE, J und Reset.
+  - Zitat: „- program_counter: PC mit CE, J und Reset.“
+  - Module: program_counter; Ports: -
+- **R64** (structure): register8 ist 8-Bit-Register mit Ladeeingang für A, B, OUT, IR.
+  - Zitat: „- register8: 8-Bit-Register mit Ladeeingang (für A, B, OUT und IR).“
+  - Module: register8; Ports: -
+- **R65** (structure): alu enthält Addierer/Subtrahierer, Carry/Zero und Flags-Register mit FI.
+  - Zitat: „- alu: Addierer/Subtrahierer mit Carry und Zero sowie Flags-Register (FI).“
+  - Module: alu; Ports: -
+- **R66** (structure): memory enthält MAR, RAM 16x8, vier Festprogramme, Reset-Laden und UART-Übernahme.
+  - Zitat: „- memory: MAR, RAM 16 × 8 und die vier festen Programme; Laden beim Reset und Übernahme eines geladenen Programms.“
+  - Module: memory; Ports: -
+- **R67** (structure): control_unit enthält T-Zähler, Mikroprogramm, Haltezustand und 16 Steuersignale.
+  - Zitat: „- control_unit: Mikroschrittzähler, Mikroprogramm und Haltezustand; liefert die 16 Steuersignale.“
+  - Module: control_unit; Ports: -
+- **R68** (structure): uart_rx hat Generic CLKS_PER_BIT.
+  - Zitat: „- uart_rx: UART-Empfänger mit Generic CLKS_PER_BIT.“
+  - Module: uart_rx; Ports: -
+- **R69** (structure): uart_tx hat Generic CLKS_PER_BIT und busy-Ausgang.
+  - Zitat: „- uart_tx: UART-Sender mit Generic CLKS_PER_BIT und Ausgang busy.“
+  - Module: uart_tx; Ports: -
+- **R70** (structure): loader enthält Protokoll, Puffer und UART-Modus.
+  - Zitat: „- loader: Ladeprotokoll, Programmpuffer und UART-Modus.“
+  - Module: loader; Ports: -
+- **R71** (structure): ben_eater_cpu verdrahtet alle Module mit Bus-Multiplexer und LED-Register.
+  - Zitat: „- ben_eater_cpu: Top-Level; Bus-Multiplexer, Verdrahtung aller Module und LED-Register.“
+  - Module: ben_eater_cpu; Ports: -
+- **R72** (simulation): Testbench tests/ben_eater_cpu_tb.vhd nutzt TICK_CYCLES=2, DEBOUNCE_CYCLES=2, CLKS_PER_BIT=8.
+  - Zitat: „Testbench tests/ben_eater_cpu_tb.vhd mit TICK_CYCLES = 2, DEBOUNCE_CYCLES = 2 und CLKS_PER_BIT = 8. Sie prüft:“
+  - Module: ben_eater_cpu; Ports: -
+- **R73** (simulation): Testbench prüft Programme 10 (OUT=15+Halt) und 11 (10..0) im Auto-Takt über beide LED-Halbbytes.
+  - Zitat: „- die Programme "10" (OUT = 15, danach Halt) und "11" (Folge 10 … 0) im automatischen Takt über beide LED-Halbbytes;“
+  - Module: ben_eater_cpu, memory; Ports: ben_eater_cpu.sw, ben_eater_cpu.led
+- **R74** (simulation): Testbench prüft Einzeltakt: ohne Druck kein Fortschritt, je Druck ein Mikroschritt (Prog 11: OUT=10 nach 8 Drücken).
+  - Zitat: „- im Einzeltakt, dass ohne Tastendruck nichts passiert und dass jeder Druck genau einen Mikroschritt ausführt (bei Programm "11" steht 10 nach genau 8 Drücken in OUT);“
+  - Module: ben_eater_cpu, debouncer, clock_ctrl; Ports: ben_eater_cpu.btn_step
+- **R75** (simulation): Testbench prüft UART-Laden mit den vier Hardwaretests und Antwortbytes auf uart_tx.
+  - Zitat: „- das Laden über die UART mit den vier Hardwaretests oben (Antwortbytes über uart_tx);“
+  - Module: ben_eater_cpu, loader, uart_tx; Ports: ben_eater_cpu.uart_rx, ben_eater_cpu.uart_tx
+- **R76** (simulation): Testbench prüft Verwerfen eines Länge-17-Rahmens und danach gültigen Rahmen.
+  - Zitat: „- dass ein Rahmen mit Länge 17 verworfen wird und ein danach gesendeter gültiger Rahmen trotzdem läuft;“
+  - Module: ben_eater_cpu, loader; Ports: ben_eater_cpu.uart_rx
+- **R77** (simulation): Testbench prüft Stille im Board-Modus (tx=1) und Rückkehr per Reset in den Board-Modus.
+  - Zitat: „- dass im Board-Modus nichts gesendet wird und der Reset in den Board-Modus zurückführt.“
+  - Module: ben_eater_cpu, loader, uart_tx; Ports: ben_eater_cpu.uart_tx, ben_eater_cpu.rst
+- **R78** (structure): Boardverhalten: Reset unten startet Fibonacci auf LEDs (SW0 wählt Halbbyte, SW1 Einzeltakt via BTN1, SW3/2 Programmwahl), UART lädt bei 115200 Baud mit Byte-Antworten.
+  - Zitat: „Am Board (alle Schalter unten, BTN0 drücken) läuft Ben Eaters Fibonacci-Programm; die LEDs zeigen das untere Halbbyte von OUT, mit SW0 oben das obere. Mit SW1 oben führt jeder Druck auf BTN1 genau einen Mikroschritt aus. SW3/SW2 wählen beim Reset die anderen Programme. Über die USB-UART (115 200 Baud) lassen sich eigene Programme laden; die Ausgaben kommen als Bytes zurück.“
+  - Module: ben_eater_cpu; Ports: ben_eater_cpu.sw, ben_eater_cpu.led, ben_eater_cpu.btn_step

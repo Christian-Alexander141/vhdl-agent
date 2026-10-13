@@ -1,0 +1,257 @@
+2026-10-13 10:27:59 [INFO] src.domain.domain_registry: Discovered domain: vhdl
+INFO:     Started server process [61407]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8088 (Press CTRL+C to quit)
+[OK] Alle Komponenten sind installiert.
+INFO:     127.0.0.1:46560 - "GET /api/domains HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46576 - "GET /api/domains HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46592 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-10-13 10:28:00 [INFO] src.api_server: WebSocket client connected
+INFO:     127.0.0.1:57488 - "WebSocket /ws" [accepted]
+INFO:     connection open
+2026-10-13 10:28:09 [INFO] src.api_server: WebSocket client connected
+2026-10-13 10:28:10 [INFO] src.services.filesystem_service: Workspace created: ~/Dokumente/Github/vhdl-agent/projects/bootstrap-0b7e7c9eedb9
+2026-10-13 10:28:10 [INFO] src.services.knowledge_provisioner: Knowledge provisioned: 10 files, version=3
+2026-10-13 10:28:10 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=plan prompt_length=4141 request_length=10368 task_id=bootstrap-0b7e7c9eedb9
+2026-10-13 10:28:10 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=~/Dokumente/Github/vhdl-agent/projects/bootstrap-0b7e7c9eedb9, timeout=1200
+2026-10-13 10:28:10 [INFO] src.services.opencode_service: Workspace ~/Dokumente/Github/vhdl-agent/projects/bootstrap-0b7e7c9eedb9 isolated as its own git repository for OpenCode
+2026-10-13 10:30:05 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:30:06 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'plan', 'task_id': 'bootstrap-0b7e7c9eedb9', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 4141, 'request_length': 10368, 'duration_s': 116.4, 'success': True, 'reason': ''}
+2026-10-13 10:30:06 [INFO] src.services.knowledge_provisioner: Knowledge provisioned: 10 files, version=3
+INFO:     127.0.0.1:57502 - "POST /api/chat HTTP/1.1" 200 OK
+2026-10-13 10:30:06 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:30:06 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:30:06 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:30:06 [INFO] src.services.filesystem_service: File written: <workspace>/plan/requirements.md
+2026-10-13 10:30:07 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:30:07 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:30:07 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:30:07 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:30:07 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=reference_model prompt_length=2524 request_length=10368 task_id=model_ec9cd7be
+2026-10-13 10:30:08 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:36:47 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:36:48 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'reference_model', 'task_id': 'model_ec9cd7be', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2524, 'request_length': 10368, 'duration_s': 400.1, 'success': True, 'reason': ''}
+2026-10-13 10:36:48 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 10:36:48 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:36:48 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:36:48 [INFO] src.agents.supervisor: IMPLEMENTATION_GRAPH_STARTED project=ben-eater-8bit-computer-7814fe modules=12 tasks=12 reused=0
+2026-10-13 10:36:48 [INFO] src.domain.agents.task_graph: Task implement_module_control_unit started on worker hdl_worker_1
+2026-10-13 10:36:48 [INFO] src.domain.agents.task_graph: Task implement_module_clock_ctrl started on worker hdl_worker_2
+2026-10-13 10:36:49 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=3809 request_length=10368 task_id=control_unit_b462495e
+2026-10-13 10:36:49 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2889 request_length=10368 task_id=clock_ctrl_16dad16b
+2026-10-13 10:36:50 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:36:50 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:37:55 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:37:56 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'clock_ctrl_16dad16b', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2889, 'request_length': 10368, 'duration_s': 65.3, 'success': True, 'reason': ''}
+2026-10-13 10:37:56 [INFO] src.services.filesystem_service: File written: <workspace>/src/clock_ctrl.vhd
+2026-10-13 10:37:56 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=3047 request_length=10368 task_id=clock_ctrl_818095dd
+2026-10-13 10:37:57 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:38:06 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:38:07 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'control_unit_b462495e', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 3809, 'request_length': 10368, 'duration_s': 77.0, 'success': True, 'reason': ''}
+2026-10-13 10:38:07 [INFO] src.services.filesystem_service: File written: <workspace>/src/control_unit.vhd
+2026-10-13 10:38:07 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=3326 request_length=10368 task_id=control_unit_835be7e4
+2026-10-13 10:38:08 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:39:05 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:39:05 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'clock_ctrl_818095dd', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 3047, 'request_length': 10368, 'duration_s': 68.9, 'success': True, 'reason': ''}
+2026-10-13 10:39:05 [INFO] src.services.filesystem_service: File written: <workspace>/tests/clock_ctrl_tb.vhd
+2026-10-13 10:39:05 [INFO] src.domain.agents.task_graph: Task implement_module_clock_ctrl status updated to COMPLETED
+2026-10-13 10:39:05 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:39:05 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:39:05 [INFO] src.domain.agents.task_graph: Task implement_module_memory started on worker hdl_worker_2
+2026-10-13 10:39:06 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2882 request_length=10368 task_id=memory_9028acfa
+2026-10-13 10:39:06 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:39:49 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:39:49 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'control_unit_835be7e4', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 3326, 'request_length': 10368, 'duration_s': 101.0, 'success': True, 'reason': ''}
+2026-10-13 10:39:49 [INFO] src.services.filesystem_service: File written: <workspace>/tests/control_unit_tb.vhd
+2026-10-13 10:39:49 [INFO] src.domain.agents.task_graph: Task implement_module_control_unit status updated to COMPLETED
+2026-10-13 10:39:49 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:39:49 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:39:49 [INFO] src.domain.agents.task_graph: Task implement_module_alu started on worker hdl_worker_1
+2026-10-13 10:39:49 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2670 request_length=10368 task_id=alu_cf2bd8e2
+2026-10-13 10:39:50 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:40:56 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:40:57 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'memory_9028acfa', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2882, 'request_length': 10368, 'duration_s': 110.8, 'success': True, 'reason': ''}
+2026-10-13 10:40:57 [INFO] src.services.filesystem_service: File written: <workspace>/src/memory.vhd
+2026-10-13 10:40:57 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=3071 request_length=10368 task_id=memory_b53a7b8a
+2026-10-13 10:40:58 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:42:32 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:42:33 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'alu_cf2bd8e2', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2670, 'request_length': 10368, 'duration_s': 163.1, 'success': True, 'reason': ''}
+2026-10-13 10:42:33 [INFO] src.services.filesystem_service: File written: <workspace>/src/alu.vhd
+2026-10-13 10:42:33 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=2971 request_length=10368 task_id=alu_1c517e2c
+2026-10-13 10:42:34 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:43:20 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:43:21 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'memory_b53a7b8a', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 3071, 'request_length': 10368, 'duration_s': 142.9, 'success': True, 'reason': ''}
+2026-10-13 10:43:21 [INFO] src.services.filesystem_service: File written: <workspace>/tests/memory_tb.vhd
+2026-10-13 10:43:21 [INFO] src.domain.agents.task_graph: Task implement_module_memory status updated to COMPLETED
+2026-10-13 10:43:21 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:43:21 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:43:21 [INFO] src.domain.agents.task_graph: Task implement_module_loader started on worker hdl_worker_2
+2026-10-13 10:43:21 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2601 request_length=10368 task_id=loader_dc8234fa
+2026-10-13 10:43:22 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:43:32 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:43:33 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'alu_1c517e2c', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2971, 'request_length': 10368, 'duration_s': 59.5, 'success': True, 'reason': ''}
+2026-10-13 10:43:33 [INFO] src.services.filesystem_service: File written: <workspace>/tests/alu_tb.vhd
+2026-10-13 10:43:33 [INFO] src.domain.agents.task_graph: Task implement_module_alu status updated to COMPLETED
+2026-10-13 10:43:33 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:43:33 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:43:33 [INFO] src.domain.agents.task_graph: Task implement_module_program_counter started on worker hdl_worker_1
+2026-10-13 10:43:33 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2445 request_length=10368 task_id=program_counter_5364a509
+2026-10-13 10:43:34 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:44:14 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:44:14 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'program_counter_5364a509', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2445, 'request_length': 10368, 'duration_s': 40.3, 'success': True, 'reason': ''}
+2026-10-13 10:44:14 [INFO] src.services.filesystem_service: File written: <workspace>/src/program_counter.vhd
+2026-10-13 10:44:15 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=3000 request_length=10368 task_id=program_counter_48ea5ae0
+2026-10-13 10:44:15 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:45:09 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:45:10 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'program_counter_48ea5ae0', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 3000, 'request_length': 10368, 'duration_s': 54.8, 'success': True, 'reason': ''}
+2026-10-13 10:45:10 [INFO] src.services.filesystem_service: File written: <workspace>/tests/program_counter_tb.vhd
+2026-10-13 10:45:10 [INFO] src.domain.agents.task_graph: Task implement_module_program_counter status updated to COMPLETED
+2026-10-13 10:45:10 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:45:10 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:45:10 [INFO] src.domain.agents.task_graph: Task implement_module_uart_tx started on worker hdl_worker_1
+2026-10-13 10:45:10 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2388 request_length=10368 task_id=uart_tx_e2a0bb72
+2026-10-13 10:45:11 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:46:17 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:46:18 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'loader_dc8234fa', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2601, 'request_length': 10368, 'duration_s': 176.3, 'success': True, 'reason': ''}
+2026-10-13 10:46:18 [INFO] src.services.filesystem_service: File written: <workspace>/src/loader.vhd
+2026-10-13 10:46:18 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=2979 request_length=10368 task_id=loader_a5128396
+2026-10-13 10:46:19 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:47:44 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:47:45 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'uart_tx_e2a0bb72', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2388, 'request_length': 10368, 'duration_s': 153.7, 'success': True, 'reason': ''}
+2026-10-13 10:47:45 [INFO] src.services.filesystem_service: File written: <workspace>/src/uart_tx.vhd
+2026-10-13 10:47:45 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=2902 request_length=10368 task_id=uart_tx_19777992
+2026-10-13 10:47:46 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:50:21 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:50:21 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'uart_tx_19777992', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2902, 'request_length': 10368, 'duration_s': 155.4, 'success': True, 'reason': ''}
+2026-10-13 10:50:21 [INFO] src.services.filesystem_service: File written: <workspace>/tests/uart_tx_tb.vhd
+2026-10-13 10:50:21 [INFO] src.domain.agents.task_graph: Task implement_module_uart_tx status updated to COMPLETED
+2026-10-13 10:50:21 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:50:21 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:50:21 [INFO] src.domain.agents.task_graph: Task implement_module_debouncer started on worker hdl_worker_1
+2026-10-13 10:50:21 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2263 request_length=10368 task_id=debouncer_2a25a83c
+2026-10-13 10:50:22 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:50:44 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:50:45 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'loader_a5128396', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2979, 'request_length': 10368, 'duration_s': 266.5, 'success': True, 'reason': ''}
+2026-10-13 10:50:45 [INFO] src.services.filesystem_service: File written: <workspace>/tests/loader_tb.vhd
+2026-10-13 10:50:45 [INFO] src.domain.agents.task_graph: Task implement_module_loader status updated to COMPLETED
+2026-10-13 10:50:45 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:50:45 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:50:45 [INFO] src.domain.agents.task_graph: Task implement_module_register8 started on worker hdl_worker_2
+2026-10-13 10:50:45 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2309 request_length=10368 task_id=register8_30ab6aa4
+2026-10-13 10:50:46 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:51:32 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:51:33 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'debouncer_2a25a83c', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2263, 'request_length': 10368, 'duration_s': 70.6, 'success': True, 'reason': ''}
+2026-10-13 10:51:33 [INFO] src.services.filesystem_service: File written: <workspace>/src/debouncer.vhd
+2026-10-13 10:51:33 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=2873 request_length=10368 task_id=debouncer_9af529d4
+2026-10-13 10:51:34 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:51:50 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:51:51 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'register8_30ab6aa4', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2309, 'request_length': 10368, 'duration_s': 65.1, 'success': True, 'reason': ''}
+2026-10-13 10:51:51 [INFO] src.services.filesystem_service: File written: <workspace>/src/register8.vhd
+2026-10-13 10:51:51 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=2921 request_length=10368 task_id=register8_4ad5ae57
+2026-10-13 10:51:52 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:52:46 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:52:47 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'debouncer_9af529d4', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2873, 'request_length': 10368, 'duration_s': 73.1, 'success': True, 'reason': ''}
+2026-10-13 10:52:47 [INFO] src.services.filesystem_service: File written: <workspace>/tests/debouncer_tb.vhd
+2026-10-13 10:52:47 [INFO] src.domain.agents.task_graph: Task implement_module_debouncer status updated to COMPLETED
+2026-10-13 10:52:47 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:52:47 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:52:47 [INFO] src.domain.agents.task_graph: Task implement_module_uart_rx started on worker hdl_worker_1
+2026-10-13 10:52:47 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2329 request_length=10368 task_id=uart_rx_0795eaa3
+2026-10-13 10:52:49 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:52:56 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:52:57 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'register8_4ad5ae57', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2921, 'request_length': 10368, 'duration_s': 65.0, 'success': True, 'reason': ''}
+2026-10-13 10:52:57 [INFO] src.services.filesystem_service: File written: <workspace>/tests/register8_tb.vhd
+2026-10-13 10:52:57 [INFO] src.domain.agents.task_graph: Task implement_module_register8 status updated to COMPLETED
+2026-10-13 10:52:57 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:52:57 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:52:57 [INFO] src.domain.agents.task_graph: Task implement_module_input_sync started on worker hdl_worker_2
+2026-10-13 10:52:57 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=2264 request_length=10368 task_id=input_sync_3c597d0c
+2026-10-13 10:52:59 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:53:55 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:53:56 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'input_sync_3c597d0c', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2264, 'request_length': 10368, 'duration_s': 57.1, 'success': True, 'reason': ''}
+2026-10-13 10:53:56 [INFO] src.services.filesystem_service: File written: <workspace>/src/input_sync.vhd
+2026-10-13 10:53:56 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=2899 request_length=10368 task_id=input_sync_f3c3710a
+2026-10-13 10:53:57 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:54:03 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:54:04 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'uart_rx_0795eaa3', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2329, 'request_length': 10368, 'duration_s': 75.3, 'success': True, 'reason': ''}
+2026-10-13 10:54:04 [INFO] src.services.filesystem_service: File written: <workspace>/src/uart_rx.vhd
+2026-10-13 10:54:04 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=2884 request_length=10368 task_id=uart_rx_5ceaf6a4
+2026-10-13 10:54:05 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:55:12 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:55:13 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'input_sync_f3c3710a', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2899, 'request_length': 10368, 'duration_s': 76.1, 'success': True, 'reason': ''}
+2026-10-13 10:55:13 [INFO] src.services.filesystem_service: File written: <workspace>/tests/input_sync_tb.vhd
+2026-10-13 10:55:13 [INFO] src.domain.agents.task_graph: Task implement_module_input_sync status updated to COMPLETED
+2026-10-13 10:55:13 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:55:13 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:56:16 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:56:16 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'uart_rx_5ceaf6a4', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 2884, 'request_length': 10368, 'duration_s': 131.2, 'success': True, 'reason': ''}
+2026-10-13 10:56:16 [INFO] src.services.filesystem_service: File written: <workspace>/tests/uart_rx_tb.vhd
+2026-10-13 10:56:16 [INFO] src.domain.agents.task_graph: Task implement_module_uart_rx status updated to COMPLETED
+2026-10-13 10:56:16 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 10:56:16 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 10:56:16 [INFO] src.domain.agents.task_graph: Task implement_module_ben_eater_cpu started on worker hdl_worker_1
+2026-10-13 10:56:17 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_module prompt_length=7428 request_length=10368 task_id=ben_eater_cpu_69edc86e
+2026-10-13 10:56:17 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 10:58:07 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 10:58:08 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_module', 'task_id': 'ben_eater_cpu_69edc86e', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 7428, 'request_length': 10368, 'duration_s': 110.8, 'success': True, 'reason': ''}
+2026-10-13 10:58:08 [INFO] src.services.filesystem_service: File written: <workspace>/src/ben_eater_cpu.vhd
+2026-10-13 10:58:08 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=implement_testbench prompt_length=3194 request_length=10368 task_id=ben_eater_cpu_58547ac0
+2026-10-13 10:58:09 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 11:02:10 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 11:02:10 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'implement_testbench', 'task_id': 'ben_eater_cpu_58547ac0', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 3194, 'request_length': 10368, 'duration_s': 241.3, 'success': True, 'reason': ''}
+2026-10-13 11:02:10 [INFO] src.services.filesystem_service: File written: <workspace>/tests/ben_eater_cpu_tb.vhd
+2026-10-13 11:02:10 [INFO] src.domain.agents.task_graph: Task implement_module_ben_eater_cpu status updated to COMPLETED
+2026-10-13 11:02:10 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 11:02:10 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 11:02:10 [INFO] src.services.filesystem_service: File written: <workspace>/task_graph.json.tmp
+2026-10-13 11:02:10 [INFO] src.agents.supervisor: TASK_GRAPH_SAVED workspace=<workspace> tasks=12
+2026-10-13 11:02:10 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:02:10 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:02:11 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: <workspace>
+2026-10-13 11:02:15 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:02:15 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:02:15 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: <workspace>
+2026-10-13 11:02:19 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:02:19 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:02:19 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_hgd_p6el
+2026-10-13 11:02:21 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_56nv64vl
+2026-10-13 11:02:23 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant___pa146q
+2026-10-13 11:02:25 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_vgal1ftc
+2026-10-13 11:02:27 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_5_5eyoxe
+2026-10-13 11:02:31 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_739oxu3d
+2026-10-13 11:02:33 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_gzk6rfou
+2026-10-13 11:02:34 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_7gfdbq44
+2026-10-13 11:02:36 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_05ht2neb
+2026-10-13 11:02:38 [INFO] src.infrastructure.validation.ghdl_validator: GHDL validating workspace: /tmp/mutant_y3met6xe
+2026-10-13 11:02:40 [INFO] src.services.opencode_task_runner: OPENCODE_CALL stage=requirements_review prompt_length=1470 request_length=10368 task_id=review_ff6f530c
+2026-10-13 11:02:41 [INFO] src.services.opencode_service: OpenCode executing: binary=opencode, project=<workspace>, timeout=900
+2026-10-13 11:08:09 [INFO] src.services.opencode_service: OpenCode finished: returncode=0
+2026-10-13 11:08:10 [INFO] src.services.opencode_task_runner: OPENCODE_RESULT {'stage': 'requirements_review', 'task_id': 'review_ff6f530c', 'prompt_sha256': 'a8a2eaf241a41f30041754d7c80836b51b3ad96db2ea475389cd46d13a0c18a7', 'prompt_length': 1470, 'request_length': 10368, 'duration_s': 328.9, 'success': True, 'reason': ''}
+2026-10-13 11:08:10 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:08:10 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:08:10 [INFO] src.infrastructure.synthesis.ghdl_synthesis: GHDL synthesizing workspace: <workspace> (target: arty_s7_50)
+2026-10-13 11:08:10 [INFO] src.infrastructure.synthesis.ghdl_synthesis: GHDL synthesis succeeded for ben_eater_cpu (netlist: <workspace>/build/synthesis/ben_eater_cpu.v)
+2026-10-13 11:08:10 [INFO] src.infrastructure.synthesis.vivado_synthesis: Vivado building bitstream for workspace: <workspace> (target: arty_s7_50)
+2026-10-13 11:08:10 [INFO] src.infrastructure.synthesis.vivado_synthesis: Auto-generated XDC constraints for board arty_s7_50: <workspace>/constraints/auto_generated.xdc
+2026-10-13 11:08:10 [INFO] src.infrastructure.synthesis.vivado_synthesis: Wrapping vivado command with settings64.sh: ~/Xilinx/2026.1/Vivado/settings64.sh (LD_LIBRARY_PATH=~/Xilinx/2026.1/Vivado/lib/lnx64.o/Ubuntu/24)
+2026-10-13 11:11:50 [INFO] src.infrastructure.synthesis.vivado_artifacts: Moved file <workspace>/build/bitstream/clockInfo.txt -> <workspace>/build/bitstream/vivado_logs/ben_eater_cpu_clockInfo.txt
+2026-10-13 11:11:50 [INFO] src.infrastructure.synthesis.vivado_artifacts: Moved directory <workspace>/build/bitstream/.Xil -> <workspace>/build/bitstream/vivado_logs/ben_eater_cpu_.Xil
+2026-10-13 11:11:50 [INFO] src.infrastructure.synthesis.vivado_synthesis: Vivado bitstream generation succeeded for ben_eater_cpu (bitstream: <workspace>/build/bitstream/ben_eater_cpu.bit, size: 2192216 bytes)
+2026-10-13 11:11:50 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:11:51 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:12:22 [INFO] src.infrastructure.synthesis.vivado_flash: Flashing bitstream <workspace>/build/bitstream/ben_eater_cpu.bit to device xc7s50_0 (part: xc7s50)
+2026-10-13 11:12:22 [INFO] src.infrastructure.synthesis.vivado_artifacts: Archived 4 items from <workspace>/build/bitstream/vivado_logs to <workspace>/build/bitstream/vivado_logs_archive/20261013_111222
+2026-10-13 11:13:53 [INFO] src.infrastructure.synthesis.vivado_artifacts: Moved directory <workspace>/build/bitstream/.Xil -> <workspace>/build/bitstream/vivado_logs/.Xil
+2026-10-13 11:13:53 [INFO] src.infrastructure.synthesis.vivado_flash: Bitstream persistent auf xc7s50 (xc7s50_0) programmiert: SRAM + QSPI-Config-Flash (s25fl128sxxxxxx0-spi-x1_x2_x4)
+2026-10-13 11:13:53 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:13:53 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:13:54 [INFO] src.services.filesystem_service: File written: <workspace>/design_state.yaml
+2026-10-13 11:13:54 [INFO] src.agents.supervisor: Zwischenstände entfernt: build/ghdl/, build/synthesis/, build/bitstream/vivado_logs_archive/, work-obj08.cf
+2026-10-13 11:13:54 [INFO] src.api_server: WebSocket client disconnected
+INFO:     Shutting down
+2026-10-13 11:14:20 [INFO] src.api_server: WebSocket client disconnected
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [61407]

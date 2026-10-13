@@ -1,0 +1,19 @@
+{
+  "single": {
+    "runs": 1,
+    "invalid_runs_excluded": 0,
+    "passed": 1,
+    "pass_rate": 1.0,
+    "ref_passed": 1,
+    "ref_pass_rate": 1.0,
+    "mean_duration_s": 504.2,
+    "per_prompt": {
+      "05_ben_eater_8bit": {
+        "runs": 1,
+        "passed": 1,
+        "ref_passed": 1
+      }
+    },
+    "mast": {}
+  }
+}

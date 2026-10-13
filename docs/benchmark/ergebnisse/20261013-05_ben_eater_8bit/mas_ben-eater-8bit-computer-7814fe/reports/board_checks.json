@@ -1,0 +1,52 @@
+[
+  {
+    "setup": "Alle Schalter unten (SW3..SW0 = 0000), BTN0 drücken und loslassen, LEDs beobachten.",
+    "expected": "Alle LEDs aus bzw. nach Loslassen läuft Fibonacci: unteres OUT-Halbbyte als 0,1,1,2,3,5,8,13 (0,1,1,2,3,5,8,D),21,34,55,89,144 (5,2,7,9,0) usw., ein Mikroschritt je 40 ms (25 Schritte/s), Takt läuft.",
+    "requirements": [
+      "R43",
+      "R45",
+      "R78"
+    ]
+  },
+  {
+    "setup": "Nach Reset Fibonacci laufend, SW0 oben (SW = 0001).",
+    "expected": "LEDs zeigen oberes Halbbyte von OUT statt unterem (z.B. bei OUT=144 unteres 0, oberes 9).",
+    "requirements": [
+      "R7",
+      "R42"
+    ]
+  },
+  {
+    "setup": "SW1 oben (SW = 0010), BTN0 Reset, dann wiederholt BTN1 drücken.",
+    "expected": "CPU bleibt ohne Tastendruck stehen; jeder Druck auf BTN1 führt genau einen Mikroschritt aus (OUT/LEDs ändern sich schrittweise).",
+    "requirements": [
+      "R5",
+      "R8",
+      "R41"
+    ]
+  },
+  {
+    "setup": "SW3/SW2 = 01 (SW = 0100 bzw. 0101), BTN0 drücken, LEDs beobachten.",
+    "expected": "Nach BTN0-Reset läuft Zählen: OUT 0..255..0 auf LEDs (unten/oben umschaltbar mit SW0).",
+    "requirements": [
+      "R9",
+      "R46"
+    ]
+  },
+  {
+    "setup": "SW3/SW2 = 10 (SW = 1000), BTN0 drücken, LEDs beobachten.",
+    "expected": "Nach BTN0-Reset zeigt OUT 15 (unten F, oben 0), danach Halt (keine Änderung mehr).",
+    "requirements": [
+      "R9",
+      "R47"
+    ]
+  },
+  {
+    "setup": "SW3/SW2 = 11 (SW = 1100), BTN0 drücken, LEDs beobachten.",
+    "expected": "Nach BTN0-Reset zeigt OUT 10,9,...,1,0 (unten A,9,..,1,0), danach Halt.",
+    "requirements": [
+      "R9",
+      "R48"
+    ]
+  }
+]

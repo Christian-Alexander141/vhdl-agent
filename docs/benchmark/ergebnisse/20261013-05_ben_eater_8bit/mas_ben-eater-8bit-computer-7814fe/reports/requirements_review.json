@@ -1,0 +1,447 @@
+{
+ "board_checks": [
+  {
+   "setup": "Alle Schalter unten (SW3..SW0 = 0000), BTN0 drücken und loslassen, LEDs beobachten.",
+   "expected": "Alle LEDs aus bzw. nach Loslassen läuft Fibonacci: unteres OUT-Halbbyte als 0,1,1,2,3,5,8,13 (0,1,1,2,3,5,8,D),21,34,55,89,144 (5,2,7,9,0) usw., ein Mikroschritt je 40 ms (25 Schritte/s), Takt läuft.",
+   "requirements": [
+    "R43",
+    "R45",
+    "R78"
+   ]
+  },
+  {
+   "setup": "Nach Reset Fibonacci laufend, SW0 oben (SW = 0001).",
+   "expected": "LEDs zeigen oberes Halbbyte von OUT statt unterem (z.B. bei OUT=144 unteres 0, oberes 9).",
+   "requirements": [
+    "R7",
+    "R42"
+   ]
+  },
+  {
+   "setup": "SW1 oben (SW = 0010), BTN0 Reset, dann wiederholt BTN1 drücken.",
+   "expected": "CPU bleibt ohne Tastendruck stehen; jeder Druck auf BTN1 führt genau einen Mikroschritt aus (OUT/LEDs ändern sich schrittweise).",
+   "requirements": [
+    "R5",
+    "R8",
+    "R41"
+   ]
+  },
+  {
+   "setup": "SW3/SW2 = 01 (SW = 0100 bzw. 0101), BTN0 drücken, LEDs beobachten.",
+   "expected": "Nach BTN0-Reset läuft Zählen: OUT 0..255..0 auf LEDs (unten/oben umschaltbar mit SW0).",
+   "requirements": [
+    "R9",
+    "R46"
+   ]
+  },
+  {
+   "setup": "SW3/SW2 = 10 (SW = 1000), BTN0 drücken, LEDs beobachten.",
+   "expected": "Nach BTN0-Reset zeigt OUT 15 (unten F, oben 0), danach Halt (keine Änderung mehr).",
+   "requirements": [
+    "R9",
+    "R47"
+   ]
+  },
+  {
+   "setup": "SW3/SW2 = 11 (SW = 1100), BTN0 drücken, LEDs beobachten.",
+   "expected": "Nach BTN0-Reset zeigt OUT 10,9,...,1,0 (unten A,9,..,1,0), danach Halt.",
+   "requirements": [
+    "R9",
+    "R48"
+   ]
+  }
+ ],
+ "missing": [],
+ "requirements": [
+  {
+   "evidence": "Alle 12 src-Dateien: library ieee + std_logic_1164 + numeric_std, GHDL --std=08 Analyse fehlerfrei; grep in src/ findet kein wait, kein buffer/inout; getaktet nur process(clk) mit synchronem Reset, kombinatorisch nur process(all) mit Defaults (alu.vhd:27, ben_eater_cpu.vhd:205, clock_ctrl.vhd:53, control_unit.vhd:66, loader.vhd:58, uart_tx.vhd:36).",
+   "id": "R1",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:5 entity ben_eater_cpu in gleichnamiger Datei.",
+   "id": "R2",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:12 clk:in std_logic; TB CLK_PERIOD 10 ns.",
+   "id": "R3",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:13 rst + p_led 337:350 und alle p_seq mit if rst=1 in rising_edge (synchron active high). TB REQ R4/R43: led=0000 und tx=1 waehrend rst=1, Simulation EXIT 0.",
+   "id": "R4",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:14 btn_step via input_sync+debouncer+clock_ctrl.step_rise. TB Einzeltakt: ohne Druck kein Fortschritt, 8 Druecke => OUT=10 (REQ R5/R74).",
+   "id": "R5",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:15 sw:in std_logic_vector(3 downto 0).",
+   "id": "R6",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:337:350 p_led Mux per sw_sync_vec(0). TB REQ R7: sw=0001/1001/1101 zeigt oberes Halbbyte (8->0, 15->0, 10->0).",
+   "id": "R7",
+   "status": "met"
+  },
+  {
+   "evidence": "src/clock_ctrl.vhd:53:72 sw_step=0=>tick, =1=>rise; ben_eater_cpu.vhd:158 sw_step<=sw_sync_vec(1). TB REQ R8: Auto laeuft, Single nur je Druck.",
+   "id": "R8",
+   "status": "met"
+  },
+  {
+   "evidence": "src/memory.vhd:56:69 Reset laedt je Takt PROG nach prog_sel; ben_eater_cpu.vhd:239 prog_sel<=sw_sync_vec(3:2). TB REQ R9 mit sw=0100/1000/1100 startet je Programm.",
+   "id": "R9",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:16 led:out std_logic_vector(3 downto 0).",
+   "id": "R10",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:17 uart_rx:in std_logic (Eingang V12 per Board-Skill).",
+   "id": "R11",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:18 uart_tx:out std_logic (Ausgang R12 per Board-Skill).",
+   "id": "R12",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:7 + src/clock_ctrl.vhd:6 generic TICK_CYCLES:positive:=4000000; TB nutzt 2.",
+   "id": "R13",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:8 + src/debouncer.vhd:6 generic DEBOUNCE_CYCLES:positive:=1000000; TB nutzt 2.",
+   "id": "R14",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:9 + src/uart_rx.vhd:6 + src/uart_tx.vhd:6 generic CLKS_PER_BIT:positive:=868; TB nutzt 8, Timing 760ns gemessen.",
+   "id": "R15",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:205:220 p_bus: CO=>0000&PC, RO=>ram_out, IO=>0000&IR-low, AO=>A, EO=>ALU, sonst 0; keine Tri-State. TB REQ R16 assert bei fib led=1.",
+   "id": "R16",
+   "status": "met"
+  },
+  {
+   "evidence": "src/register8.vhd 8-Bit x4 (A,B,OUT,IR), src/program_counter.vhd 4-Bit, src/memory.vhd:43 mar 4-Bit + ram 16x8.",
+   "id": "R17",
+   "status": "met"
+  },
+  {
+   "evidence": "src/alu.vhd:27:43 (A+B) bzw (A+(not B)+1) mod 256, Carry=sum9(8) (bei SU 1 genau bei A>=B), Zero bei Ergebnis 0. TB: 5+3=8, borrow 3-5=FE mit C=0.",
+   "id": "R18",
+   "status": "met"
+  },
+  {
+   "evidence": "src/alu.vhd:45:59 Flags C/Z nur bei fi_en=1, Reset 0. TB REQ R19 asserts (ADD, borrow C=0/Z=0).",
+   "id": "R19",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:35:64 T0-T4 zyklisch nur bei step_enable; p_comb 66:151 aus opcode+flags. TB REQ R20/R36 (7 Schritte ohne OUT, dann OUT).",
+   "id": "R20",
+   "status": "met"
+  },
+  {
+   "evidence": "16 Ausgaenge in src/control_unit.vhd:7:30 definiert; Verdrahtung in ben_eater_cpu.vhd:38:65 + Gating 194:202 + PC/MAR/RAM/Register/ALU/LED. TB REQ R21 assert.",
+   "id": "R21",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:86:92 T0: MI+CO, T1: RO+II+CE. TB REQ R22 (fib + 8-Schritt-Check).",
+   "id": "R22",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:119:120 others=>null (kein Signal). TB REQ R23 Countdown OUT=7 passiert NOP 0000.",
+   "id": "R23",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:95:97 (T2 IO+MI) + 124:126 (T3 RO+AI). TB REQ R24 bei OUT=5.",
+   "id": "R24",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:95:97,127:129,138:141 T2 IO+MI, T3 RO+BI, T4 EO+AI+FI. TB REQ R25 bei 1+1=2.",
+   "id": "R25",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:95:97,127:129,142:146 T2 IO+MI, T3 RO+BI, T4 EO+AI+SU+FI. TB REQ R26 (Mult-Schleifenabbruch, Countdown 1-1=0).",
+   "id": "R26",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:95:97 + 130:132 T2 IO+MI, T3 AO+RI. TB REQ R27 bei Fib OUT=3.",
+   "id": "R27",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:98:100 T2 IO+AI. TB REQ R28 (fib erstes OUT=1, Countdown LDI 10).",
+   "id": "R28",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:101:103 T2 IO+J. TB REQ R29 bei Fib OUT=8.",
+   "id": "R29",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:104:108 JC nur bei flag_c=1. TB REQ R30 (Zaehlen ohne Carry kein Sprung; Mult C=1 genommen/C=0 uebergangen).",
+   "id": "R30",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:109:113 JZ nur bei flag_z=1. TB REQ R31 (Countdown-Ende bei A=0).",
+   "id": "R31",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:119:120 others=>null; TB PROG_NOP9 (LDI5,0x90,OUT,HLT) antwortet 05 (REQ R32).",
+   "id": "R32",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:114:116 T2 AO+OI. TB REQ R33 (fib OUT=1, 8. Mikroschritt OUT=10).",
+   "id": "R33",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:117:118 T2 HLT. TB REQ R34: Mult bleibt 15, Countdown bleibt 0.",
+   "id": "R34",
+   "status": "met"
+  },
+  {
+   "evidence": "Freigaben ce_g/j_g/mi_g/ri_g/ai_g/bi_g/oi_g/ii_g/fi_g = Signal and step_enable (ben_eater_cpu.vhd:194:202); Bus/ALU kombinatorisch aus Vor-Flanken-Registern; memory.vhd:83 RI nutzt mar_reg (vor Flanke). TB REQ R35.",
+   "id": "R35",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:50:61 step_enable=>T0->T1->T2->T3->T4->T0. TB REQ R36 (8 Druecke = 8 Schritte).",
+   "id": "R36",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:48:51 halted friert T-State; src/clock_ctrl.vhd:54:55 halted=>step_enable 0 => alle Register (gated) frieren; Clear nur via rst/clear(prog_valid). TB REQ R37 (Halt nach Mult/Countdown).",
+   "id": "R37",
+   "status": "met"
+  },
+  {
+   "evidence": "src/input_sync.vhd:17:32 zwei FF ohne Reset, INIT per Generic; ben_eater_cpu.vhd:99:130 sw INIT0/W4, btn INIT0/W1, rx INIT1/W1; nur Sync-Werte genutzt. TB: 1-Takt-Stoerimpuls => kein Schritt (REQ R38).",
+   "id": "R38",
+   "status": "met"
+  },
+  {
+   "evidence": "src/debouncer.vhd:35:52 din==dout=>cnt0/rise0, sonst bis DEBOUNCE-1 dann dout<=din, rise=1 genau bei 0->1, sonst 0. TB REQ R39 (1-Takt-Puls kein rise, je Druck genau ein rise).",
+   "id": "R39",
+   "status": "met"
+  },
+  {
+   "evidence": "src/clock_ctrl.vhd:30:46 cnt 0..TICK-1, tick=1 bei Endstand, Reset 0, laeuft immer. TB REQ R40/R72: 285 Takte bis OUT=15 bei TICK=2.",
+   "id": "R40",
+   "status": "met"
+  },
+  {
+   "evidence": "src/clock_ctrl.vhd:53:72 Board: tick/rise, UART: jeder Takt ausser halted/loader_busy/(oi&tx_busy). TB REQ R41 (Auto-Tick, Single-rise, UART 1 Schritt/Takt, Halt bei Rahmen, OI+busy-Sperre).",
+   "id": "R41",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:337:350 led-Register jeden Takt per sw_sync(0). TB REQ R42 (obere/ntere Halbbytes bei 8/15/10).",
+   "id": "R42",
+   "status": "met"
+  },
+  {
+   "evidence": "rst=1: PC/MAR/IR/A/B/OUT/C/Z/T/Halt (cpu_rst/clear), Tick (clock_ctrl), Debouncer, Loader (Board-Modus), UART RX/TX (tx=1), led=0; memory.vhd:56:69 RAM=PROG(prog_sel) jeden Takt. TB REQ R4/R43 asserts waehrend rst.",
+   "id": "R43",
+   "status": "met"
+  },
+  {
+   "evidence": "src/memory.vhd:43:44 mar=0, ram=PROG_00 initial; alle Register mit 0-Init bzw synchronem Reset; TB Power-on mit rst=1 startet Fibonacci (REQ R44).",
+   "id": "R44",
+   "status": "met"
+  },
+  {
+   "evidence": "src/memory.vhd:25:28 PROG_00=51 4E 50 E0 2E 4F 1E 4D 1F 4E 1D 70 63 00 00 00. TB Fib 0,1,1,2,3,5,8 beobachtet.",
+   "id": "R45",
+   "status": "met"
+  },
+  {
+   "evidence": "src/memory.vhd:29:32 PROG_01=E0 2F 74 60 3F E0 80 64 00*8 01. TB REQ R46 OUT=1,2,3.",
+   "id": "R46",
+   "status": "met"
+  },
+  {
+   "evidence": "src/memory.vhd:33:36 PROG_10=1E 3C 76 1D E0 F0 4E 1D 2F 4D 60 00 01 00 03 05. TB REQ R47/R73 OUT=15+Halt.",
+   "id": "R47",
+   "status": "met"
+  },
+  {
+   "evidence": "src/memory.vhd:37:40 PROG_11=5A E0 00 3F 86 61 E0 F0 00*6 01. TB REQ R48/R73 Folge 10..0+Halt.",
+   "id": "R48",
+   "status": "met"
+  },
+  {
+   "evidence": "src/uart_rx.vhd:49:92 8N1 LSB, Start bei rx=0, Mitte (CLKS-1)/2, Verwerfen bei Startmitte/=0 oder Stopp/=1; src/uart_tx.vhd:36:48 Idle1/Start0/Daten/Stop1 je CLKS Takte. TB: bad-stop verworfen, 760ns/9.5Bit bei CLKS=8, Stoppbit-Checks.",
+   "id": "R49",
+   "status": "met"
+  },
+  {
+   "evidence": "src/loader.vhd:84:152 4 LE-Bytes, n= b0 mit b1=b2=b3=0 und 1..16 sonst IDLE, n Bytes, TRAIL 53 54 41 52 54 0A, Fehlbyte=>Verwerfen+Resync. TB: Laenge17 verworfen ohne Zeichen.",
+   "id": "R50",
+   "status": "met"
+  },
+  {
+   "evidence": "src/loader.vhd:142:148 S_TRAIL ok=>uart_mode=1,S_DONE; prog_valid=1 ein Takt (53); memory.vhd:70:77 RAM=prog_data (Rest 0)+MAR0; cpu_rst/clear loeschen CPU; clock UART 1 Schritt/Takt. TB: erstes Zeichen <5us nach Rahmen (REQ R51).",
+   "id": "R51",
+   "status": "met"
+  },
+  {
+   "evidence": "ben_eater_cpu.vhd:321 tx_send_en=uart_mode&s_oi&step_enable, data_in=bus(=neues OUT); uart_tx Idle=1 sonst. TB: 4 HW-Tests antworten, Board-Modus tx=1 (REQ R52/R77).",
+   "id": "R52",
+   "status": "met"
+  },
+  {
+   "evidence": "src/loader.vhd:58:65 busy=1 ausser IDLE ohne rx_valid (inkl erstes Laengenbyte + S_DONE); clock_ctrl blockt UART-Schritte bei busy; uart_mode nur via rst=0. TB Sektion 12: erstes Byte stoppt OUT 2us, danach neues Programm.",
+   "id": "R53",
+   "status": "met"
+  },
+  {
+   "evidence": "Keine festen Taktzahl-Asserts in src/ oder TB; TB nutzt Timeouts (RX_TIMEOUT 30us) und prueft nur Reihenfolge/Inhalt; Empfang/Laden/Senden-Zeiten frei.",
+   "id": "R54",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 6 PROG_FIB_HALT E02E7B4F1E4D1F4E1D6000F000000100 => 00 01 01 02 03 05 08 0D 15 22 37 59 90 (REQ R55), Simulation EXIT 0.",
+   "id": "R55",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 7 PROG_MUL79 => 3F (REQ R56), EXIT 0.",
+   "id": "R56",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 8 PROG_CD5 => 05 04 03 02 01 00 (REQ R57), EXIT 0.",
+   "id": "R57",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 9 PROG_BOR 533F75E0F051E0F0...05 => FE (REQ R58 + R18/R19), EXIT 0.",
+   "id": "R58",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ enthaelt genau input_sync,debouncer,clock_ctrl,program_counter,register8,alu,memory,control_unit,uart_rx,uart_tx,loader,ben_eater_cpu (.vhd = Entity).",
+   "id": "R59",
+   "status": "met"
+  },
+  {
+   "evidence": "src/input_sync.vhd:6:14 generics INIT,WIDTH; 17:32 zwei Stufen.",
+   "id": "R60",
+   "status": "met"
+  },
+  {
+   "evidence": "src/debouncer.vhd:6:15 generic DEBOUNCE_CYCLES, dout+rise.",
+   "id": "R61",
+   "status": "met"
+  },
+  {
+   "evidence": "src/clock_ctrl.vhd:6:21 generic TICK_CYCLES, step_enable aus halted/uart_mode/loader_busy/oi/tx_busy/tick/rise.",
+   "id": "R62",
+   "status": "met"
+  },
+  {
+   "evidence": "src/program_counter.vhd:6:13 ce,j_load,rst mit J-Prioritaet+mod16.",
+   "id": "R63",
+   "status": "met"
+  },
+  {
+   "evidence": "src/register8.vhd:6:13 8-Bit mit load_en; 4x instanziiert fuer A/B/OUT/IR.",
+   "id": "R64",
+   "status": "met"
+  },
+  {
+   "evidence": "src/alu.vhd:6:16 Add/Sub + carry/zero + FI-Flags in einer Entity.",
+   "id": "R65",
+   "status": "met"
+  },
+  {
+   "evidence": "src/memory.vhd:6:17 MAR+RAM16x8+4 PROG + Reset-Laden (56:69) + UART-Uebernahme (70:77).",
+   "id": "R66",
+   "status": "met"
+  },
+  {
+   "evidence": "src/control_unit.vhd:5:32 T-Zaehler+Halt+16 Signale (ai..oi).",
+   "id": "R67",
+   "status": "met"
+  },
+  {
+   "evidence": "src/uart_rx.vhd:6:15 generic CLKS_PER_BIT.",
+   "id": "R68",
+   "status": "met"
+  },
+  {
+   "evidence": "src/uart_tx.vhd:6:16 generic CLKS_PER_BIT + busy (32).",
+   "id": "R69",
+   "status": "met"
+  },
+  {
+   "evidence": "src/loader.vhd:6:16 Protokoll-FSM+buf(0..15)+uart_mode/prog_valid/loader_busy.",
+   "id": "R70",
+   "status": "met"
+  },
+  {
+   "evidence": "src/ben_eater_cpu.vhd:22:352 Bus-Mux (205:220) + alle Instanzen + LED-Register (337:350).",
+   "id": "R71",
+   "status": "met"
+  },
+  {
+   "evidence": "tests/ben_eater_cpu_tb.vhd:87:89 TICK=2, DEBOUNCE=2, CLKS_PER_BIT=8.",
+   "id": "R72",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 3 (Mult 15) + Sektion 4 (Countdown 10..0) im Auto-Takt mit sw 1000/1001/1100/1101 (beide Halbbytes).",
+   "id": "R73",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 5 sw=1110: 20 Takte ohne Druck led=0, 1-Takt-Puls kein Schritt, 7 Druecke kein OUT, 8. Druck OUT=10.",
+   "id": "R74",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektionen 6-9 laden 4 HW-Programme via uart_rx und pruefen Antwortbytes via uart_tx.",
+   "id": "R75",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 11: Laenge 0x11+3x00 => kein Zeichen 2us, danach CD5 => 05..00.",
+   "id": "R76",
+   "status": "met"
+  },
+  {
+   "evidence": "TB Sektion 3 Board-Stille (tx=1 trotz 5us) + Sektion 14 Reset => tx=1, dann Fib 1 (Board-Modus).",
+   "id": "R77",
+   "status": "met"
+  },
+  {
+   "evidence": "Top-Ports+Generics+Programme+UART wie im Board-Absatz; board_checks.json 6 Setups gegen Code/TB verifiziert (Fib/Auto/Single/Programme/UART-Stille).",
+   "id": "R78",
+   "status": "met"
+  }
+ ]
+}
