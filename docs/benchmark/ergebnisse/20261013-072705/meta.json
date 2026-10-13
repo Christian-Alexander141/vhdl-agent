@@ -1,0 +1,32 @@
+{
+  "run_id": "20261013-072705",
+  "started_at": "2026-10-13T07:27:05",
+  "command": "benchmark/mas_vs_single.py --prompt-files 04_mini_cpu.md --variants single --repeat 1 --opencode-timeout 3600",
+  "variants": [
+    "single"
+  ],
+  "rounds": 1,
+  "prompts": {
+    "04_mini_cpu": "4224f4e164c71718"
+  },
+  "model": "opencode/muse-spark-1.3-contributor-free",
+  "fallback_model": "opencode/mimo-v2.6-flash-free",
+  "opencode_timeout_s": 3600,
+  "max_repair_iterations": 3,
+  "opencode_version": "1.18.35",
+  "ghdl_version": "GHDL 4.1.0 (Ubuntu 4.1.0+dfsg-0ubuntu2.1) [Dunoon edition]",
+  "acceptance": "GHDLValidator: analysieren, elaborieren, jede tests/*_tb.vhd mit --stop-time=1ms --assert-level=error simulieren; TB_COMPLETE vorhanden; keine fehlgeschlagene Assertion",
+  "reference_acceptance": "unabhängige Referenz-Testbench je Prompt (benchmark/reference), nur gegen src/*.vhd",
+  "reference_testbenches": {
+    "01_counter_ref_tb.vhd": "7ca26004efe99ade",
+    "02_hamming_decoder_ref_tb.vhd": "7ae2967e01b61c6e",
+    "03_ampel_ref_tb.vhd": "f8b5b7d41a6dc1ad",
+    "04_mini_cpu_ref_tb.vhd": "255d5ffa84a81c4f"
+  },
+  "workspaces": "/home/alex/vhdl-agent-benchmark/20261013-072705",
+  "code_state": {
+    "head": "adf7d117c7c77a1a0cbd1a1f675f39043fa9cf53",
+    "uncommitted_files": {}
+  },
+  "finished_at": "2026-10-13T07:32:13"
+}
