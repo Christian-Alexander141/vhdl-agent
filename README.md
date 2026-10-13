@@ -1,5 +1,7 @@
 # VHDL-Agent – autonomes Multiagentensystem für den FPGA-Entwurf
 
+<img width="1365" height="579" alt="grafik" src="https://github.com/user-attachments/assets/5c9b9b5c-6de6-4b24-957b-22f3fefdcf9f" />
+
 *LLM-basierte autonome Agentenplattform zur Software- und Systemartefakterzeugung, hier umgesetzt für den Schaltungsentwurf: von einer Anforderung in natürlicher Sprache bis zum geflashten und getesteten FPGA.*
 
 Stand: 2026-10-13 · Lizenz: MIT · Das Projekt entsteht im Rahmen einer Abschlussarbeit.
