@@ -27,5 +27,5 @@ Vivado 2026.1, Flash SRAM + QSPI), damit der Entwurf am Board geprüft werden ka
 (`state <= HALT_ST` entfernt) sowie die Schreibfreigaben für C und Z. Die Testbench würde also einen
 wirkungslosen HLT-Befehl nicht bemerken; der Entwurf selbst ist korrekt.
 
-Inhalt: `results.csv`, `summary.json`, `meta.json`, `benchmark.log` (vom Benchmark), `entwurf/src`,
+Inhalt: `results.csv`, `summary.json`, `meta.json` (vom Benchmark), `entwurf/src`,
 `entwurf/tests` (Endstand), `entwurf/synthese` (XDC, Timing, Ressourcen).
